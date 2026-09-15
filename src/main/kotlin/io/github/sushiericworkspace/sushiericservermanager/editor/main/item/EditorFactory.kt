@@ -995,6 +995,47 @@ class ItemEditorFactory(
                             }
                         }
 
+                        /*
+                         * 倍率はStatsTypeごとに値へ最後に掛ける数で、規則はItemStatValueRulesへ集約する。
+                         * 既定値1.0はMapへ保持しない。
+                         */
+                        fun createMultiplierSpinner(
+                            type: StatsType
+                        ): Spinner<Double> {
+                            return Spinner<Double>().apply {
+                                valueFactory = SpinnerValueFactory.DoubleSpinnerValueFactory(
+                                    ITEM_STAT_MULTIPLIER_MIN,
+                                    ITEM_STAT_MULTIPLIER_MAX,
+                                    normalizeItemStatMultiplier(
+                                        itemData.statMultipliers[type] ?: DEFAULT_ITEM_STAT_MULTIPLIER
+                                    ),
+                                    ITEM_STAT_MULTIPLIER_STEP
+                                )
+
+                                isEditable = true
+                                prefWidth = 90.0
+
+                                valueFactory.converter = object : StringConverter<Double>() {
+                                    override fun toString(value: Double?): String {
+                                        return value?.let { formatItemStatMultiplier(it) } ?: ""
+                                    }
+
+                                    override fun fromString(string: String?): Double =
+                                        parseItemStatMultiplier(string, valueFactory.value)
+                                }
+
+                                editor.setOnAction {
+                                    valueFactory.value = valueFactory.converter.fromString(editor.text)
+                                }
+
+                                focusedProperty().addListener { _, _, focused ->
+                                    if (!focused) {
+                                        valueFactory.value = valueFactory.converter.fromString(editor.text)
+                                    }
+                                }
+                            }
+                        }
+
                         fun applySmallButtonSize(button: Button) {
                             button.minWidth = 56.0
                             button.prefWidth = 56.0
@@ -1020,6 +1061,15 @@ class ItemEditorFactory(
                                         }
                                     }
 
+                                    val multiplierSpinner = createMultiplierSpinner(type)
+
+                                    multiplierSpinner.valueProperty().addListener { _, _, newValue ->
+                                        if (newValue != null) {
+                                            applyItemStatMultiplier(itemData.statMultipliers, type, newValue)
+                                            refreshButtonVisual(itemData.id)
+                                        }
+                                    }
+
                                     container.children.add(
                                         HBox(8.0).apply {
                                             alignment = Pos.CENTER_LEFT
@@ -1033,12 +1083,19 @@ class ItemEditorFactory(
 
                                                 spinner,
 
+                                                Label("×").apply {
+                                                    styleClass.add("editor-label")
+                                                },
+
+                                                multiplierSpinner,
+
                                                 Button("削除").apply {
                                                     styleClass.add("btn-danger")
                                                     applySmallButtonSize(this)
 
                                                     setOnAction {
                                                         itemData.stats.remove(type)
+                                                        itemData.statMultipliers.remove(type)
                                                         refreshButtonVisual(itemData.id)
                                                         rebuildStatsList(container)
                                                     }

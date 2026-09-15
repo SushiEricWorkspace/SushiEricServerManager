@@ -104,6 +104,7 @@ class RewriteConfirmation(
                         ItemDiffField.DISPLAY_NAME -> "表示名: \"${originalData.display.displayName}\" ➔ \"${serverData.display.displayName}\""
                         ItemDiffField.LORE -> "Lore [${(id.index ?: 0) + 1}行目]"
                         ItemDiffField.STATS -> id.statsType?.name ?: "ステータス"
+                        ItemDiffField.STAT_MULTIPLIER -> "${id.statsType?.name ?: "ステータス"} 倍率"
                         ItemDiffField.COMMENT -> "説明文 [${(id.index ?: 0) + 1}行目]"
                         ItemDiffField.HEAD_SKIN -> "ヘッドスキン"
                         ItemDiffField.DETAIL -> "詳細データ"

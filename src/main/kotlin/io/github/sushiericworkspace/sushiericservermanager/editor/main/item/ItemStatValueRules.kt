@@ -1,5 +1,6 @@
 package io.github.sushiericworkspace.sushiericservermanager.editor.main.item
 
+import io.github.sushiericworkspace.common.data.item.model.ItemBaseDataView
 import io.github.sushiericworkspace.common.stats.player.StatsType
 import kotlin.math.abs
 
@@ -8,6 +9,8 @@ import kotlin.math.abs
  *
  * ステータス追加時と追加済みステータスの編集で同じ規則を使います。
  * 0は「未設定」を表すため、値として保持しません。
+ *
+ * 倍率（`stat-multipliers`）はStatsTypeごとに値へ最後に掛ける数で、既定値1.0は保持しません。
  */
 
 /**
@@ -66,4 +69,72 @@ internal fun formatItemStatValue(value: Double): String {
     }
 
     return value.toString()
+}
+
+/*
+ * ─────────────────────────────
+ * 倍率
+ * ─────────────────────────────
+ */
+
+/** 倍率の既定値です。この値は保存へ含めません。 */
+internal const val DEFAULT_ITEM_STAT_MULTIPLIER: Double = ItemBaseDataView.DEFAULT_STAT_MULTIPLIER
+
+/** 入力できる倍率の下限です。Common側の検証（0.0以上）と一致させます。 */
+internal const val ITEM_STAT_MULTIPLIER_MIN: Double = 0.0
+
+/** 入力できる倍率の上限です。 */
+internal const val ITEM_STAT_MULTIPLIER_MAX: Double = 1000.0
+
+/** 倍率Spinnerの増減幅です。 */
+internal const val ITEM_STAT_MULTIPLIER_STEP: Double = 0.1
+
+/**
+ * 入力された倍率を保持できる値へ補正します。
+ *
+ * NaNと無限は[DEFAULT_ITEM_STAT_MULTIPLIER]へ戻し、それ以外は
+ * [ITEM_STAT_MULTIPLIER_MIN]..[ITEM_STAT_MULTIPLIER_MAX]へ収めます。
+ */
+internal fun normalizeItemStatMultiplier(value: Double): Double {
+    if (!value.isFinite()) {
+        return DEFAULT_ITEM_STAT_MULTIPLIER
+    }
+
+    return value.coerceIn(ITEM_STAT_MULTIPLIER_MIN, ITEM_STAT_MULTIPLIER_MAX)
+}
+
+/**
+ * 倍率の入力文字列を値へ変換します。
+ *
+ * 数値として読めない場合は[fallback]を使い、結果を[normalizeItemStatMultiplier]で補正します。
+ */
+internal fun parseItemStatMultiplier(text: String?, fallback: Double): Double {
+    val parsed = text?.trim()?.toDoubleOrNull() ?: fallback
+
+    return normalizeItemStatMultiplier(parsed)
+}
+
+/**
+ * 倍率を表示用の文字列にします。表記は[formatItemStatValue]と同じです。
+ */
+internal fun formatItemStatMultiplier(value: Double): String = formatItemStatValue(value)
+
+/**
+ * 倍率を編集中データへ反映します。
+ *
+ * 既定値（1.0）は「倍率なし」と同じ意味のため保存へ含めず、Mapから削除します。
+ * Common側の`ItemManager.normalize`と同じ規則です。
+ */
+internal fun applyItemStatMultiplier(
+    multipliers: MutableMap<StatsType, Double>,
+    type: StatsType,
+    value: Double
+) {
+    val normalized = normalizeItemStatMultiplier(value)
+
+    if (normalized == DEFAULT_ITEM_STAT_MULTIPLIER) {
+        multipliers.remove(type)
+    } else {
+        multipliers[type] = normalized
+    }
 }

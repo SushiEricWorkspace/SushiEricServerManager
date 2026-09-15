@@ -36,6 +36,7 @@ class ItemDiffTreeBuilder {
             ItemDiffField.DISPLAY_NAME -> "表示名: \"$origText\" ➔ \"$servText\""
             ItemDiffField.LORE -> "Lore [${(id.index ?: 0) + 1}行目]: $origText ➔ $servText"
             ItemDiffField.STATS -> "${id.statsType?.name ?: "未知"}: $origText ➔ $servText"
+            ItemDiffField.STAT_MULTIPLIER -> "${id.statsType?.name ?: "未知"} 倍率: $origText ➔ $servText"
             ItemDiffField.COMMENT -> "説明文 [${(id.index ?: 0) + 1}行目]: $origText ➔ $servText"
             ItemDiffField.HEAD_SKIN -> "ヘッドスキン: $origText ➔ $servText"
             ItemDiffField.DETAIL -> "詳細データ: $origText ➔ $servText"
@@ -199,6 +200,7 @@ class ItemDiffTreeBuilder {
         // --- 4. Statsの比較 ---
         val statsRoot = CheckBoxTreeItem<ItemDiffId?>(null)
         compareStats(original.stats, server.stats, statsRoot)
+        compareStatMultipliers(original.statMultipliers, server.statMultipliers, statsRoot)
         if (statsRoot.children.isNotEmpty()) {
             statsRoot.isExpanded = true
             rootItem.children.add(statsRoot)
@@ -285,6 +287,7 @@ class ItemDiffTreeBuilder {
         ItemDiffField.DISPLAY_NAME -> original.display.displayName
         ItemDiffField.LORE -> serializeLoreLine(original.display.lore.getOrNull(id.index!!))
         ItemDiffField.STATS -> original.stats[id.statsType]?.toString() ?: "(未設定)"
+        ItemDiffField.STAT_MULTIPLIER -> original.statMultipliers[id.statsType]?.toString() ?: "(未設定)"
         ItemDiffField.COMMENT -> original.editorMeta.comment.getOrNull(id.index!!) ?: "(なし)"
         ItemDiffField.HEAD_SKIN -> serializeHeadSkin(original)
         ItemDiffField.DETAIL -> serializeDetail(original)
@@ -297,6 +300,7 @@ class ItemDiffTreeBuilder {
             serializeLoreLine(it)
         } ?: "(削除)"
         ItemDiffField.STATS -> server.stats[id.statsType]?.toString() ?: "(削除)"
+        ItemDiffField.STAT_MULTIPLIER -> server.statMultipliers[id.statsType]?.toString() ?: "(削除)"
         ItemDiffField.COMMENT -> server.editorMeta.comment.getOrNull(id.index!!) ?: "(削除)"
         ItemDiffField.HEAD_SKIN -> serializeHeadSkin(server)
         ItemDiffField.DETAIL -> serializeDetail(server)
@@ -322,6 +326,16 @@ class ItemDiffTreeBuilder {
             if (origStats[key] != servStats[key]) {
                 parentNode.children.add(CheckBoxTreeItem(ItemDiffId(ItemDiffField.STATS, statsType = key)))
             }
+        }
+    }
+
+    private fun compareStatMultipliers(
+        origMultipliers: Map<StatsType, Double>,
+        servMultipliers: Map<StatsType, Double>,
+        parentNode: CheckBoxTreeItem<ItemDiffId?>
+    ) {
+        statMultiplierDiffTypes(origMultipliers, servMultipliers).forEach { key ->
+            parentNode.children.add(CheckBoxTreeItem(ItemDiffId(ItemDiffField.STAT_MULTIPLIER, statsType = key)))
         }
     }
 
@@ -426,4 +440,18 @@ internal fun itemDetailDiffFields(
     if (original.itemDetail.mutableHeadSkin != server.itemDetail.mutableHeadSkin) {
         add(ItemDiffField.HEAD_SKIN)
     }
+}
+
+/**
+ * 倍率に差分があるStatsTypeを返します。
+ *
+ * 片方にだけ存在するStatsTypeも差分として扱います。
+ */
+internal fun statMultiplierDiffTypes(
+    original: Map<StatsType, Double>,
+    server: Map<StatsType, Double>
+): Set<StatsType> {
+    return (original.keys + server.keys)
+        .filter { key -> original[key] != server[key] }
+        .toSet()
 }

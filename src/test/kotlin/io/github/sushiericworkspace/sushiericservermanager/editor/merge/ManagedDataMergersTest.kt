@@ -31,6 +31,53 @@ class ManagedDataMergersTest {
     }
 
     @Test
+    fun `ステータス倍率のローカル変更は保存時のマージで維持される`() {
+        val base = MutableItemBaseData(id = "sword").apply {
+            stats[StatsType.PHYSICS_DAMAGE] = 10.0
+        }
+        val local = base.deepCopy().apply {
+            statMultipliers[StatsType.PHYSICS_DAMAGE] = 1.5
+        }
+        val remote = base.deepCopy()
+
+        val result = ItemDataMerger.merge(base, local, remote)
+
+        assertTrue(result.conflicts.isEmpty())
+        assertEquals(1.5, result.merged.statMultipliers[StatsType.PHYSICS_DAMAGE])
+    }
+
+    @Test
+    fun `ステータス倍率のローカル削除も保存時のマージで維持される`() {
+        val base = MutableItemBaseData(id = "sword").apply {
+            statMultipliers[StatsType.PHYSICS_DAMAGE] = 1.5
+        }
+        val local = base.deepCopy().apply {
+            statMultipliers.remove(StatsType.PHYSICS_DAMAGE)
+        }
+        val remote = base.deepCopy()
+
+        val result = ItemDataMerger.merge(base, local, remote)
+
+        assertTrue(result.conflicts.isEmpty())
+        assertTrue(result.merged.statMultipliers.isEmpty())
+    }
+
+    @Test
+    fun `同じステータス倍率の異なる変更は競合にする`() {
+        val base = MutableItemBaseData(id = "sword")
+        val local = base.deepCopy().apply { statMultipliers[StatsType.PHYSICS_DAMAGE] = 1.5 }
+        val remote = base.deepCopy().apply { statMultipliers[StatsType.PHYSICS_DAMAGE] = 2.0 }
+
+        val result = ItemDataMerger.merge(base, local, remote)
+
+        assertEquals(1, result.conflicts.size)
+        assertEquals(
+            DataFields.statMultipliers.key(StatsType.PHYSICS_DAMAGE, StatsType.PHYSICS_DAMAGE.display),
+            result.conflicts.single().path
+        )
+    }
+
+    @Test
     fun `同じフィールドの異なる変更だけを競合にする`() {
         val base = MutableItemBaseData(id = "sword").apply { display.displayName = "Sword" }
         val local = base.deepCopy().apply { display.displayName = "Local Sword" }

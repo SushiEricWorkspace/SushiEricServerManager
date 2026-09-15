@@ -10,6 +10,7 @@ enum class ItemDiffField(val categoryName: String) {
     DISPLAY_NAME("表示名"),
     LORE("Lore"),
     STATS("ステータス"),
+    STAT_MULTIPLIER("ステータス倍率"),
     COMMENT("コメントアウト"),
     HEAD_SKIN("ヘッドスキン"),
     DETAIL("詳細データ")
@@ -21,5 +22,5 @@ enum class ItemDiffField(val categoryName: String) {
 data class ItemDiffId(
     val field: ItemDiffField,
     val index: Int? = null,       // Lore や説明文の「行インデックス (0始まり)」用
-    val statsType: StatsType? = null // Stats の「キー」用
+    val statsType: StatsType? = null // Stats と StatMultiplier の「キー」用
 )

@@ -55,6 +55,7 @@ object DataFields {
     val displayName = DataFieldPath.property("display-name", "表示名")
     val lore = DataFieldPath.property("lore", "Lore")
     val stats = DataFieldPath.property("stats", "ステータス")
+    val statMultipliers = DataFieldPath.property("stat-multipliers", "ステータス倍率")
     val comments = DataFieldPath.property("editor-comment", "エディターコメント")
     val blockId = DataFieldPath.property("block-id", "ブロックID")
     val hardness = DataFieldPath.property("hardness", "硬度")
