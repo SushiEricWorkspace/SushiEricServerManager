@@ -584,6 +584,22 @@ class ItemEditorLogic(
             }
         }
 
+        for (key in currentData.statMultipliers.keys + serverData.statMultipliers.keys) {
+            val isChecked = checkedFields.any {
+                it.field == ItemDiffField.STAT_MULTIPLIER && it.statsType == key
+            }
+
+            if (isChecked) {
+                val currentVal = currentData.statMultipliers[key]
+
+                if (!currentVal.isNullOrEmpty()) {
+                    finalSaveData.statMultipliers[key] = currentVal.toMutableList()
+                } else {
+                    finalSaveData.statMultipliers.remove(key)
+                }
+            }
+        }
+
         val maxDescSize = maxOf(currentData.editorMeta.comment.size, serverData.editorMeta.comment.size)
         for (i in 0 until maxDescSize) {
             val isChecked = checkedFields.any {

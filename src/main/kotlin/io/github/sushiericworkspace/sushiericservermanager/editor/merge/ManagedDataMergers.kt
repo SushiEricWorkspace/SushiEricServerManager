@@ -58,6 +58,15 @@ object ItemDataMerger : DataMerger<MutableItemBaseData> {
             keyDisplay = { it.display },
             targetMap = { it.stats }
         )
+        accumulator.mergeMap(
+            path = DataFields.statMultipliers,
+            base = base.statMultipliers,
+            local = local.statMultipliers,
+            remote = remote.statMultipliers,
+            keyDisplay = { it.display },
+            copyValue = { it.toMutableList() },
+            targetMap = { it.statMultipliers }
+        )
         accumulator.mergeList(
             path = DataFields.lore,
             base = base.display.mutableLore,

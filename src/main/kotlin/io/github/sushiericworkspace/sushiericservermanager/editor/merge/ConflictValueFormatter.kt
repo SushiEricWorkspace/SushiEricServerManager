@@ -1,5 +1,6 @@
 package io.github.sushiericworkspace.sushiericservermanager.editor.merge
 
+import io.github.sushiericworkspace.common.data.item.model.ItemStatMultiplier
 import io.github.sushiericworkspace.common.data.item.model.LoreSection
 import io.github.sushiericworkspace.common.data.item.model.HeadSkinData
 import io.github.sushiericworkspace.common.data.item.model.detail.ItemDetailContent
@@ -7,6 +8,7 @@ import io.github.sushiericworkspace.common.data.item.model.mutable.MutableLoreSe
 import io.github.sushiericworkspace.common.data.item.model.mutable.MutableHeadSkinData
 import io.github.sushiericworkspace.common.data.item.model.mutable.detail.MutableItemDetailContent
 import io.github.sushiericworkspace.sushiericservermanager.ui.format.ItemDetailContentFormatter
+import io.github.sushiericworkspace.sushiericservermanager.ui.format.ItemStatMultiplierFormatter
 import net.kyori.adventure.text.serializer.plain.PlainTextComponentSerializer
 
 /**
@@ -52,6 +54,7 @@ object ConflictValueFormatter {
                 ItemDetailContentFormatter.format(value.freeze())
             is HeadSkinData -> "${value.source.name}: ${value.value}"
             is MutableHeadSkinData -> "${value.source.name}: ${value.value}"
+            is ItemStatMultiplier -> ItemStatMultiplierFormatter.format(value)
             is LoreSection -> plainText.serialize(value.toComponent())
             is MutableLoreSection -> plainText.serialize(value.toComponent())
 
