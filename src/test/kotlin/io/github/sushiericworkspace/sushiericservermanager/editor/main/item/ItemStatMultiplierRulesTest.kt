@@ -1,10 +1,12 @@
 package io.github.sushiericworkspace.sushiericservermanager.editor.main.item
 
-import io.github.sushiericworkspace.common.stats.player.StatsType
+import io.github.sushiericworkspace.common.data.item.model.ItemStatMultiplier
+import io.github.sushiericworkspace.common.data.item.model.ItemType
+import io.github.sushiericworkspace.common.stats.player.StatsPart
+import io.github.sushiericworkspace.common.stats.player.StatsPartTarget
 import kotlin.test.Test
 import kotlin.test.assertEquals
-import kotlin.test.assertFalse
-import kotlin.test.assertTrue
+import kotlin.test.assertNull
 
 class ItemStatMultiplierRulesTest {
     @Test
@@ -38,32 +40,47 @@ class ItemStatMultiplierRulesTest {
     }
 
     @Test
-    fun `既定値の倍率はMapへ保持しない`() {
-        val multipliers = mutableMapOf(StatsType.PHYSICS_DAMAGE to 1.5)
-
-        applyItemStatMultiplier(multipliers, StatsType.PHYSICS_DAMAGE, 1.0)
-        assertFalse(StatsType.PHYSICS_DAMAGE in multipliers)
-
-        applyItemStatMultiplier(multipliers, StatsType.DEFENCE, Double.NaN)
-        assertFalse(StatsType.DEFENCE in multipliers)
-
-        applyItemStatMultiplier(multipliers, StatsType.MAX_HEALTH, 1.0)
-        assertTrue(multipliers.isEmpty())
+    fun `追加時の初期要素は自分を対象にした既定値の倍率である`() {
+        assertEquals(ItemStatMultiplier(StatsPartTarget.Self, 1.0), initialItemStatMultiplier())
     }
 
     @Test
-    fun `既定値以外の倍率はMapへ補正して保持する`() {
-        val multipliers = mutableMapOf<StatsType, Double>()
-
-        applyItemStatMultiplier(multipliers, StatsType.PHYSICS_DAMAGE, 1.5)
-        applyItemStatMultiplier(multipliers, StatsType.DEFENCE, -1.0)
-
+    fun `対象と選択肢は相互に変換できる`() {
+        assertEquals(ItemStatMultiplierTargetOption.SELF, ItemStatMultiplierTargetOption.of(StatsPartTarget.Self))
+        assertEquals(ItemStatMultiplierTargetOption.ALL, ItemStatMultiplierTargetOption.of(StatsPartTarget.All))
         assertEquals(
-            mapOf(
-                StatsType.PHYSICS_DAMAGE to 1.5,
-                StatsType.DEFENCE to 0.0
-            ),
-            multipliers
+            ItemStatMultiplierTargetOption.PARTS,
+            ItemStatMultiplierTargetOption.of(StatsPartTarget.Parts(setOf(StatsPart.HELMET)))
         )
+
+        assertEquals(StatsPartTarget.Self, resolveItemStatMultiplierTarget(ItemStatMultiplierTargetOption.SELF, emptySet()))
+        assertEquals(StatsPartTarget.All, resolveItemStatMultiplierTarget(ItemStatMultiplierTargetOption.ALL, setOf(StatsPart.HELMET)))
+        assertEquals(
+            StatsPartTarget.Parts(setOf(StatsPart.HELMET, StatsPart.BOOTS)),
+            resolveItemStatMultiplierTarget(ItemStatMultiplierTargetOption.PARTS, setOf(StatsPart.HELMET, StatsPart.BOOTS))
+        )
+    }
+
+    @Test
+    fun `部位を選んでいない部位指定は対象を作れない`() {
+        assertNull(resolveItemStatMultiplierTarget(ItemStatMultiplierTargetOption.PARTS, emptySet()))
+    }
+
+    @Test
+    fun `部位指定の対象からだけ部位を取り出す`() {
+        assertEquals(
+            setOf(StatsPart.CHESTPLATE),
+            selectedItemStatMultiplierParts(StatsPartTarget.Parts(setOf(StatsPart.CHESTPLATE)))
+        )
+        assertEquals(emptySet(), selectedItemStatMultiplierParts(StatsPartTarget.Self))
+        assertEquals(emptySet(), selectedItemStatMultiplierParts(StatsPartTarget.All))
+    }
+
+    @Test
+    fun `部位指定へ切り替えたときはアイテムの種類に合う部位を1つ選ぶ`() {
+        assertEquals(setOf(StatsPart.HELMET), defaultItemStatMultiplierParts(ItemType.HELMET))
+        assertEquals(setOf(StatsPart.BOOTS), defaultItemStatMultiplierParts(ItemType.BOOTS))
+        assertEquals(setOf(StatsPart.MAIN_HAND), defaultItemStatMultiplierParts(ItemType.SWORD))
+        assertEquals(setOf(StatsPart.MAIN_HAND), defaultItemStatMultiplierParts(ItemType.SHIELD))
     }
 }

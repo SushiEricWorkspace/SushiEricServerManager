@@ -1,6 +1,9 @@
 package io.github.sushiericworkspace.sushiericservermanager.editor.main.item
 
-import io.github.sushiericworkspace.common.data.item.model.ItemBaseDataView
+import io.github.sushiericworkspace.common.data.item.model.ItemStatMultiplier
+import io.github.sushiericworkspace.common.data.item.model.ItemType
+import io.github.sushiericworkspace.common.stats.player.StatsPart
+import io.github.sushiericworkspace.common.stats.player.StatsPartTarget
 import io.github.sushiericworkspace.common.stats.player.StatsType
 import kotlin.math.abs
 
@@ -10,7 +13,8 @@ import kotlin.math.abs
  * ステータス追加時と追加済みステータスの編集で同じ規則を使います。
  * 0は「未設定」を表すため、値として保持しません。
  *
- * 倍率（`stat-multipliers`）はStatsTypeごとに値へ最後に掛ける数で、既定値1.0は保持しません。
+ * 倍率（`stat-multipliers`）はStatsTypeごとの対象Part付きの倍率リストで、既定値1.0の要素は
+ * 保存時にCommon側で削除されます。
  */
 
 /**
@@ -77,11 +81,11 @@ internal fun formatItemStatValue(value: Double): String {
  * ─────────────────────────────
  */
 
-/** 倍率の既定値です。この値は保存へ含めません。 */
-internal const val DEFAULT_ITEM_STAT_MULTIPLIER: Double = ItemBaseDataView.DEFAULT_STAT_MULTIPLIER
+/** 倍率の既定値です。この値の要素は保存時にCommon側で削除されます。 */
+internal const val DEFAULT_ITEM_STAT_MULTIPLIER: Double = ItemStatMultiplier.DEFAULT_VALUE
 
 /** 入力できる倍率の下限です。Common側の検証（0.0以上）と一致させます。 */
-internal const val ITEM_STAT_MULTIPLIER_MIN: Double = 0.0
+internal const val ITEM_STAT_MULTIPLIER_MIN: Double = ItemStatMultiplier.MIN_VALUE
 
 /** 入力できる倍率の上限です。 */
 internal const val ITEM_STAT_MULTIPLIER_MAX: Double = 1000.0
@@ -119,22 +123,74 @@ internal fun parseItemStatMultiplier(text: String?, fallback: Double): Double {
  */
 internal fun formatItemStatMultiplier(value: Double): String = formatItemStatValue(value)
 
-/**
- * 倍率を編集中データへ反映します。
- *
- * 既定値（1.0）は「倍率なし」と同じ意味のため保存へ含めず、Mapから削除します。
- * Common側の`ItemManager.normalize`と同じ規則です。
- */
-internal fun applyItemStatMultiplier(
-    multipliers: MutableMap<StatsType, Double>,
-    type: StatsType,
-    value: Double
-) {
-    val normalized = normalizeItemStatMultiplier(value)
+/** 倍率を追加したときの初期要素です。装備しているPartだけを対象にする既定値の倍率です。 */
+internal fun initialItemStatMultiplier(): ItemStatMultiplier =
+    ItemStatMultiplier(StatsPartTarget.Self, DEFAULT_ITEM_STAT_MULTIPLIER)
 
-    if (normalized == DEFAULT_ITEM_STAT_MULTIPLIER) {
-        multipliers.remove(type)
-    } else {
-        multipliers[type] = normalized
+/**
+ * 倍率の対象をUIで選ぶための選択肢です。
+ *
+ * @property display 選択肢の表示名。
+ */
+internal enum class ItemStatMultiplierTargetOption(val display: String) {
+    SELF("自分"),
+    ALL("全体"),
+    PARTS("部位");
+
+    override fun toString(): String = display
+
+    companion object {
+        /** 倍率の対象に対応する選択肢を返します。 */
+        fun of(target: StatsPartTarget<StatsPart>): ItemStatMultiplierTargetOption = when (target) {
+            StatsPartTarget.Self -> SELF
+            StatsPartTarget.All -> ALL
+            is StatsPartTarget.Parts -> PARTS
+        }
     }
 }
+
+/**
+ * 選択肢と選択した部位から倍率の対象を作ります。
+ *
+ * [ItemStatMultiplierTargetOption.PARTS]で部位が空の場合は対象を作れないため`null`を返します。
+ */
+internal fun resolveItemStatMultiplierTarget(
+    option: ItemStatMultiplierTargetOption,
+    parts: Set<StatsPart>
+): StatsPartTarget<StatsPart>? = when (option) {
+    ItemStatMultiplierTargetOption.SELF -> StatsPartTarget.Self
+    ItemStatMultiplierTargetOption.ALL -> StatsPartTarget.All
+    ItemStatMultiplierTargetOption.PARTS -> parts.takeIf { it.isNotEmpty() }?.let { StatsPartTarget.Parts(it) }
+}
+
+/** 倍率の対象が部位指定なら、その部位を返します。それ以外は空です。 */
+internal fun selectedItemStatMultiplierParts(target: StatsPartTarget<StatsPart>): Set<StatsPart> =
+    (target as? StatsPartTarget.Parts)?.parts.orEmpty()
+
+/**
+ * 部位指定へ切り替えたときに最初に選ぶ部位を返します。
+ *
+ * 対象を空にできないため、そのアイテムの種類を装備できるPart（無ければメインハンド）を
+ * 1つ選びます。
+ */
+internal fun defaultItemStatMultiplierParts(itemType: ItemType): Set<StatsPart> {
+    val part = StatsPart.equipmentParts.firstOrNull { itemType in it.supportType }
+        ?: StatsPart.MAIN_HAND
+
+    return setOf(part)
+}
+
+/** 倍率の対象の選択肢に表示する説明です。 */
+internal const val ITEM_STAT_MULTIPLIER_TARGET_TOOLTIP: String =
+    "倍率を掛ける対象の部位です。\n" +
+            "自分: このアイテムを装備している部位のステータスだけに掛けます。\n" +
+            "全体: 基礎値・全装備・状態異常・効果を含む全部位に掛けます。\n" +
+            "部位: 選んだ部位のステータスにだけ掛けます。\n" +
+            "\n" +
+            "計算: 部位ごとに固定値を合計し、その部位に届く倍率を掛けてから全部位を合計します。\n" +
+            "同じ部位に複数の倍率が届く場合は 1 + Σ(倍率 − 1) で合成します（1.5と1.1なら1.6）。"
+
+/** 倍率の値の入力欄に表示する説明です。 */
+internal const val ITEM_STAT_MULTIPLIER_VALUE_TOOLTIP: String =
+    "対象部位の固定値合計に掛ける倍率です。1 は倍率なしで、保存時に省略されます。\n" +
+            "0 以上の値を指定できます（0.5 で半減、2 で2倍）。"

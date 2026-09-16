@@ -592,8 +592,8 @@ class ItemEditorLogic(
             if (isChecked) {
                 val currentVal = currentData.statMultipliers[key]
 
-                if (currentVal != null) {
-                    finalSaveData.statMultipliers[key] = currentVal
+                if (!currentVal.isNullOrEmpty()) {
+                    finalSaveData.statMultipliers[key] = currentVal.toMutableList()
                 } else {
                     finalSaveData.statMultipliers.remove(key)
                 }

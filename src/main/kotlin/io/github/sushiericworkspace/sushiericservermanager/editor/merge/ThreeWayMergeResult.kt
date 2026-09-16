@@ -72,6 +72,7 @@ internal class MergeAccumulator<T>(
         local: Map<K, V>,
         remote: Map<K, V>,
         keyDisplay: (K) -> String = { it.toString() },
+        copyValue: (V) -> V = { it },
         targetMap: (T) -> MutableMap<K, V>
     ) {
         val keys = base.keys + local.keys + remote.keys
@@ -86,7 +87,7 @@ internal class MergeAccumulator<T>(
                 val map = targetMap(target)
                 when (value) {
                     EntryValue.Missing -> map.remove(key)
-                    is EntryValue.Present -> map[key] = value.value
+                    is EntryValue.Present -> map[key] = copyValue(value.value)
                 }
             }
         }

@@ -3,6 +3,8 @@ package io.github.sushiericworkspace.sushiericservermanager.editor.merge
 import io.github.sushiericworkspace.common.data.item.model.mutable.MutableItemBaseData
 import io.github.sushiericworkspace.common.data.item.model.HeadSkinSource
 import io.github.sushiericworkspace.common.data.item.model.mutable.MutableHeadSkinData
+import io.github.sushiericworkspace.common.data.item.model.ItemStatMultiplier
+import io.github.sushiericworkspace.common.stats.player.StatsPartTarget
 import io.github.sushiericworkspace.common.stats.player.StatsType
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -36,20 +38,33 @@ class ManagedDataMergersTest {
             stats[StatsType.PHYSICS_DAMAGE] = 10.0
         }
         val local = base.deepCopy().apply {
-            statMultipliers[StatsType.PHYSICS_DAMAGE] = 1.5
+            statMultipliers[StatsType.PHYSICS_DAMAGE] = mutableListOf(
+                ItemStatMultiplier(StatsPartTarget.Self, 1.5),
+                ItemStatMultiplier(StatsPartTarget.All, 1.1)
+            )
         }
         val remote = base.deepCopy()
 
         val result = ItemDataMerger.merge(base, local, remote)
 
         assertTrue(result.conflicts.isEmpty())
-        assertEquals(1.5, result.merged.statMultipliers[StatsType.PHYSICS_DAMAGE])
+        assertEquals<List<ItemStatMultiplier>?>(
+            listOf(
+                ItemStatMultiplier(StatsPartTarget.Self, 1.5),
+                ItemStatMultiplier(StatsPartTarget.All, 1.1)
+            ),
+            result.merged.statMultipliers[StatsType.PHYSICS_DAMAGE]
+        )
+
+        /* マージ結果のリストはローカルと共有しない */
+        local.statMultipliers.getValue(StatsType.PHYSICS_DAMAGE).clear()
+        assertEquals(2, result.merged.statMultipliers.getValue(StatsType.PHYSICS_DAMAGE).size)
     }
 
     @Test
     fun `ステータス倍率のローカル削除も保存時のマージで維持される`() {
         val base = MutableItemBaseData(id = "sword").apply {
-            statMultipliers[StatsType.PHYSICS_DAMAGE] = 1.5
+            statMultipliers[StatsType.PHYSICS_DAMAGE] = mutableListOf(ItemStatMultiplier(StatsPartTarget.Self, 1.5))
         }
         val local = base.deepCopy().apply {
             statMultipliers.remove(StatsType.PHYSICS_DAMAGE)
@@ -65,8 +80,12 @@ class ManagedDataMergersTest {
     @Test
     fun `同じステータス倍率の異なる変更は競合にする`() {
         val base = MutableItemBaseData(id = "sword")
-        val local = base.deepCopy().apply { statMultipliers[StatsType.PHYSICS_DAMAGE] = 1.5 }
-        val remote = base.deepCopy().apply { statMultipliers[StatsType.PHYSICS_DAMAGE] = 2.0 }
+        val local = base.deepCopy().apply {
+            statMultipliers[StatsType.PHYSICS_DAMAGE] = mutableListOf(ItemStatMultiplier(StatsPartTarget.Self, 1.5))
+        }
+        val remote = base.deepCopy().apply {
+            statMultipliers[StatsType.PHYSICS_DAMAGE] = mutableListOf(ItemStatMultiplier(StatsPartTarget.All, 2.0))
+        }
 
         val result = ItemDataMerger.merge(base, local, remote)
 

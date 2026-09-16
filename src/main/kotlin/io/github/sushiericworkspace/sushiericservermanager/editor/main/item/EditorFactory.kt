@@ -30,10 +30,14 @@ import io.github.sushiericworkspace.sushiericservermanager.editor.tree.EditorGra
 import io.github.sushiericworkspace.sushiericservermanager.editor.main.item.tree.TreeRow
 import io.github.sushiericworkspace.sushiericservermanager.util.NumericSpinnerFactory
 import javafx.event.ActionEvent
+import javafx.geometry.Insets
 import javafx.geometry.Pos
 import javafx.scene.Node
+import io.github.sushiericworkspace.common.data.item.model.ItemStatMultiplier
+import io.github.sushiericworkspace.common.stats.player.StatsPart
 import javafx.scene.control.Button
 import javafx.scene.control.ButtonType
+import javafx.scene.control.CheckBox
 import javafx.scene.control.ColorPicker
 import javafx.scene.control.ComboBox
 import javafx.scene.control.Dialog
@@ -44,6 +48,7 @@ import javafx.scene.control.SpinnerValueFactory
 import javafx.scene.control.TextArea
 import javafx.scene.control.TextField
 import javafx.scene.control.TextFormatter
+import javafx.scene.control.Tooltip
 import javafx.application.Platform
 import javafx.scene.layout.GridPane
 import javafx.scene.layout.HBox
@@ -996,19 +1001,35 @@ class ItemEditorFactory(
                         }
 
                         /*
-                         * 倍率はStatsTypeごとに値へ最後に掛ける数で、規則はItemStatValueRulesへ集約する。
-                         * 既定値1.0はMapへ保持しない。
+                         * 倍率はStatsTypeごとの対象Part付きリストで、規則はItemStatValueRulesへ集約する。
+                         * 要素は不変なので、変更時はリストの同じ位置を置き換える。
                          */
+                        fun multipliersOf(type: StatsType): MutableList<ItemStatMultiplier> =
+                            itemData.statMultipliers.getOrPut(type) { mutableListOf() }
+
+                        fun updateMultiplier(
+                            type: StatsType,
+                            entry: ItemStatMultiplier,
+                            updated: ItemStatMultiplier
+                        ) {
+                            val multipliers = multipliersOf(type)
+                            val index = multipliers.indexOf(entry)
+
+                            if (index >= 0) {
+                                multipliers[index] = updated
+                                refreshButtonVisual(itemData.id)
+                            }
+                        }
+
                         fun createMultiplierSpinner(
-                            type: StatsType
+                            initialValue: Double,
+                            onChanged: (Double) -> Unit
                         ): Spinner<Double> {
                             return Spinner<Double>().apply {
                                 valueFactory = SpinnerValueFactory.DoubleSpinnerValueFactory(
                                     ITEM_STAT_MULTIPLIER_MIN,
                                     ITEM_STAT_MULTIPLIER_MAX,
-                                    normalizeItemStatMultiplier(
-                                        itemData.statMultipliers[type] ?: DEFAULT_ITEM_STAT_MULTIPLIER
-                                    ),
+                                    normalizeItemStatMultiplier(initialValue),
                                     ITEM_STAT_MULTIPLIER_STEP
                                 )
 
@@ -1033,6 +1054,152 @@ class ItemEditorFactory(
                                         valueFactory.value = valueFactory.converter.fromString(editor.text)
                                     }
                                 }
+
+                                valueProperty().addListener { _, _, newValue ->
+                                    if (newValue != null) {
+                                        onChanged(newValue)
+                                    }
+                                }
+                            }
+                        }
+
+                        /**
+                         * 倍率1件の行を作る。対象の選択、値、削除を1行に置き、対象が部位のときだけ
+                         * その下に部位のチェックを3列で表示する。
+                         * 部位で1つも選んでいない状態は対象を作れないため、部位へ切り替えたときは
+                         * アイテムの種類に合う部位を先に選び、最後の1つは外せない。
+                         */
+                        fun createMultiplierRow(
+                            type: StatsType,
+                            initialEntry: ItemStatMultiplier,
+                            onRemoved: () -> Unit
+                        ): VBox {
+                            var entry = initialEntry
+                            val selectedParts = selectedItemStatMultiplierParts(entry.target).toMutableSet()
+                            val partCheckBoxes = linkedMapOf<StatsPart, CheckBox>()
+
+                            val targetComboBox = ComboBox<ItemStatMultiplierTargetOption>().apply {
+                                items.addAll(ItemStatMultiplierTargetOption.entries)
+                                value = ItemStatMultiplierTargetOption.of(entry.target)
+                                prefWidth = 80.0
+                                tooltip = Tooltip(ITEM_STAT_MULTIPLIER_TARGET_TOOLTIP)
+                            }
+
+                            fun applyTarget() {
+                                val target = resolveItemStatMultiplierTarget(targetComboBox.value, selectedParts)
+                                    ?: return
+                                val updated = entry.copy(target = target)
+
+                                if (updated != entry) {
+                                    updateMultiplier(type, entry, updated)
+                                    entry = updated
+                                }
+                            }
+
+                            val partsGrid = GridPane().apply {
+                                hgap = 12.0
+                                vgap = 4.0
+                                padding = Insets(0.0, 0.0, 0.0, 128.0)
+
+                                StatsPart.equipmentParts.forEachIndexed { index, part ->
+                                    val checkBox = CheckBox(part.display).apply {
+                                        styleClass.add("editor-label")
+                                        isSelected = part in selectedParts
+                                        tooltip = Tooltip("${part.display}の部位のステータスに倍率を掛けます")
+
+                                        selectedProperty().addListener { _, _, selected ->
+                                            if (selected) {
+                                                selectedParts.add(part)
+                                            } else if (selectedParts.size > 1) {
+                                                selectedParts.remove(part)
+                                            } else {
+                                                isSelected = true
+                                                return@addListener
+                                            }
+
+                                            applyTarget()
+                                        }
+                                    }
+
+                                    partCheckBoxes[part] = checkBox
+                                    add(checkBox, index % 3, index / 3)
+                                }
+                            }
+
+                            fun syncPartsVisibility() {
+                                val visible = targetComboBox.value == ItemStatMultiplierTargetOption.PARTS
+                                partsGrid.isVisible = visible
+                                partsGrid.isManaged = visible
+                            }
+
+                            syncPartsVisibility()
+
+                            targetComboBox.valueProperty().addListener { _, _, option ->
+                                if (option == ItemStatMultiplierTargetOption.PARTS && selectedParts.isEmpty()) {
+                                    selectedParts.addAll(
+                                        defaultItemStatMultiplierParts(itemData.itemDetail.itemType)
+                                    )
+                                    selectedParts.forEach { part ->
+                                        partCheckBoxes[part]?.isSelected = true
+                                    }
+                                }
+
+                                syncPartsVisibility()
+                                applyTarget()
+                            }
+
+                            val valueSpinner = createMultiplierSpinner(entry.value) { newValue ->
+                                val updated = entry.copy(value = newValue)
+
+                                if (updated != entry) {
+                                    updateMultiplier(type, entry, updated)
+                                    entry = updated
+                                }
+                            }.apply {
+                                tooltip = Tooltip(ITEM_STAT_MULTIPLIER_VALUE_TOOLTIP)
+                            }
+
+                            val row = HBox(8.0).apply {
+                                alignment = Pos.CENTER_LEFT
+                                styleClass.add("editor-row-hbox")
+
+                                children.addAll(
+                                    Label("倍率:").apply {
+                                        styleClass.add("editor-label")
+                                        minWidth = 120.0
+                                        alignment = Pos.CENTER_RIGHT
+                                    },
+                                    targetComboBox,
+                                    Label("×").apply {
+                                        styleClass.add("editor-label")
+                                    },
+                                    valueSpinner,
+                                    Button("削除").apply {
+                                        styleClass.add("btn-danger")
+                                        minWidth = 56.0
+                                        prefWidth = 56.0
+                                        maxWidth = 56.0
+                                        minHeight = 26.0
+                                        prefHeight = 26.0
+                                        maxHeight = 26.0
+                                        styleClass.add("editor-small-button")
+
+                                        setOnAction {
+                                            multipliersOf(type).remove(entry)
+
+                                            if (multipliersOf(type).isEmpty()) {
+                                                itemData.statMultipliers.remove(type)
+                                            }
+
+                                            refreshButtonVisual(itemData.id)
+                                            onRemoved()
+                                        }
+                                    }
+                                )
+                            }
+
+                            return VBox(4.0).apply {
+                                children.addAll(row, partsGrid)
                             }
                         }
 
@@ -1061,45 +1228,69 @@ class ItemEditorFactory(
                                         }
                                     }
 
-                                    val multiplierSpinner = createMultiplierSpinner(type)
+                                    val multiplierRows = VBox(4.0).apply {
+                                        styleClass.add("editor-row-vbox")
+                                    }
 
-                                    multiplierSpinner.valueProperty().addListener { _, _, newValue ->
-                                        if (newValue != null) {
-                                            applyItemStatMultiplier(itemData.statMultipliers, type, newValue)
-                                            refreshButtonVisual(itemData.id)
+                                    fun rebuildMultiplierRows() {
+                                        multiplierRows.children.clear()
+
+                                        itemData.statMultipliers[type].orEmpty().forEach { entry ->
+                                            multiplierRows.children.add(
+                                                createMultiplierRow(type, entry) {
+                                                    rebuildMultiplierRows()
+                                                }
+                                            )
                                         }
                                     }
 
+                                    rebuildMultiplierRows()
+
                                     container.children.add(
-                                        HBox(8.0).apply {
-                                            alignment = Pos.CENTER_LEFT
-                                            styleClass.add("editor-row-hbox")
+                                        VBox(4.0).apply {
+                                            styleClass.add("editor-row-vbox")
 
                                             children.addAll(
-                                                Label("${type.display}:").apply {
-                                                    styleClass.add("editor-label")
-                                                    minWidth = 120.0
+                                                HBox(8.0).apply {
+                                                    alignment = Pos.CENTER_LEFT
+                                                    styleClass.add("editor-row-hbox")
+
+                                                    children.addAll(
+                                                        Label("${type.display}:").apply {
+                                                            styleClass.add("editor-label")
+                                                            minWidth = 120.0
+                                                        },
+
+                                                        spinner,
+
+                                                        Button("倍率追加").apply {
+                                                            styleClass.add("btn-primary")
+                                                            applySmallButtonSize(this)
+                                                            minWidth = 72.0
+                                                            prefWidth = 72.0
+                                                            maxWidth = 72.0
+
+                                                            setOnAction {
+                                                                multipliersOf(type).add(initialItemStatMultiplier())
+                                                                refreshButtonVisual(itemData.id)
+                                                                rebuildMultiplierRows()
+                                                            }
+                                                        },
+
+                                                        Button("削除").apply {
+                                                            styleClass.add("btn-danger")
+                                                            applySmallButtonSize(this)
+
+                                                            setOnAction {
+                                                                itemData.stats.remove(type)
+                                                                itemData.statMultipliers.remove(type)
+                                                                refreshButtonVisual(itemData.id)
+                                                                rebuildStatsList(container)
+                                                            }
+                                                        }
+                                                    )
                                                 },
-
-                                                spinner,
-
-                                                Label("×").apply {
-                                                    styleClass.add("editor-label")
-                                                },
-
-                                                multiplierSpinner,
-
-                                                Button("削除").apply {
-                                                    styleClass.add("btn-danger")
-                                                    applySmallButtonSize(this)
-
-                                                    setOnAction {
-                                                        itemData.stats.remove(type)
-                                                        itemData.statMultipliers.remove(type)
-                                                        refreshButtonVisual(itemData.id)
-                                                        rebuildStatsList(container)
-                                                    }
-                                                }
+                                                multiplierRows
                                             )
                                         }
                                     )

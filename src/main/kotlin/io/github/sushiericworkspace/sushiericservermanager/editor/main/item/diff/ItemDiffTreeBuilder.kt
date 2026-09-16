@@ -1,6 +1,8 @@
 package io.github.sushiericworkspace.sushiericservermanager.editor.main.item.diff
 
+import io.github.sushiericworkspace.common.data.item.model.ItemStatMultiplier
 import io.github.sushiericworkspace.common.stats.player.StatsType
+import io.github.sushiericworkspace.sushiericservermanager.ui.format.ItemStatMultiplierFormatter
 import io.github.sushiericworkspace.common.data.item.model.CustomComponentLoreSection
 import io.github.sushiericworkspace.common.data.item.model.mutable.MutableItemBaseData
 import io.github.sushiericworkspace.common.data.item.model.LoreSection
@@ -287,7 +289,7 @@ class ItemDiffTreeBuilder {
         ItemDiffField.DISPLAY_NAME -> original.display.displayName
         ItemDiffField.LORE -> serializeLoreLine(original.display.lore.getOrNull(id.index!!))
         ItemDiffField.STATS -> original.stats[id.statsType]?.toString() ?: "(未設定)"
-        ItemDiffField.STAT_MULTIPLIER -> original.statMultipliers[id.statsType]?.toString() ?: "(未設定)"
+        ItemDiffField.STAT_MULTIPLIER -> ItemStatMultiplierFormatter.format(original.statMultipliers[id.statsType])
         ItemDiffField.COMMENT -> original.editorMeta.comment.getOrNull(id.index!!) ?: "(なし)"
         ItemDiffField.HEAD_SKIN -> serializeHeadSkin(original)
         ItemDiffField.DETAIL -> serializeDetail(original)
@@ -300,7 +302,7 @@ class ItemDiffTreeBuilder {
             serializeLoreLine(it)
         } ?: "(削除)"
         ItemDiffField.STATS -> server.stats[id.statsType]?.toString() ?: "(削除)"
-        ItemDiffField.STAT_MULTIPLIER -> server.statMultipliers[id.statsType]?.toString() ?: "(削除)"
+        ItemDiffField.STAT_MULTIPLIER -> ItemStatMultiplierFormatter.format(server.statMultipliers[id.statsType])
         ItemDiffField.COMMENT -> server.editorMeta.comment.getOrNull(id.index!!) ?: "(削除)"
         ItemDiffField.HEAD_SKIN -> serializeHeadSkin(server)
         ItemDiffField.DETAIL -> serializeDetail(server)
@@ -330,8 +332,8 @@ class ItemDiffTreeBuilder {
     }
 
     private fun compareStatMultipliers(
-        origMultipliers: Map<StatsType, Double>,
-        servMultipliers: Map<StatsType, Double>,
+        origMultipliers: Map<StatsType, List<ItemStatMultiplier>>,
+        servMultipliers: Map<StatsType, List<ItemStatMultiplier>>,
         parentNode: CheckBoxTreeItem<ItemDiffId?>
     ) {
         statMultiplierDiffTypes(origMultipliers, servMultipliers).forEach { key ->
@@ -448,10 +450,10 @@ internal fun itemDetailDiffFields(
  * 片方にだけ存在するStatsTypeも差分として扱います。
  */
 internal fun statMultiplierDiffTypes(
-    original: Map<StatsType, Double>,
-    server: Map<StatsType, Double>
+    original: Map<StatsType, List<ItemStatMultiplier>>,
+    server: Map<StatsType, List<ItemStatMultiplier>>
 ): Set<StatsType> {
     return (original.keys + server.keys)
-        .filter { key -> original[key] != server[key] }
+        .filter { key -> original[key].orEmpty() != server[key].orEmpty() }
         .toSet()
 }
