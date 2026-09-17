@@ -28,6 +28,7 @@ import io.github.sushiericworkspace.sushiericservermanager.editor.component.Edit
 import io.github.sushiericworkspace.sushiericservermanager.editor.component.PotionEffectEditorDialog
 import io.github.sushiericworkspace.sushiericservermanager.editor.tree.EditorGraphicFactory
 import io.github.sushiericworkspace.sushiericservermanager.editor.main.item.tree.TreeRow
+import io.github.sushiericworkspace.sushiericservermanager.ui.AppTooltip
 import io.github.sushiericworkspace.sushiericservermanager.util.NumericSpinnerFactory
 import javafx.event.ActionEvent
 import javafx.geometry.Insets
@@ -48,7 +49,6 @@ import javafx.scene.control.SpinnerValueFactory
 import javafx.scene.control.TextArea
 import javafx.scene.control.TextField
 import javafx.scene.control.TextFormatter
-import javafx.scene.control.Tooltip
 import javafx.application.Platform
 import javafx.scene.layout.GridPane
 import javafx.scene.layout.HBox
@@ -1082,7 +1082,7 @@ class ItemEditorFactory(
                                 items.addAll(ItemStatMultiplierTargetOption.entries)
                                 value = ItemStatMultiplierTargetOption.of(entry.target)
                                 prefWidth = 80.0
-                                tooltip = Tooltip(ITEM_STAT_MULTIPLIER_TARGET_TOOLTIP)
+                                tooltip = AppTooltip.create(ITEM_STAT_MULTIPLIER_TARGET_TOOLTIP)
                             }
 
                             fun applyTarget() {
@@ -1105,7 +1105,7 @@ class ItemEditorFactory(
                                     val checkBox = CheckBox(part.display).apply {
                                         styleClass.add("editor-label")
                                         isSelected = part in selectedParts
-                                        tooltip = Tooltip("${part.display}の部位のステータスに倍率を掛けます")
+                                        tooltip = AppTooltip.create("${part.display}の部位のステータスに倍率を掛けます")
 
                                         selectedProperty().addListener { _, _, selected ->
                                             if (selected) {
@@ -1156,7 +1156,7 @@ class ItemEditorFactory(
                                     entry = updated
                                 }
                             }.apply {
-                                tooltip = Tooltip(ITEM_STAT_MULTIPLIER_VALUE_TOOLTIP)
+                                tooltip = AppTooltip.create(ITEM_STAT_MULTIPLIER_VALUE_TOOLTIP)
                             }
 
                             val row = HBox(8.0).apply {

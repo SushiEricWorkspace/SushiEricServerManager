@@ -8,6 +8,7 @@ import io.github.sushiericworkspace.sushiericservermanager.communication.managem
 import io.github.sushiericworkspace.sushiericservermanager.config.SettingConfigManager
 import io.github.sushiericworkspace.sushiericservermanager.config.replaceServerProfilePreservingOrder
 import io.github.sushiericworkspace.sushiericservermanager.editor.session.EditorSession
+import io.github.sushiericworkspace.sushiericservermanager.ui.AppTooltip
 import javafx.animation.AnimationTimer
 import javafx.animation.PauseTransition
 import javafx.application.Platform
@@ -23,7 +24,6 @@ import javafx.scene.control.ScrollBar
 import javafx.scene.control.SelectionMode
 import javafx.scene.control.Slider
 import javafx.scene.control.TextArea
-import javafx.scene.control.Tooltip
 import javafx.scene.input.Clipboard
 import javafx.scene.input.ClipboardContent
 import javafx.scene.input.KeyCode
@@ -316,7 +316,7 @@ class ConsoleController : Initializable {
                 override fun updateItem(item: ServerManagementCommandSuggestion?, empty: Boolean) {
                     super.updateItem(item, empty)
                     text = if (empty || item == null) null else item.text
-                    tooltip = item?.tooltip?.takeIf(String::isNotBlank)?.let(::Tooltip)
+                    tooltip = item?.tooltip?.takeIf(String::isNotBlank)?.let(AppTooltip::create)
                 }
             }
         }
