@@ -11,6 +11,7 @@ import io.github.sushiericworkspace.sushiericservermanager.config.ServerProfileD
 import io.github.sushiericworkspace.sushiericservermanager.config.SettingConfigManager
 import io.github.sushiericworkspace.sushiericservermanager.config.reorderServerProfiles
 import io.github.sushiericworkspace.sushiericservermanager.editor.session.EditorSession
+import io.github.sushiericworkspace.sushiericservermanager.ui.AppTooltip
 import io.github.sushiericworkspace.sushiericservermanager.ui.dialog.CustomDialog
 import io.github.sushiericworkspace.sushiericservermanager.ui.dialog.SshFailureDialog
 import io.github.sushiericworkspace.sushiericservermanager.ui.dialog.SshHostKeyDialog
@@ -28,7 +29,6 @@ import javafx.scene.Parent
 import javafx.scene.control.Button
 import javafx.scene.control.Label
 import javafx.scene.control.OverrunStyle
-import javafx.scene.control.Tooltip
 import javafx.scene.input.ClipboardContent
 import javafx.scene.input.TransferMode
 import javafx.scene.layout.BorderPane
@@ -118,7 +118,7 @@ class ServerSelector : Initializable {
             minWidth = 0.0
             maxWidth = Double.MAX_VALUE
             textOverrun = OverrunStyle.ELLIPSIS
-            tooltip = Tooltip(profile.name)
+            tooltip = AppTooltip.create(profile.name)
         }
 
         val detailLabel = Label(detailText).apply {
@@ -126,7 +126,7 @@ class ServerSelector : Initializable {
             minWidth = 0.0
             maxWidth = Double.MAX_VALUE
             textOverrun = OverrunStyle.ELLIPSIS
-            tooltip = Tooltip(detailText)
+            tooltip = AppTooltip.create(detailText)
         }
 
         val infoBox = VBox(3.0, nameLabel, detailLabel).apply {
@@ -137,7 +137,7 @@ class ServerSelector : Initializable {
 
         val dragHandle = Label("⋮").apply {
             styleClass.add("server-drag-handle")
-            tooltip = Tooltip("ドラッグして並び替え")
+            tooltip = AppTooltip.create("ドラッグして並び替え")
         }
 
         val dragArea = HBox(10.0, dragHandle, infoBox).apply {

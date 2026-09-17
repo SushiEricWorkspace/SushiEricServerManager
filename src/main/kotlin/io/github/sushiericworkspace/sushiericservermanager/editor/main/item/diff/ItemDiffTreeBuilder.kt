@@ -8,11 +8,11 @@ import io.github.sushiericworkspace.common.data.item.model.mutable.MutableItemBa
 import io.github.sushiericworkspace.common.data.item.model.LoreSection
 import io.github.sushiericworkspace.common.data.item.model.PlainTextLoreSection
 import io.github.sushiericworkspace.common.data.item.model.StatLoreSection
+import io.github.sushiericworkspace.sushiericservermanager.ui.AppTooltip
 import io.github.sushiericworkspace.sushiericservermanager.ui.format.ItemDetailContentFormatter
 import javafx.scene.control.TreeView
 import net.kyori.adventure.text.minimessage.MiniMessage
 import javafx.scene.control.CheckBoxTreeItem
-import javafx.scene.control.Tooltip
 import javafx.util.Callback
 import net.kyori.adventure.text.format.TextDecoration
 import kotlin.collections.get
@@ -255,7 +255,7 @@ class ItemDiffTreeBuilder {
                             )
 
                             if (!tooltipText.isNullOrBlank()) {
-                                tooltip = Tooltip(tooltipText).apply {
+                                tooltip = AppTooltip.create(tooltipText).apply {
                                     isWrapText = true
                                     maxWidth = 520.0
                                 }

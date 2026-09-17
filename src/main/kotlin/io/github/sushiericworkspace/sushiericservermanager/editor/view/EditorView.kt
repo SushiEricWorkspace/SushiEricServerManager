@@ -13,6 +13,7 @@ import io.github.sushiericworkspace.sushiericservermanager.editor.merge.DataConf
 import io.github.sushiericworkspace.sushiericservermanager.editor.store.StoreError
 import io.github.sushiericworkspace.sushiericservermanager.editor.store.StoreErrorCode
 import io.github.sushiericworkspace.sushiericservermanager.editor.store.StoreResult
+import io.github.sushiericworkspace.sushiericservermanager.ui.AppTooltip
 import io.github.sushiericworkspace.sushiericservermanager.ui.dialog.CustomDialog
 import io.github.sushiericworkspace.sushiericservermanager.ui.dialog.ErrorType
 import io.github.sushiericworkspace.sushiericservermanager.ui.dialog.MergeConflictDialog
@@ -24,7 +25,6 @@ import javafx.event.EventHandler
 import javafx.concurrent.Task
 import javafx.scene.Node
 import javafx.scene.control.Button
-import javafx.scene.control.Tooltip
 import javafx.scene.layout.HBox
 import javafx.scene.layout.Priority
 import javafx.scene.layout.Region
@@ -500,7 +500,7 @@ abstract class EditorView<T : ManagedData<T, *>>(
         btn.text = state.displayText(PublicId.normalizeForLoad(id))
         btn.accessibleText = listOfNotNull(PublicId.normalizeForLoad(id), state.description())
             .joinToString(" / ")
-        btn.tooltip = state.description()?.let(::Tooltip)
+        btn.tooltip = state.description()?.let(AppTooltip::create)
     }
 
     /**
