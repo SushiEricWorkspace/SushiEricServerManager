@@ -23,6 +23,7 @@ import io.github.sushiericworkspace.sushiericservermanager.editor.result.dataser
 import io.github.sushiericworkspace.sushiericservermanager.editor.store.StoreResult
 import io.github.sushiericworkspace.sushiericservermanager.editor.tree.EditorContextMenuFactory
 import io.github.sushiericworkspace.sushiericservermanager.editor.tree.EditorFolderGraphicFactory
+import io.github.sushiericworkspace.sushiericservermanager.ui.AppTooltip
 import javafx.application.Platform
 import javafx.event.EventHandler
 import javafx.event.EventTarget
@@ -42,7 +43,6 @@ import javafx.scene.control.ScrollPane
 import javafx.scene.control.Spinner
 import javafx.scene.control.TextArea
 import javafx.scene.control.TextField
-import javafx.scene.control.Tooltip
 import javafx.scene.control.TreeCell
 import javafx.scene.control.skin.VirtualFlow
 import javafx.scene.layout.HBox
@@ -657,7 +657,7 @@ class ItemEditorLogic(
 
         currentPublicIdLabel.text = selectData.id
         currentInternalIdField.text = selectData.internalId.value
-        currentInternalIdField.tooltip = Tooltip(selectData.internalId.value)
+        currentInternalIdField.tooltip = AppTooltip.create(selectData.internalId.value)
 
         // キャッシュからルートオブジェクトを取得、なければ初期展開状態で登録
         val rootItem = treeCache.getOrPut(selectData.id) {
