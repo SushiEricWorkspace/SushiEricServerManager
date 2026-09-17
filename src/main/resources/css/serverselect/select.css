@@ -27,6 +27,10 @@
     -fx-min-height: 38px;
 }
 
+.server-mode-select-button {
+    -fx-min-height: 38px;
+}
+
 .server-list-scroll {
     -fx-background-color: transparent;
     -fx-background-insets: 0;

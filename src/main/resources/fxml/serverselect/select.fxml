@@ -25,6 +25,10 @@
                 <Label styleClass="server-select-title" text="サーバー選択"/>
                 <Region HBox.hgrow="ALWAYS"/>
                 <Button focusTraversable="false" mnemonicParsing="false"
+                        onAction="#handleReturnToModeSelect"
+                        styleClass="button, btn-secondary, server-mode-select-button"
+                        text="モード選択へ戻る"/>
+                <Button focusTraversable="false" mnemonicParsing="false"
                         onAction="#openCreateServerWindow"
                         styleClass="button, btn-primary, server-add-button"
                         text="サーバーを追加"/>
