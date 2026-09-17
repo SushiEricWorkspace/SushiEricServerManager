@@ -53,6 +53,7 @@ class HomeController : Initializable {
     @FXML private lateinit var consoleButton: Button
     @FXML private lateinit var dashboardButton: Button
     @FXML private lateinit var serverControlButton: Button
+    @FXML private lateinit var modeSelectButton: Button
     @FXML private lateinit var backButton: Button
 
     private val sshManager = EditorSession.sshManager
@@ -194,6 +195,8 @@ class HomeController : Initializable {
         dashboardButton.isVisible = mode == AppMode.ONLINE
         serverControlButton.isManaged = mode == AppMode.ONLINE
         serverControlButton.isVisible = mode == AppMode.ONLINE
+        modeSelectButton.isManaged = mode == AppMode.ONLINE
+        modeSelectButton.isVisible = mode == AppMode.ONLINE
         backButton.text = if (mode == AppMode.ONLINE) "サーバー選択へ戻る" else "モード選択へ戻る"
 
         // Platform.runLater を使って Stage が確実に生成された後に処理
@@ -245,6 +248,21 @@ class HomeController : Initializable {
         if (!isConfirm) return
 
         if (online) Utility.navigateToServerSelect() else Utility.navigateToModeSelect()
+    }
+
+    /**
+     * 開いている編集内容をローカルへ退避し、接続を解放して動作モード選択画面へ戻ります。
+     */
+    @FXML
+    @Suppress("unused")
+    fun handleReturnToModeSelect() {
+        val confirmed = CustomDialog.confirmation()
+            .header("モード選択へ戻りますか？")
+            .content("サーバーとの接続を切り、開いているウィンドウを閉じます。\n未保存の編集内容はローカルへ退避されます。")
+            .show()
+        if (!confirmed) return
+
+        Utility.navigateToModeSelect()
     }
 
     @FXML

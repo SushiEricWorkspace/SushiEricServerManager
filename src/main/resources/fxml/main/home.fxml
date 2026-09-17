@@ -58,6 +58,10 @@
                             </children>
                         </GridPane>
                         <Region VBox.vgrow="ALWAYS" />
+                        <Button fx:id="modeSelectButton" maxWidth="1.7976931348623157E308"
+                                mnemonicParsing="false" onAction="#handleReturnToModeSelect"
+                                styleClass="button, btn-secondary, home-back-button"
+                                text="モード選択へ戻る" />
                         <Button fx:id="backButton" maxWidth="1.7976931348623157E308" mnemonicParsing="false" onAction="#handleDisconnect" styleClass="button, btn-danger, home-back-button" text="戻る" />
                     </children>
                 </VBox>

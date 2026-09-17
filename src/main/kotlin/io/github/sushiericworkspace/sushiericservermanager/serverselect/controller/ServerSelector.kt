@@ -407,6 +407,13 @@ class ServerSelector : Initializable {
         refreshServerList(SettingConfigManager.load().list)
     }
 
+    /** SSH接続を解放して動作モード選択画面へ戻ります。 */
+    @FXML
+    @Suppress("unused")
+    fun handleReturnToModeSelect() {
+        Utility.navigateToModeSelect()
+    }
+
     private fun handleEditServer(profile: ServerProfile) {
         showScreen<EditController>(AppScreen.SERVER_EDIT, "サーバーの編集", Modality.APPLICATION_MODAL) {
             it.initData(profile)
