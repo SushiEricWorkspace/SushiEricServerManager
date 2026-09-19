@@ -1,11 +1,12 @@
 package io.github.sushiericworkspace.sushiericservermanager.editor.main.item
 
+import io.github.sushiericworkspace.common.data.core.identity.VanillaItemId
 import io.github.sushiericworkspace.common.data.item.model.HeadSkinSource
 import io.github.sushiericworkspace.common.data.item.model.mutable.MutableHeadSkinData
 
-internal const val PLAYER_HEAD_VANILLA_ID = "player_head"
+internal val PLAYER_HEAD_VANILLA_ID = VanillaItemId("player_head")
 
-internal fun isHeadSkinEditableVanillaId(vanillaId: String): Boolean =
+internal fun isHeadSkinEditableVanillaId(vanillaId: VanillaItemId): Boolean =
     vanillaId == PLAYER_HEAD_VANILLA_ID
 
 internal fun normalizeHeadSkinInput(value: String): String =

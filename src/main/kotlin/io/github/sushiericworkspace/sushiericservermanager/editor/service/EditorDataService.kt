@@ -4,6 +4,7 @@ import io.github.sushiericworkspace.common.data.core.SushiEricDataType
 import io.github.sushiericworkspace.common.data.core.ManagedData
 import io.github.sushiericworkspace.common.data.core.validation.SushiEricValidationError
 import io.github.sushiericworkspace.common.data.item.model.mutable.MutableItemBaseData
+import io.github.sushiericworkspace.common.data.item.model.ItemInternalId
 import io.github.sushiericworkspace.common.data.ore.model.mutable.MutableOreBaseData
 import io.github.sushiericworkspace.sushiericservermanager.communication.RemoteResource
 import io.github.sushiericworkspace.sushiericservermanager.communication.SshManager
@@ -80,10 +81,10 @@ class EditorDataService(
          * Common側で定義された検証処理を使って、編集中データの問題を取得します。
          *
          * @param data 検証対象のデータ。
-         * @param availableIds 参照先として利用できる同種データの公開ID。
+         * @param availableIds 参照先として利用できるアイテム内部ID。
          * @return 検出された検証エラー。問題がない場合は空のリスト。
          */
-        fun validationErrors(data: T, availableIds: Set<String>): List<SushiEricValidationError> =
+        fun validationErrors(data: T, availableIds: Set<ItemInternalId>): List<SushiEricValidationError> =
             descriptor.validate(data, availableIds)
 
         fun listYmlResources(): Pair<List<RemoteResource>, Boolean> {

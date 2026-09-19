@@ -1,9 +1,14 @@
 package io.github.sushiericworkspace.sushiericservermanager.editor.store
 
+import io.github.sushiericworkspace.common.data.core.identity.VanillaItemId
+import io.github.sushiericworkspace.common.data.core.identity.VanillaBlockId
+import io.github.sushiericworkspace.common.data.drop.model.mutable.MutableDropItemData
+import io.github.sushiericworkspace.common.data.item.model.ItemInternalId
 import io.github.sushiericworkspace.common.data.item.model.mutable.MutableItemBaseData
 import io.github.sushiericworkspace.common.data.item.model.mutable.MutablePlainTextLoreSection
 import io.github.sushiericworkspace.common.data.item.model.HeadSkinSource
 import io.github.sushiericworkspace.common.data.item.model.mutable.MutableHeadSkinData
+import io.github.sushiericworkspace.common.data.ore.model.mutable.MutableOreBaseData
 import kotlin.io.path.createTempDirectory
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -120,10 +125,10 @@ class LocalEditorDataStoreTest {
             val store = LocalEditorDataStore(root)
             val descriptor = EditorDataDescriptors.item
             val item = validItem("custom_head").apply {
-                itemDetail.vanillaId = "player_head"
+                itemDetail.vanillaId = VanillaItemId("player_head")
                 itemDetail.mutableHeadSkin = MutableHeadSkinData(
-                    source = HeadSkinSource.PLAYER_NAME,
-                    value = "SushiEric"
+                    source = HeadSkinSource.PLAYER_UUID,
+                    value = "069a79f4-44e9-4726-a5be-fca90e38aaf5"
                 )
             }
 
@@ -132,8 +137,48 @@ class LocalEditorDataStoreTest {
                 store.load(descriptor, item.id)
             ).value
 
-            assertEquals(HeadSkinSource.PLAYER_NAME, reloaded.itemDetail.mutableHeadSkin?.source)
-            assertEquals("SushiEric", reloaded.itemDetail.mutableHeadSkin?.value)
+            assertEquals(HeadSkinSource.PLAYER_UUID, reloaded.itemDetail.mutableHeadSkin?.source)
+            assertEquals(
+                "069a79f4-44e9-4726-a5be-fca90e38aaf5",
+                reloaded.itemDetail.mutableHeadSkin?.value
+            )
+        } finally {
+            root.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun `鉱石のドロップ参照はアイテム内部IDで検証する`() {
+        val root = createTempDirectory("offline-store-ore-reference").toFile()
+        try {
+            val store = LocalEditorDataStore(root)
+            val item = validItem("human_readable_id")
+            assertIs<StoreResult.Success<Unit>>(
+                store.save(EditorDataDescriptors.item, item.id, item)
+            )
+
+            val validOre = MutableOreBaseData(
+                id = "valid_ore",
+                blockId = VanillaBlockId("iron_ore"),
+                mutableDropItems = mutableListOf(MutableDropItemData(itemId = item.internalId))
+            )
+            assertIs<StoreResult.Success<Unit>>(
+                store.save(EditorDataDescriptors.ore, validOre.id, validOre)
+            )
+
+            val invalidOre = MutableOreBaseData(
+                id = "invalid_ore",
+                blockId = VanillaBlockId("iron_ore"),
+                mutableDropItems = mutableListOf(
+                    MutableDropItemData(itemId = ItemInternalId(item.id))
+                )
+            )
+            val result = store.save(EditorDataDescriptors.ore, invalidOre.id, invalidOre)
+
+            assertEquals(
+                StoreErrorCode.VALIDATION_FAILED,
+                assertIs<StoreResult.Failure>(result).error.code
+            )
         } finally {
             root.deleteRecursively()
         }

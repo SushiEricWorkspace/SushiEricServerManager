@@ -4,6 +4,7 @@ import io.github.sushiericworkspace.common.data.core.SushiEricDataType
 import io.github.sushiericworkspace.common.data.core.ManagedData
 import io.github.sushiericworkspace.common.data.core.validation.SushiEricValidationError
 import io.github.sushiericworkspace.common.data.item.ItemManager
+import io.github.sushiericworkspace.common.data.item.model.ItemInternalId
 import io.github.sushiericworkspace.common.data.item.model.mutable.MutableItemBaseData
 import io.github.sushiericworkspace.common.data.ore.OreManager
 import io.github.sushiericworkspace.common.data.ore.model.mutable.MutableOreBaseData
@@ -15,8 +16,8 @@ import java.io.File
 class EditorDataDescriptor<T : ManagedData<T, *>>(
     val dataType: SushiEricDataType<T>,
     val load: (File, String?) -> T?,
-    val save: (File, T, Set<String>?) -> Unit,
-    val validate: (T, Set<String>) -> List<SushiEricValidationError>,
+    val save: (File, T, Set<ItemInternalId>?) -> Unit,
+    val validate: (T, Set<ItemInternalId>) -> List<SushiEricValidationError>,
     val merger: DataMerger<T>,
     private val duplicateForNewEntry: (T) -> T = { it.deepCopy() }
 ) {

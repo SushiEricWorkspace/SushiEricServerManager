@@ -1,6 +1,7 @@
 package io.github.sushiericworkspace.sushiericservermanager.editor.store
 
 import io.github.sushiericworkspace.common.data.core.ManagedData
+import io.github.sushiericworkspace.common.data.item.model.ItemInternalId
 import org.slf4j.LoggerFactory
 import java.io.File
 import java.nio.file.AtomicMoveNotSupportedException
@@ -185,9 +186,14 @@ class LocalEditorDataStore(
         return file.takeIf { it.parentFile == directory }
     }
 
-    private fun localItemIds(): Set<String> {
+    private fun localItemIds(): Set<ItemInternalId> {
         return when (val result = list(EditorDataDescriptors.item)) {
-            is StoreResult.Success -> result.value.mapTo(mutableSetOf()) { it.id }
+            is StoreResult.Success -> result.value.mapNotNullTo(mutableSetOf()) { resource ->
+                when (val loaded = load(EditorDataDescriptors.item, resource.id)) {
+                    is StoreResult.Success -> loaded.value.internalId
+                    is StoreResult.Failure -> null
+                }
+            }
             is StoreResult.Failure -> emptySet()
         }
     }

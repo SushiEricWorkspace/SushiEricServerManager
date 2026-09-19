@@ -1,5 +1,6 @@
 package io.github.sushiericworkspace.sushiericservermanager.editor.main.item
 
+import io.github.sushiericworkspace.common.data.core.identity.VanillaItemId
 import io.github.sushiericworkspace.common.data.item.model.HeadSkinSource
 import io.github.sushiericworkspace.common.data.item.model.mutable.MutableHeadSkinData
 import io.github.sushiericworkspace.common.data.item.model.mutable.MutableItemBaseData
@@ -12,9 +13,9 @@ import kotlin.test.assertTrue
 class ItemHeadSkinEditorTest {
     @Test
     fun `player_headだけヘッドスキンを編集できる`() {
-        assertTrue(isHeadSkinEditableVanillaId("player_head"))
-        assertFalse(isHeadSkinEditableVanillaId("zombie_head"))
-        assertFalse(isHeadSkinEditableVanillaId("stone"))
+        assertTrue(isHeadSkinEditableVanillaId(VanillaItemId("player_head")))
+        assertFalse(isHeadSkinEditableVanillaId(VanillaItemId("zombie_head")))
+        assertFalse(isHeadSkinEditableVanillaId(VanillaItemId("stone")))
     }
 
     @Test
@@ -61,6 +62,8 @@ class ItemHeadSkinEditorTest {
         assertEquals("値を入力してください。", item.itemDetail.validator().validateHeadSkin().single().message)
 
         item.itemDetail.mutableHeadSkin?.value = "SushiEric"
-        assertTrue(item.itemDetail.validator().validateHeadSkin().isEmpty())
+        val results = item.itemDetail.validator().validateHeadSkin()
+        assertEquals(1, results.size)
+        assertTrue(results.single().isWarning)
     }
 }

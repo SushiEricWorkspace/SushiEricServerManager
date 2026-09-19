@@ -2,6 +2,7 @@ package io.github.sushiericworkspace.sushiericservermanager.editor.store
 
 import io.github.sushiericworkspace.common.path.SushiEricDataDirectory
 import io.github.sushiericworkspace.common.data.core.ManagedData
+import io.github.sushiericworkspace.common.data.item.model.ItemInternalId
 import io.github.sushiericworkspace.sushiericservermanager.communication.SshManager
 import io.github.sushiericworkspace.sushiericservermanager.util.Utility
 import net.schmizz.sshj.sftp.FileMode
@@ -190,9 +191,14 @@ class RemoteEditorDataStore(
         }
     }
 
-    private fun loadItemIds(): Set<String> {
+    private fun loadItemIds(): Set<ItemInternalId> {
         return when (val result = list(EditorDataDescriptors.item)) {
-            is StoreResult.Success -> result.value.mapTo(mutableSetOf()) { it.id }
+            is StoreResult.Success -> result.value.mapNotNullTo(mutableSetOf()) { resource ->
+                when (val loaded = load(EditorDataDescriptors.item, resource.id)) {
+                    is StoreResult.Success -> loaded.value.internalId
+                    is StoreResult.Failure -> null
+                }
+            }
             is StoreResult.Failure -> emptySet()
         }
     }

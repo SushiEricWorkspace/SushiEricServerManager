@@ -4,6 +4,7 @@ import io.github.sushiericworkspace.common.data.core.identity.PublicId
 import io.github.sushiericworkspace.common.data.core.ManagedData
 import io.github.sushiericworkspace.common.data.ore.model.OreBaseData
 import io.github.sushiericworkspace.common.data.item.model.ItemBaseData
+import io.github.sushiericworkspace.common.data.item.model.mutable.MutableItemBaseData
 import io.github.sushiericworkspace.sushiericservermanager.editor.controller.MainController
 import io.github.sushiericworkspace.sushiericservermanager.editor.result.ValidationResult
 import io.github.sushiericworkspace.sushiericservermanager.editor.result.dataservice.LoadResult
@@ -490,7 +491,10 @@ abstract class EditorView<T : ManagedData<T, *>>(
             selected = btn == selectedButton,
             modified = data != originalDataMap[id],
             invalid = data?.let {
-                dataAccess.validationErrors(it, sidebarButtons.keys.toSet()).isNotEmpty()
+                val itemInternalIds = editingDataMap.values
+                    .filterIsInstance<MutableItemBaseData>()
+                    .mapTo(mutableSetOf()) { item -> item.internalId }
+                dataAccess.validationErrors(it, itemInternalIds).isNotEmpty()
             } ?: false,
             localOnly = id !in remoteDataIds
         )

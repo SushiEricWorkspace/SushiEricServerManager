@@ -1,5 +1,8 @@
 package io.github.sushiericworkspace.sushiericservermanager.editor.merge
 
+import io.github.sushiericworkspace.common.data.core.identity.VanillaBlockId
+import io.github.sushiericworkspace.common.data.core.identity.VanillaItemId
+import io.github.sushiericworkspace.common.data.item.model.ItemInternalId
 import io.github.sushiericworkspace.common.data.item.model.ItemStatMultiplier
 import io.github.sushiericworkspace.common.data.item.model.LoreSection
 import io.github.sushiericworkspace.common.data.item.model.HeadSkinData
@@ -57,6 +60,9 @@ object ConflictValueFormatter {
             is ItemStatMultiplier -> ItemStatMultiplierFormatter.format(value)
             is LoreSection -> plainText.serialize(value.toComponent())
             is MutableLoreSection -> plainText.serialize(value.toComponent())
+            is VanillaItemId -> value.value
+            is VanillaBlockId -> value.value
+            is ItemInternalId -> value.value
 
             is Collection<*> -> {
                 if (value.isEmpty()) EMPTY else value.joinToString(" | ") { format(it) }
