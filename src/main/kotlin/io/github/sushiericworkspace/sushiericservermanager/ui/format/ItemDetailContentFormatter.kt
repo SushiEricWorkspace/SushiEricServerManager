@@ -39,6 +39,7 @@ object ItemDetailContentFormatter {
             is ShortSwordData -> "短剣"
             is LongSwordData -> "長剣 cooldown=${content.cooldown}"
             is AxeData -> "斧"
+            is io.github.sushiericworkspace.common.data.item.model.detail.PickaxeData -> "ツルハシ"
 
             is BowContent -> {
                 val base = "弓 multi=${content.multi}, angle=${content.angle}, pierce=${content.pierce}"

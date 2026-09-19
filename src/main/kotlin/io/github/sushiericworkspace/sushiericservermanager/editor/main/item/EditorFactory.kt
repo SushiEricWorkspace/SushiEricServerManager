@@ -1,5 +1,6 @@
 package io.github.sushiericworkspace.sushiericservermanager.editor.main.item
 
+import io.github.sushiericworkspace.common.data.core.identity.VanillaItemId
 import io.github.sushiericworkspace.common.value.SushiEricHexColor
 import io.github.sushiericworkspace.common.data.item.model.SushiEricRarity
 import io.github.sushiericworkspace.common.data.item.model.HeadSkinSource
@@ -567,6 +568,8 @@ class ItemEditorFactory(
 
                                     AXE -> emptyList()
 
+                                    PICKAXE -> emptyList()
+
                                     BOW, SHORT_BOW -> {
                                         content as MutableBowContent
                                         createBowRows(content)
@@ -613,6 +616,7 @@ class ItemEditorFactory(
                                         .content
                                         .vanillaIdConstraint
                                         .choices()
+                                        .map(VanillaItemId::value)
 
                                     val errorLabel = Label().apply {
                                         styleClass.add("error-label")
@@ -800,21 +804,21 @@ class ItemEditorFactory(
                                     val comboBox = ComboBox<String>().apply {
                                         items.addAll(allItems)
 
-                                        val fixedValue = itemData.itemDetail.vanillaId
+                                        val fixedValue = itemData.itemDetail.vanillaId.value
                                             .takeIf { it in allItems }
                                             ?: allItems.firstOrNull()
 
                                         value = fixedValue
 
                                         if (fixedValue != null) {
-                                            itemData.itemDetail.vanillaId = fixedValue
+                                            itemData.itemDetail.vanillaId = VanillaItemId(fixedValue)
                                         }
 
                                         valueProperty().addListener { _, _, selected ->
                                             if (updatingComboBox) return@addListener
                                             if (selected == null) return@addListener
 
-                                            itemData.itemDetail.vanillaId = selected
+                                            itemData.itemDetail.vanillaId = VanillaItemId(selected)
                                             rebuildContentController()
                                             refreshHeadSkinEditor()
                                             refreshButtonVisual(itemData.id)
@@ -829,13 +833,15 @@ class ItemEditorFactory(
                                         promptText = "アイテムIDを検索"
 
                                         textProperty().addListener { _, _, query ->
-                                            val result = itemData.itemDetail.content.vanillaIdConstraint.search(query)
+                                            val result = itemData.itemDetail.content.vanillaIdConstraint
+                                                .search(query)
+                                                .map(VanillaItemId::value)
 
                                             val displayItems = result.ifEmpty {
                                                 allItems
                                             }
 
-                                            val fixedValue = itemData.itemDetail.vanillaId
+                                            val fixedValue = itemData.itemDetail.vanillaId.value
                                                 .takeIf { it in displayItems }
                                                 ?: displayItems.firstOrNull()
 
@@ -848,7 +854,7 @@ class ItemEditorFactory(
                                             }
 
                                             if (fixedValue != null) {
-                                                itemData.itemDetail.vanillaId = fixedValue
+                                                itemData.itemDetail.vanillaId = VanillaItemId(fixedValue)
                                                 rebuildContentController()
                                                 refreshHeadSkinEditor()
                                                 refreshButtonVisual(itemData.id)

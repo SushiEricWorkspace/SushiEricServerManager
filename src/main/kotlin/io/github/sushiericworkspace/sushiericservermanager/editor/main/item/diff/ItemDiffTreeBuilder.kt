@@ -355,7 +355,7 @@ class ItemDiffTreeBuilder {
         return buildString {
             append(detail.itemType.name)
             append(" / ")
-            append(detail.vanillaId)
+            append(detail.vanillaId.value)
             append(" / ")
             append(if (detail.enchantAura) "エンチャントオーラあり" else "エンチャントオーラなし")
             append(" / ")
@@ -390,8 +390,8 @@ class ItemDiffTreeBuilder {
 
             if (serverDetail.vanillaId != originalDetail.vanillaId) {
                 appendLine("Vanilla ID:")
-                appendLine("  サーバー: ${serverDetail.vanillaId}")
-                appendLine("  ローカル: ${originalDetail.vanillaId}")
+                appendLine("  サーバー: ${serverDetail.vanillaId.value}")
+                appendLine("  ローカル: ${originalDetail.vanillaId.value}")
                 appendLine()
             }
 

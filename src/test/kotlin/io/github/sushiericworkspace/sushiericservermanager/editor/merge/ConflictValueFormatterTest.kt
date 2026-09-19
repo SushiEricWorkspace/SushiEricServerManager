@@ -1,5 +1,8 @@
 package io.github.sushiericworkspace.sushiericservermanager.editor.merge
 
+import io.github.sushiericworkspace.common.data.core.identity.VanillaBlockId
+import io.github.sushiericworkspace.common.data.core.identity.VanillaItemId
+import io.github.sushiericworkspace.common.data.item.model.ItemInternalId
 import io.github.sushiericworkspace.common.data.item.model.mutable.MutableItemBaseData
 import io.github.sushiericworkspace.common.data.item.model.HeadSkinSource
 import io.github.sushiericworkspace.common.data.item.model.mutable.MutableHeadSkinData
@@ -90,5 +93,12 @@ class ConflictValueFormatterTest {
         )
 
         assertEquals("PLAYER_NAME: SushiEric", ConflictValueFormatter.format(headSkin))
+    }
+
+    @Test
+    fun `用途別IDはUI表示用の値だけを表示する`() {
+        assertEquals("minecraft:stone", ConflictValueFormatter.format(VanillaItemId("minecraft:stone")))
+        assertEquals("minecraft:iron_ore", ConflictValueFormatter.format(VanillaBlockId("minecraft:iron_ore")))
+        assertEquals("item-internal-id", ConflictValueFormatter.format(ItemInternalId("item-internal-id")))
     }
 }
