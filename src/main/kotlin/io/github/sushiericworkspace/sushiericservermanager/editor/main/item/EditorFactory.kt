@@ -27,6 +27,7 @@ import io.github.sushiericworkspace.sushiericservermanager.app.AppScreen
 import io.github.sushiericworkspace.sushiericservermanager.editor.component.ColorPickerDialog
 import io.github.sushiericworkspace.sushiericservermanager.editor.component.EditorSpinnerFactory
 import io.github.sushiericworkspace.sushiericservermanager.editor.component.PotionEffectEditorDialog
+import io.github.sushiericworkspace.sushiericservermanager.editor.component.SearchableComboBox
 import io.github.sushiericworkspace.sushiericservermanager.editor.tree.EditorGraphicFactory
 import io.github.sushiericworkspace.sushiericservermanager.editor.main.item.tree.TreeRow
 import io.github.sushiericworkspace.sushiericservermanager.ui.AppTooltip
@@ -609,8 +610,6 @@ class ItemEditorFactory(
                                 VBox(6.0).apply {
                                     styleClass.add("editor-row-vbox")
 
-                                    var updatingComboBox = false
-
                                     val allItems = itemData
                                         .itemDetail
                                         .content
@@ -801,66 +800,28 @@ class ItemEditorFactory(
                                         }.start()
                                     }
 
-                                    val comboBox = ComboBox<String>().apply {
-                                        items.addAll(allItems)
-
-                                        val fixedValue = itemData.itemDetail.vanillaId.value
-                                            .takeIf { it in allItems }
-                                            ?: allItems.firstOrNull()
-
-                                        value = fixedValue
-
-                                        if (fixedValue != null) {
-                                            itemData.itemDetail.vanillaId = VanillaItemId(fixedValue)
-                                        }
-
-                                        valueProperty().addListener { _, _, selected ->
-                                            if (updatingComboBox) return@addListener
-                                            if (selected == null) return@addListener
-
+                                    val fixedValue = itemData.itemDetail.vanillaId.value
+                                        .takeIf { it in allItems }
+                                        ?: allItems.firstOrNull()
+                                    if (fixedValue != null) {
+                                        itemData.itemDetail.vanillaId = VanillaItemId(fixedValue)
+                                    }
+                                    val vanillaIdSelector = SearchableComboBox(
+                                        allChoices = allItems,
+                                        initialValue = fixedValue,
+                                        promptText = "アイテムIDを検索",
+                                        displayText = { it },
+                                        onSelected = { selected ->
                                             itemData.itemDetail.vanillaId = VanillaItemId(selected)
                                             rebuildContentController()
                                             refreshHeadSkinEditor()
                                             refreshButtonVisual(itemData.id)
-
                                             errorLabel.isVisible = false
                                             errorLabel.isManaged = false
                                             errorLabel.text = ""
-                                        }
-                                    }
-
-                                    val searchField = TextField().apply {
-                                        promptText = "アイテムIDを検索"
-
-                                        textProperty().addListener { _, _, query ->
-                                            val result = itemData.itemDetail.content.vanillaIdConstraint
-                                                .search(query)
-                                                .map(VanillaItemId::value)
-
-                                            val displayItems = result.ifEmpty {
-                                                allItems
-                                            }
-
-                                            val fixedValue = itemData.itemDetail.vanillaId.value
-                                                .takeIf { it in displayItems }
-                                                ?: displayItems.firstOrNull()
-
-                                            updatingComboBox = true
-                                            try {
-                                                comboBox.items.setAll(displayItems)
-                                                comboBox.value = fixedValue
-                                            } finally {
-                                                updatingComboBox = false
-                                            }
-
-                                            if (fixedValue != null) {
-                                                itemData.itemDetail.vanillaId = VanillaItemId(fixedValue)
-                                                rebuildContentController()
-                                                refreshHeadSkinEditor()
-                                                refreshButtonVisual(itemData.id)
-                                            }
-
-                                            if (result.isEmpty()) {
+                                        },
+                                        onSearchMatchChanged = { hasMatches ->
+                                            if (!hasMatches) {
                                                 errorLabel.text = "検索に一致するアイテムIDがありません"
                                                 errorLabel.isVisible = true
                                                 errorLabel.isManaged = true
@@ -870,7 +831,7 @@ class ItemEditorFactory(
                                                 errorLabel.text = ""
                                             }
                                         }
-                                    }
+                                    )
 
                                     val maxStackSizeRow = HBox(5.0).apply {
                                         alignment = Pos.CENTER_LEFT
@@ -904,8 +865,7 @@ class ItemEditorFactory(
 
                                     children.addAll(
                                         Label("バニラID:"),
-                                        searchField,
-                                        comboBox,
+                                        vanillaIdSelector,
                                         errorLabel,
                                         headSkinEditor,
                                         HBox(5.0).apply {

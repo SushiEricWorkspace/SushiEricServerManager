@@ -11,11 +11,9 @@ import javafx.geometry.Insets
 import javafx.geometry.Pos
 import javafx.scene.Scene
 import javafx.scene.control.Button
-import javafx.scene.control.ComboBox
 import javafx.scene.control.Label
 import javafx.scene.control.ListCell
 import javafx.scene.control.ScrollPane
-import javafx.scene.control.TextField
 import javafx.scene.control.Tooltip
 import javafx.scene.layout.HBox
 import javafx.scene.layout.Priority
@@ -27,7 +25,6 @@ import javafx.stage.Modality
 import javafx.stage.Stage
 import javafx.stage.Window
 import javafx.util.Callback
-import javafx.util.StringConverter
 import java.math.BigDecimal
 import java.math.RoundingMode
 
@@ -62,18 +59,6 @@ internal fun selectDropItemByPublicId(
     val selected = catalog.resolve(publicId) ?: return false
     dropItem.itemId = selected.internalId
     return true
-}
-
-internal fun filterDropItemChoices(
-    choices: List<DropItemChoice>,
-    query: String
-): List<DropItemChoice> {
-    val normalizedQuery = query.trim()
-    if (normalizedQuery.isEmpty()) return choices
-    return choices.filter {
-        it.displayText.contains(normalizedQuery, ignoreCase = true) ||
-            it.internalId.value.contains(normalizedQuery, ignoreCase = true)
-    }
 }
 
 internal fun dropItemValidationErrors(
@@ -332,20 +317,21 @@ internal object DropItemEditorDialog {
             ?.takeIf { catalog.resolve(it) == null }
             ?.let { DropItemChoice(it, null) }
         val allChoices = listOfNotNull(unresolvedChoice) + catalog.choices
-        var updating = false
-
-        val comboBox = ComboBox<DropItemChoice>().apply {
-            isEditable = false
-            minWidth = 180.0
-            prefWidth = 360.0
-            maxWidth = Double.MAX_VALUE
-            converter = object : StringConverter<DropItemChoice>() {
-                override fun toString(choice: DropItemChoice?): String = choice?.displayText.orEmpty()
-
-                override fun fromString(text: String?): DropItemChoice? =
-                    allChoices.firstOrNull { it.publicId == text || it.displayText == text }
+        val selector = SearchableComboBox(
+            allChoices = allChoices,
+            initialValue = allChoices.firstOrNull { it.internalId == dropItem.itemId },
+            promptText = "独自IDを検索",
+            displayText = DropItemChoice::displayText,
+            searchTexts = { choice -> listOf(choice.displayText, choice.internalId.value) },
+            onSelected = { selected ->
+                dropItem.itemId = selected.internalId
+                onChanged()
             }
-            cellFactory = Callback {
+        ).apply {
+            minWidth = 180.0
+            maxWidth = Double.MAX_VALUE
+            comboBox.prefWidth = 360.0
+            comboBox.cellFactory = Callback {
                 object : ListCell<DropItemChoice>() {
                     override fun updateItem(item: DropItemChoice?, empty: Boolean) {
                         super.updateItem(item, empty)
@@ -355,40 +341,8 @@ internal object DropItemEditorDialog {
                     }
                 }
             }
-            items.setAll(allChoices)
-            value = allChoices.firstOrNull { it.internalId == dropItem.itemId }
-
-            valueProperty().addListener { _, _, selected ->
-                if (updating || selected == null) return@addListener
-                dropItem.itemId = selected.internalId
-                onChanged()
-            }
         }
-        val searchField = TextField().apply {
-            promptText = "独自IDを検索"
-            maxWidth = Double.MAX_VALUE
-            textProperty().addListener { _, _, query ->
-                val filtered = filterDropItemChoices(allChoices, query)
-                val displayChoices = filtered.ifEmpty { allChoices }
-                val selected = displayChoices.firstOrNull { it.internalId == dropItem.itemId }
-                    ?: displayChoices.firstOrNull()
-                updating = true
-                try {
-                    comboBox.items.setAll(displayChoices)
-                    comboBox.value = selected
-                } finally {
-                    updating = false
-                }
-                if (selected != null) {
-                    dropItem.itemId = selected.internalId
-                    onChanged()
-                }
-            }
-        }
-        return VBox(6.0, searchField, comboBox).apply {
-            minWidth = 180.0
-            maxWidth = Double.MAX_VALUE
-        }
+        return selector
     }
 
     private fun moveButton(

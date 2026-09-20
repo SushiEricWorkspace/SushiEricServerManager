@@ -34,20 +34,6 @@ class DropItemEditorDialogTest {
     }
 
     @Test
-    fun `独自IDまたは内部IDで候補を絞り込む`() {
-        val choices = DropItemCatalog(
-            listOf(
-                item("iron_sword", "internal-sword"),
-                item("golden_apple", "internal-apple")
-            )
-        ).choices
-
-        assertEquals(listOf("iron_sword"), filterDropItemChoices(choices, "SWORD").map { it.publicId })
-        assertEquals(listOf("golden_apple"), filterDropItemChoices(choices, "internal-apple").map { it.publicId })
-        assertEquals(choices, filterDropItemChoices(choices, ""))
-    }
-
-    @Test
     fun `解決できない内部IDは保持してCommonの警告を返す`() {
         val unresolvedId = ItemInternalId("missing-internal-id")
         val dropItem = MutableDropItemData(itemId = unresolvedId)
