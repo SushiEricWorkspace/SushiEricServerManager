@@ -6,6 +6,7 @@ import io.github.sushiericworkspace.common.data.ore.model.OreBaseData
 import io.github.sushiericworkspace.common.data.item.model.ItemBaseData
 import io.github.sushiericworkspace.common.data.item.model.ItemInternalId
 import io.github.sushiericworkspace.common.data.item.model.mutable.MutableItemBaseData
+import io.github.sushiericworkspace.common.data.core.validation.SushiEricValidationError
 import io.github.sushiericworkspace.sushiericservermanager.editor.controller.MainController
 import io.github.sushiericworkspace.sushiericservermanager.editor.result.ValidationResult
 import io.github.sushiericworkspace.sushiericservermanager.editor.result.dataservice.LoadResult
@@ -15,6 +16,8 @@ import io.github.sushiericworkspace.sushiericservermanager.editor.merge.DataConf
 import io.github.sushiericworkspace.sushiericservermanager.editor.store.StoreError
 import io.github.sushiericworkspace.sushiericservermanager.editor.store.StoreErrorCode
 import io.github.sushiericworkspace.sushiericservermanager.editor.store.StoreResult
+import io.github.sushiericworkspace.sushiericservermanager.editor.validation.ValidationRepairRegistry
+import io.github.sushiericworkspace.sushiericservermanager.editor.validation.ValidationRepairResult
 import io.github.sushiericworkspace.sushiericservermanager.ui.AppTooltip
 import io.github.sushiericworkspace.sushiericservermanager.ui.dialog.CustomDialog
 import io.github.sushiericworkspace.sushiericservermanager.ui.dialog.ErrorType
@@ -23,10 +26,12 @@ import io.github.sushiericworkspace.common.data.core.SushiEricDataType
 import javafx.animation.Animation
 import javafx.animation.KeyFrame
 import javafx.animation.Timeline
+import javafx.application.Platform
 import javafx.event.EventHandler
 import javafx.concurrent.Task
 import javafx.scene.Node
 import javafx.scene.control.Button
+import javafx.scene.control.MenuItem
 import javafx.scene.layout.HBox
 import javafx.scene.layout.Priority
 import javafx.scene.layout.Region
@@ -81,7 +86,12 @@ abstract class EditorView<T : ManagedData<T, *>>(
     private val syncService = EditorSyncService(dataAccess)
     private var syncButton: Button? = null
     private var syncAllButton: Button? = null
+    private var repairAllWarningsButton: Button? = null
+    private var repairAllErrorsButton: Button? = null
     private var sidebarPreloadGeneration = 0
+
+    /** データ種別固有の警告修正アクションです。 */
+    protected open val validationRepairRegistry = ValidationRepairRegistry<T>()
 
     protected var restoredCacheCount = 0
 
@@ -147,6 +157,20 @@ abstract class EditorView<T : ManagedData<T, *>>(
             actions.add(syncButton!!)
             actions.add(syncAllButton!!)
         }
+        repairAllWarningsButton = Button("全警告を修正").apply {
+            styleClass.addAll("editor-action-button", "btn-secondary")
+            isFocusTraversable = false
+            isDisable = true
+            onAction = EventHandler { repairWarnings(editingDataMap.keys, confirmBatch = true) }
+        }
+        repairAllErrorsButton = Button("全エラーを修正").apply {
+            styleClass.addAll("editor-action-button", "btn-secondary")
+            isFocusTraversable = false
+            isDisable = true
+            onAction = EventHandler { focusFirstError(editingDataMap.keys, confirmBatch = true) }
+        }
+        actions.add(repairAllWarningsButton!!)
+        actions.add(repairAllErrorsButton!!)
         actions.add(spacer)
         actions.add(
             Button("新規作成").apply {
@@ -156,6 +180,7 @@ abstract class EditorView<T : ManagedData<T, *>>(
             }
         )
         container.children.setAll(actions)
+        refreshValidationActionButtons()
     }
 
     /**
@@ -447,6 +472,8 @@ abstract class EditorView<T : ManagedData<T, *>>(
         currentSelectedDataId = null
         syncButton = null
         syncAllButton = null
+        repairAllWarningsButton = null
+        repairAllErrorsButton = null
 
         return true
     }
@@ -488,12 +515,12 @@ abstract class EditorView<T : ManagedData<T, *>>(
     protected open fun refreshButtonVisual(id: String) {
         val btn = sidebarButtons[id] ?: return
         val data = editingDataMap[id]
+        val validationErrors = data?.let(::validationErrors).orEmpty()
         val state = SidebarDataState(
             selected = btn == selectedButton,
             modified = data != originalDataMap[id],
-            invalid = data?.let {
-                dataAccess.validationErrors(it, availableItemInternalIds()).isNotEmpty()
-            } ?: false,
+            hasWarnings = validationErrors.any(SushiEricValidationError::isWarning),
+            hasErrors = validationErrors.any(SushiEricValidationError::isError),
             localOnly = id !in remoteDataIds
         )
 
@@ -503,7 +530,183 @@ abstract class EditorView<T : ManagedData<T, *>>(
         btn.accessibleText = listOfNotNull(PublicId.normalizeForLoad(id), state.description())
             .joinToString(" / ")
         btn.tooltip = state.description()?.let(AppTooltip::create)
+        refreshValidationActionButtons()
     }
+
+    /** サイドバーの重大度別修正項目をまとめて保持します。 */
+    protected data class ValidationContextMenuItems(
+        val repairWarnings: MenuItem,
+        val repairErrors: MenuItem
+    ) {
+        val all: List<MenuItem>
+            get() = listOf(repairWarnings, repairErrors)
+    }
+
+    /** 指定データ用の警告・エラー修正メニューを生成します。 */
+    protected fun createValidationContextMenuItems(id: String): ValidationContextMenuItems =
+        ValidationContextMenuItems(
+            repairWarnings = MenuItem("警告を修正").apply {
+                onAction = EventHandler { repairWarnings(listOf(id), confirmBatch = false) }
+            },
+            repairErrors = MenuItem("エラーを修正").apply {
+                onAction = EventHandler { focusFirstError(listOf(id), confirmBatch = false) }
+            }
+        ).also { refreshValidationContextMenuItems(id, it) }
+
+    /** メニューを開く時点の検証結果に合わせて操作可否を更新します。 */
+    protected fun refreshValidationContextMenuItems(
+        id: String,
+        items: ValidationContextMenuItems
+    ) {
+        val errors = editingDataMap[id]?.let(::validationErrors).orEmpty()
+        items.repairWarnings.isDisable = errors.none { it.isWarning }
+        items.repairErrors.isDisable = errors.none { it.isError }
+    }
+
+    /** 現在の参照アイテム集合を使って検証結果を取得します。 */
+    protected fun validationErrors(data: T): List<SushiEricValidationError> =
+        dataAccess.validationErrors(data, availableItemInternalIds())
+
+    /**
+     * エラーに対応する入力UIへ移動します。
+     *
+     * データ固有の画面構造を共通基盤へ持ち込まないため、各エディターが実装します。
+     */
+    protected open fun focusValidationError(error: SushiEricValidationError): Boolean = false
+
+    private fun refreshValidationActionButtons() {
+        val errors = editingDataMap.values.flatMap(::validationErrors)
+        repairAllWarningsButton?.isDisable = errors.none { it.isWarning }
+        repairAllErrorsButton?.isDisable = errors.none { it.isError }
+    }
+
+    private fun repairWarnings(ids: Collection<String>, confirmBatch: Boolean) {
+        val targets = ids.mapNotNull { id ->
+            val data = editingDataMap[id] ?: return@mapNotNull null
+            val warnings = validationErrors(data).filter { it.isWarning }
+            warnings.takeIf { it.isNotEmpty() }?.let { Triple(id, data.deepCopy(), it) }
+        }
+        if (targets.isEmpty()) return
+
+        val supportedDescriptions = targets.flatMap { (id, _, warnings) ->
+            warnings.mapNotNull { warning ->
+                validationRepairRegistry.description(warning)?.let { "$id: $it" }
+            }
+        }
+        if (confirmBatch) {
+            val confirmed = CustomDialog.confirmation()
+                .title("全警告の修正")
+                .header("${targets.size} 件のデータにある警告を修正します")
+                .content(
+                    listOf(
+                        "修正可能な警告: ${supportedDescriptions.size} 件",
+                        "変更は未保存状態として反映し、自動でサーバーへ保存しません。"
+                    ) + supportedDescriptions.take(8)
+                )
+                .owner(main.currentStage)
+                .show()
+            if (!confirmed) return
+        }
+
+        val task = object : Task<WarningRepairBatch<T>>() {
+            override fun call(): WarningRepairBatch<T> {
+                val updated = mutableMapOf<String, T>()
+                val applied = mutableListOf<String>()
+                val failures = mutableListOf<String>()
+
+                targets.forEach { (id, data, warnings) ->
+                    var changed = false
+                    warnings.sortedByDescending { (it.key as? Int) ?: Int.MIN_VALUE }
+                        .forEach { warning ->
+                            when (val result = validationRepairRegistry.repair(data, warning)) {
+                                is ValidationRepairResult.Applied -> {
+                                    changed = true
+                                    applied += "$id: ${result.description}"
+                                }
+                                is ValidationRepairResult.Failed ->
+                                    failures += "$id: ${result.reason}"
+                                ValidationRepairResult.Unsupported ->
+                                    failures += "$id: 自動修正に対応していません (${warning.message})"
+                            }
+                        }
+                    if (changed) updated[id] = data
+                }
+                return WarningRepairBatch(updated, applied, failures)
+            }
+        }
+        task.setOnSucceeded {
+            val result = task.value
+            result.updated.forEach { (id, data) -> editingDataMap[id] = data }
+            result.updated.keys.forEach(::refreshButtonVisual)
+            currentSelectedDataId
+                ?.takeIf(result.updated::containsKey)
+                ?.let { setupMainContent(editingDataMap.getValue(it)) }
+            if (result.updated.isNotEmpty()) executeAutoSave()
+
+            if (result.failures.isNotEmpty()) {
+                CustomDialog.error()
+                    .title("警告を修正できませんでした")
+                    .header("失敗した項目: ${result.failures.size} 件")
+                    .content(result.failures)
+                    .owner(main.currentStage)
+                    .show()
+            } else if (result.applied.isNotEmpty()) {
+                main.showTimedTopLabel("${result.applied.size} 件の警告を修正しました", Color.GREENYELLOW)
+            }
+        }
+        task.setOnFailed {
+            logger.error("警告の修正中に例外が発生しました", task.exception)
+            CustomDialog.error(ErrorType.INTERNAL_ERROR)
+                .content("警告の修正中に例外が発生しました。")
+                .owner(main.currentStage)
+                .show()
+        }
+        Thread(task, "editor-warning-repair-${dataAccess.dataType.categoryDirName}").apply {
+            isDaemon = true
+            start()
+        }
+    }
+
+    private fun focusFirstError(ids: Collection<String>, confirmBatch: Boolean) {
+        val targets = ids.flatMap { id ->
+            editingDataMap[id]
+                ?.let(::validationErrors)
+                .orEmpty()
+                .filter { it.isError }
+                .map { id to it }
+        }
+        val (id, error) = targets.firstOrNull() ?: return
+
+        if (confirmBatch) {
+            val confirmed = CustomDialog.confirmation()
+                .title("全エラーの修正")
+                .header("${targets.size} 件のエラーがあります")
+                .content(
+                    listOf(
+                        "先頭のエラーがある入力欄へ移動します。",
+                        "修正後に再度実行すると、次のエラーへ移動できます。"
+                    ) + targets.take(8).map { (targetId, targetError) ->
+                        "$targetId: ${targetError.message}"
+                    }
+                )
+                .owner(main.currentStage)
+                .show()
+            if (!confirmed) return
+        }
+
+        if (currentSelectedDataId != id) selectTab(id)
+        Platform.runLater {
+            if (!focusValidationError(error)) {
+                main.showTimedTopLabel("対象: $id / ${error.message}", Color.ORANGE, 5.0)
+            }
+        }
+    }
+
+    private data class WarningRepairBatch<T>(
+        val updated: Map<String, T>,
+        val applied: List<String>,
+        val failures: List<String>
+    )
 
     /**
      * 未選択データも検証状態を表示できるよう、未読込データをバックグラウンドで取得します。

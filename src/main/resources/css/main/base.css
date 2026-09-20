@@ -67,6 +67,13 @@
     -fx-border-width: 0 4 0 0 !important;
 }
 
+.button-warning {
+    -fx-text-fill: -fx-warning-color !important;
+    -fx-font-weight: bold !important;
+    -fx-border-color: transparent transparent transparent -fx-warning-color !important;
+    -fx-border-width: 0 0 0 4 !important;
+}
+
 .button-invalid {
     -fx-text-fill: -fx-danger-color !important;
     -fx-font-weight: bold !important;
@@ -84,6 +91,10 @@
 }
 
 /* 入力内容の問題は、サーバー未保存よりも優先して伝える */
+.button-warning.button-local-only {
+    -fx-text-fill: -fx-warning-color !important;
+}
+
 .button-invalid.button-local-only {
     -fx-text-fill: -fx-danger-color !important;
 }
@@ -91,6 +102,11 @@
 /* 選択中は背景が強調色になるため、文字色を戻す */
 .button-selected.button-local-only {
     -fx-text-fill: white !important;
+}
+
+.button-modified.button-warning {
+    -fx-border-color: transparent -fx-success-color transparent -fx-warning-color !important;
+    -fx-border-width: 0 4 0 4 !important;
 }
 
 .button-modified.button-invalid {

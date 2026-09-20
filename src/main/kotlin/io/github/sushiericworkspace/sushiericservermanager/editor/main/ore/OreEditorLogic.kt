@@ -1,6 +1,7 @@
 package io.github.sushiericworkspace.sushiericservermanager.editor.main.ore
 
 import io.github.sushiericworkspace.common.data.core.identity.VanillaBlockId
+import io.github.sushiericworkspace.common.data.core.validation.SushiEricValidationError
 import io.github.sushiericworkspace.common.data.item.model.ItemInternalId
 import io.github.sushiericworkspace.common.data.item.model.mutable.MutableItemBaseData
 import io.github.sushiericworkspace.common.data.ore.model.mutable.MutableOreBaseData
@@ -10,12 +11,15 @@ import io.github.sushiericworkspace.sushiericservermanager.editor.controller.Mai
 import io.github.sushiericworkspace.sushiericservermanager.editor.service.EditorDataService
 import io.github.sushiericworkspace.sushiericservermanager.editor.store.StoreResult
 import io.github.sushiericworkspace.sushiericservermanager.editor.view.ManagedDataEditorView
+import io.github.sushiericworkspace.sushiericservermanager.editor.validation.ValidationRepairRegistry
+import io.github.sushiericworkspace.sushiericservermanager.editor.validation.ValidationRepairResult
 import io.github.sushiericworkspace.sushiericservermanager.ui.dialog.CustomDialog
 import io.github.sushiericworkspace.sushiericservermanager.ui.dialog.MergeConflictDialog
 import javafx.concurrent.Task
 import javafx.event.EventHandler
 import javafx.geometry.Insets
 import javafx.geometry.Pos
+import javafx.scene.Node
 import javafx.scene.control.Button
 import javafx.scene.control.ComboBox
 import javafx.scene.control.Label
@@ -35,6 +39,26 @@ internal fun parseHardnessInput(text: String): Double? =
 
 internal fun formatDropItemCount(count: Int): String = "ドロップアイテムを編集（${count}件）"
 
+internal fun createOreValidationRepairRegistry(): ValidationRepairRegistry<MutableOreBaseData> =
+    ValidationRepairRegistry<MutableOreBaseData>().apply {
+        register(
+            matches = { it.property.name == "dropItems" && it.key is Int },
+            description = { error ->
+                val index = error.key as Int
+                "ドロップアイテム ${index + 1} 番目を削除"
+            },
+            repair = { data, error ->
+                val index = error.key as? Int
+                if (index == null || index !in data.mutableDropItems.indices) {
+                    ValidationRepairResult.Failed("削除対象のドロップ行が見つかりません。")
+                } else {
+                    data.mutableDropItems.removeAt(index)
+                    ValidationRepairResult.Applied("ドロップアイテム ${index + 1} 番目を削除")
+                }
+            }
+        )
+    }
+
 /** 共通エディタ基盤上で鉱石固有の入力項目を提供します。 */
 internal class OreEditorLogic(
     main: MainController,
@@ -44,11 +68,14 @@ internal class OreEditorLogic(
     dataService = dataService,
     dataAccess = dataService.ores
 ) {
+    override val validationRepairRegistry = createOreValidationRepairRegistry()
+
     private var availableItems: List<MutableItemBaseData> = emptyList()
     private var itemCatalogLoading = false
     private var itemCatalogLoaded = false
     private var refreshCurrentValidation: (() -> Unit)? = null
     private var dropItemEditorButton: Button? = null
+    private val validationFocusTargets = mutableMapOf<String, Node>()
 
     override fun setupSidebar(container: VBox, selectId: String?) {
         if (!itemCatalogLoaded && !itemCatalogLoading) itemCatalogLoading = true
@@ -87,6 +114,10 @@ internal class OreEditorLogic(
         val hardnessField = createHardnessField(selectData) {
             refreshValidation()
         }
+        validationFocusTargets.clear()
+        validationFocusTargets["blockId"] = blockIdSelector.children.first()
+        validationFocusTargets["hardness"] = hardnessField
+        validationFocusTargets["dropItems"] = dropItemButton
         dropItemButton.onAction = EventHandler {
             val owner = main.currentStage ?: return@EventHandler
             itemCatalogLoading = true
@@ -126,6 +157,12 @@ internal class OreEditorLogic(
         HBox.setHgrow(content, Priority.ALWAYS)
         main.mainContentContainer.children.setAll(content)
         refreshValidation()
+    }
+
+    override fun focusValidationError(error: SushiEricValidationError): Boolean {
+        val target = validationFocusTargets[error.property.name] ?: return false
+        target.requestFocus()
+        return true
     }
 
     override fun availableItemInternalIds(): Set<ItemInternalId> =
