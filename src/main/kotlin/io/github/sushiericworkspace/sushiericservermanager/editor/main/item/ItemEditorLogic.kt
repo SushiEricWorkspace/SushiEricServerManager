@@ -1,7 +1,9 @@
 package io.github.sushiericworkspace.sushiericservermanager.editor.main.item
 
 import io.github.sushiericworkspace.common.data.core.identity.PublicId
+import io.github.sushiericworkspace.common.data.core.validation.SushiEricValidationError
 import io.github.sushiericworkspace.common.data.item.LoreLineEditor
+import io.github.sushiericworkspace.common.data.item.model.HeadSkinSource
 import io.github.sushiericworkspace.common.data.item.model.mutable.MutableItemBaseData
 import io.github.sushiericworkspace.common.data.item.model.mutable.MutableItemDetail
 import io.github.sushiericworkspace.common.data.item.model.LoreSectionType
@@ -23,6 +25,8 @@ import io.github.sushiericworkspace.sushiericservermanager.editor.result.dataser
 import io.github.sushiericworkspace.sushiericservermanager.editor.store.StoreResult
 import io.github.sushiericworkspace.sushiericservermanager.editor.tree.EditorContextMenuFactory
 import io.github.sushiericworkspace.sushiericservermanager.editor.tree.EditorFolderGraphicFactory
+import io.github.sushiericworkspace.sushiericservermanager.editor.validation.ValidationRepairRegistry
+import io.github.sushiericworkspace.sushiericservermanager.editor.validation.ValidationRepairResult
 import io.github.sushiericworkspace.sushiericservermanager.ui.AppTooltip
 import javafx.application.Platform
 import javafx.event.EventHandler
@@ -76,14 +80,43 @@ internal fun filterSidebarItemIds(
     }
 }
 
+internal fun createItemValidationRepairRegistry(
+    headSkinTextureLookup: HeadSkinTextureLookup
+): ValidationRepairRegistry<MutableItemBaseData> =
+    ValidationRepairRegistry<MutableItemBaseData>().apply {
+        register(
+            matches = { it.property.name == "headSkin" },
+            description = { "プレイヤー名指定のヘッドスキンをテクスチャ値へ変換" },
+            repair = { data, _ ->
+                val headSkin = data.itemDetail.mutableHeadSkin
+                if (headSkin == null || headSkin.source != HeadSkinSource.PLAYER_NAME) {
+                    ValidationRepairResult.Failed("プレイヤー名指定のヘッドスキンが見つかりません。")
+                } else {
+                    when (val result = headSkinTextureLookup.lookup(headSkin.source, headSkin.value)) {
+                        is HeadSkinTextureLookupResult.Failure ->
+                            ValidationRepairResult.Failed(result.message)
+                        is HeadSkinTextureLookupResult.Success -> {
+                            headSkin.source = HeadSkinSource.TEXTURE
+                            headSkin.value = result.texture
+                            ValidationRepairResult.Applied("ヘッドスキンをテクスチャ値へ変換")
+                        }
+                    }
+                }
+            }
+        )
+    }
+
 class ItemEditorLogic(
     main: MainController,
-    dataService: EditorDataService
+    dataService: EditorDataService,
+    private val headSkinTextureLookup: HeadSkinTextureLookup = MojangHeadSkinTextureLookup()
 ) : EditorView<MutableItemBaseData>(
     main = main,
     dataService = dataService,
     dataAccess = dataService.items
 ) {
+    override val validationRepairRegistry = createItemValidationRepairRegistry(headSkinTextureLookup)
+
     private companion object {
         /**
          * ホイール1回あたりのツリーのスクロール量の倍率。
@@ -299,6 +332,7 @@ class ItemEditorLogic(
             styleClass.add("menu-item-danger")
             onAction = EventHandler { requestDelete(id) }
         }
+        val validationItems = createValidationContextMenuItems(id)
 
         return ContextMenu(
             MenuItem("IDをコピー").apply {
@@ -308,6 +342,8 @@ class ItemEditorLogic(
                 onAction = EventHandler { copyInternalId(id) }
             },
             saveItem,
+            validationItems.repairWarnings,
+            validationItems.repairErrors,
             MenuItem("複製").apply {
                 onAction = EventHandler { requestDuplicate(id, existingIds) }
             },
@@ -316,6 +352,7 @@ class ItemEditorLogic(
         ).apply {
             setOnShowing {
                 saveItem.isDisable = originalDataMap[id] == editingDataMap[id]
+                refreshValidationContextMenuItems(id, validationItems)
                 scene?.root?.styleClass?.let { classes ->
                     if ("popup-root-transparent" !in classes) {
                         classes.add("popup-root-transparent")
@@ -1441,6 +1478,25 @@ class ItemEditorLogic(
             if (found != null) return found
         }
         return null
+    }
+
+    override fun focusValidationError(error: SushiEricValidationError): Boolean {
+        val targetRow = when (error.property.name) {
+            "displayName" -> TreeRow.Editor.DisplayName
+            "stats", "statMultipliers" -> TreeRow.Editor.StatsContent
+            "id" -> return false
+            else -> TreeRow.Editor.DetailContent
+        }
+        val targetItem = findTreeItemByRow(treeView.root, targetRow) ?: return false
+        var parent = targetItem.parent
+        while (parent != null) {
+            parent.isExpanded = true
+            parent = parent.parent
+        }
+        treeView.selectionModel.select(targetItem)
+        treeView.getRow(targetItem).takeIf { it >= 0 }?.let(treeView::scrollTo)
+        treeView.requestFocus()
+        return true
     }
 
     override fun refreshButtonVisual(id: String) {

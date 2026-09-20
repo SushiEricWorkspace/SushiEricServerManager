@@ -129,11 +129,14 @@ internal abstract class ManagedDataEditorView<T : ManagedData<T, *>>(
         val saveItem = MenuItem("保存").apply {
             onAction = EventHandler { onSave(id) }
         }
+        val validationItems = createValidationContextMenuItems(id)
         return ContextMenu(
             MenuItem("IDをコピー").apply {
                 onAction = EventHandler { copyId(id) }
             },
             saveItem,
+            validationItems.repairWarnings,
+            validationItems.repairErrors,
             MenuItem("複製").apply {
                 onAction = EventHandler { requestDuplicate(id, existingIds) }
             },
@@ -147,6 +150,7 @@ internal abstract class ManagedDataEditorView<T : ManagedData<T, *>>(
         ).apply {
             setOnShowing {
                 saveItem.isDisable = originalDataMap[id] == editingDataMap[id]
+                refreshValidationContextMenuItems(id, validationItems)
             }
         }
     }

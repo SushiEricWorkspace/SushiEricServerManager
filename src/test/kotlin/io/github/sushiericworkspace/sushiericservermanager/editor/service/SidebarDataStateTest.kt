@@ -8,7 +8,7 @@ import kotlin.test.assertNull
 class SidebarDataStateTest {
     @Test
     fun `通常状態では装飾を追加しない`() {
-        val state = SidebarDataState(selected = false, modified = false, invalid = false)
+        val state = SidebarDataState(false, false, false, false)
 
         assertEquals(emptyList(), state.styleClasses)
         assertEquals("sample", state.displayText("sample"))
@@ -16,38 +16,28 @@ class SidebarDataStateTest {
     }
 
     @Test
-    fun `選択と変更と不正の状態を同時に保持する`() {
-        val state = SidebarDataState(selected = true, modified = true, invalid = true)
+    fun `警告とエラーを別の表示で保持する`() {
+        val warning = SidebarDataState(false, false, hasWarnings = true, hasErrors = false)
+        val error = SidebarDataState(false, false, hasWarnings = false, hasErrors = true)
+
+        assertEquals(listOf("button-warning"), warning.styleClasses)
+        assertEquals("⚠ sample", warning.displayText("sample"))
+        assertEquals("警告あり", warning.description())
+        assertEquals(listOf("button-invalid"), error.styleClasses)
+        assertEquals("⛔ sample", error.displayText("sample"))
+        assertEquals("エラーあり", error.description())
+    }
+
+    @Test
+    fun `選択と変更と両方の問題を同時に保持する`() {
+        val state = SidebarDataState(true, true, hasWarnings = true, hasErrors = true)
 
         assertEquals(
-            listOf("button-selected", "button-modified", "button-invalid"),
+            listOf("button-selected", "button-modified", "button-warning", "button-invalid"),
             state.styleClasses
         )
-        assertEquals("⚠ sample  ●", state.displayText("sample"))
-        assertEquals("選択中 / 未保存の変更あり / 入力内容に問題あり", state.description())
-    }
-
-    @Test
-    fun `不正状態は変更状態がなくても表示する`() {
-        val state = SidebarDataState(selected = false, modified = false, invalid = true)
-
-        assertEquals(listOf("button-invalid"), state.styleClasses)
-        assertEquals("⚠ sample", state.displayText("sample"))
-        assertEquals("入力内容に問題あり", state.description())
-    }
-
-    @Test
-    fun `サーバー未保存の状態を表示する`() {
-        val state = SidebarDataState(
-            selected = false,
-            modified = true,
-            invalid = false,
-            localOnly = true
-        )
-
-        assertEquals(listOf("button-modified", "button-local-only"), state.styleClasses)
-        assertEquals("＋ sample  ●", state.displayText("sample"))
-        assertEquals("サーバー未保存 / 未保存の変更あり", state.description())
+        assertEquals("⛔ sample  ●", state.displayText("sample"))
+        assertEquals("選択中 / 未保存の変更あり / 警告あり / エラーあり", state.description())
     }
 
     @Test
@@ -55,37 +45,19 @@ class SidebarDataStateTest {
         val state = SidebarDataState(
             selected = true,
             modified = true,
-            invalid = true,
+            hasWarnings = true,
+            hasErrors = false,
             localOnly = true
         )
 
         assertEquals(
-            listOf("button-selected", "button-modified", "button-invalid", "button-local-only"),
+            listOf("button-selected", "button-modified", "button-warning", "button-local-only"),
             state.styleClasses
         )
         assertEquals("⚠ ＋ sample  ●", state.displayText("sample"))
         assertEquals(
-            "選択中 / サーバー未保存 / 未保存の変更あり / 入力内容に問題あり",
+            "選択中 / サーバー未保存 / 未保存の変更あり / 警告あり",
             state.description()
         )
-    }
-
-    @Test
-    fun `各状態の組み合わせで該当する装飾だけを保持する`() {
-        val combinations = listOf(
-            SidebarDataState(false, false, false) to emptyList(),
-            SidebarDataState(true, false, false) to listOf("button-selected"),
-            SidebarDataState(false, true, false) to listOf("button-modified"),
-            SidebarDataState(false, false, true) to listOf("button-invalid"),
-            SidebarDataState(true, true, false) to listOf("button-selected", "button-modified"),
-            SidebarDataState(true, false, true) to listOf("button-selected", "button-invalid"),
-            SidebarDataState(false, true, true) to listOf("button-modified", "button-invalid"),
-            SidebarDataState(true, true, true) to
-                listOf("button-selected", "button-modified", "button-invalid")
-        )
-
-        combinations.forEach { (state, expected) ->
-            assertEquals(expected, state.styleClasses)
-        }
     }
 }
