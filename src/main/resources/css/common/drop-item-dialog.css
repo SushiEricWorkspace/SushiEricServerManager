@@ -1,0 +1,41 @@
+.drop-item-scene-root,
+.drop-item-dialog-root {
+    -fx-background-color: #18191a;
+}
+
+.drop-item-list-box {
+    -fx-padding: 8;
+}
+
+.drop-item-list-scroll {
+    -fx-background-color: #18191a;
+    -fx-background: #18191a;
+    -fx-border-color: #343638;
+}
+
+.drop-item-list-scroll > .viewport {
+    -fx-background-color: #18191a;
+}
+
+.drop-item-row {
+    -fx-padding: 10;
+    -fx-background-color: #222426;
+    -fx-border-color: #343638;
+    -fx-border-radius: 2;
+    -fx-background-radius: 2;
+}
+
+.drop-item-row-grid .label {
+    -fx-text-fill: #f3f3f3;
+}
+
+.drop-item-expected-value {
+    -fx-text-fill: #ffd54f !important;
+    -fx-font-weight: bold;
+    -fx-min-width: 110;
+}
+
+.drop-item-move-button {
+    -fx-min-width: 34;
+    -fx-pref-width: 34;
+}
