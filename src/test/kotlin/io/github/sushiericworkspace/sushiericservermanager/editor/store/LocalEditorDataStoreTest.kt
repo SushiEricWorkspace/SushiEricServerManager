@@ -166,11 +166,23 @@ class LocalEditorDataStoreTest {
                 store.save(EditorDataDescriptors.ore, validOre.id, validOre)
             )
 
+            val warningOre = MutableOreBaseData(
+                id = "warning_ore",
+                blockId = VanillaBlockId("iron_ore"),
+                mutableDropItems = mutableListOf(
+                    MutableDropItemData(itemId = ItemInternalId(item.id))
+                )
+            )
+            assertIs<StoreResult.Success<Unit>>(
+                store.save(EditorDataDescriptors.ore, warningOre.id, warningOre)
+            )
+            assertFalse(warningOre.completed)
+
             val invalidOre = MutableOreBaseData(
                 id = "invalid_ore",
                 blockId = VanillaBlockId("iron_ore"),
                 mutableDropItems = mutableListOf(
-                    MutableDropItemData(itemId = ItemInternalId(item.id))
+                    MutableDropItemData(itemId = item.internalId, n = 0)
                 )
             )
             val result = store.save(EditorDataDescriptors.ore, invalidOre.id, invalidOre)

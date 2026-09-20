@@ -93,7 +93,8 @@ class LocalEditorDataStore(
         }
 
         val itemIds = localItemIds()
-        val errors = descriptor.validate(data, itemIds)
+        val validationResults = data.refreshCompleted(descriptor.validate(data, itemIds))
+        val errors = validationResults.filter { it.isError }
         if (errors.isNotEmpty()) {
             return failure(
                 StoreErrorCode.VALIDATION_FAILED,
