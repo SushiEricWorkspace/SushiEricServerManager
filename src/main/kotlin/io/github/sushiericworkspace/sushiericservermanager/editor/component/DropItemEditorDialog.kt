@@ -15,10 +15,11 @@ import javafx.scene.control.ComboBox
 import javafx.scene.control.Label
 import javafx.scene.control.ListCell
 import javafx.scene.control.ScrollPane
+import javafx.scene.control.TextField
 import javafx.scene.control.Tooltip
-import javafx.scene.layout.GridPane
 import javafx.scene.layout.HBox
 import javafx.scene.layout.Priority
+import javafx.scene.layout.Region
 import javafx.scene.layout.StackPane
 import javafx.scene.layout.VBox
 import javafx.scene.paint.Color
@@ -61,6 +62,18 @@ internal fun selectDropItemByPublicId(
     val selected = catalog.resolve(publicId) ?: return false
     dropItem.itemId = selected.internalId
     return true
+}
+
+internal fun filterDropItemChoices(
+    choices: List<DropItemChoice>,
+    query: String
+): List<DropItemChoice> {
+    val normalizedQuery = query.trim()
+    if (normalizedQuery.isEmpty()) return choices
+    return choices.filter {
+        it.displayText.contains(normalizedQuery, ignoreCase = true) ||
+            it.internalId.value.contains(normalizedQuery, ignoreCase = true)
+    }
 }
 
 internal fun dropItemValidationErrors(
@@ -244,7 +257,7 @@ internal object DropItemEditorDialog {
             )
         }
 
-        val itemComboBox = createItemComboBox(dropItem, catalog, ::refreshStatus)
+        val itemSelector = createItemSelector(dropItem, catalog, ::refreshStatus)
         val countSpinner = EditorSpinnerFactory.intSpinner(
             initialValue = dropItem.n,
             min = 1,
@@ -267,58 +280,65 @@ internal object DropItemEditorDialog {
             refreshStatus()
         }
 
-        val editorGrid = GridPane().apply {
-            styleClass.add("drop-item-row-grid")
-            hgap = 8.0
-            vgap = 6.0
+        val actionButtons = HBox(
+            moveButton("▲", "上へ移動", canMoveUp, onMoveUp),
+            moveButton("▼", "下へ移動", canMoveDown, onMoveDown),
+            Button("削除").apply {
+                isFocusTraversable = false
+                styleClass.addAll("btn-danger", "drop-item-delete-button")
+                setOnAction { onDelete() }
+            }
+        ).apply {
+            spacing = 4.0
+            alignment = Pos.CENTER_LEFT
+            minWidth = Region.USE_PREF_SIZE
+        }
+        val itemRow = HBox(8.0).apply {
+            styleClass.add("drop-item-row-top")
             alignment = Pos.CENTER_LEFT
             maxWidth = Double.MAX_VALUE
-            add(Label("アイテム:"), 0, 0)
-            add(itemComboBox, 1, 0)
-            add(Label("n:"), 2, 0)
-            add(countSpinner, 3, 0)
-            add(Label("p:"), 4, 0)
-            add(probabilitySpinner, 5, 0)
-            add(expectedValueLabel, 6, 0)
-            add(
-                HBox(
-                    moveButton("↑", "上へ移動", canMoveUp, onMoveUp),
-                    moveButton("↓", "下へ移動", canMoveDown, onMoveDown),
-                    Button("削除").apply {
-                        isFocusTraversable = false
-                        styleClass.add("btn-danger")
-                        setOnAction { onDelete() }
-                    }
-                ).apply {
-                    spacing = 4.0
-                    alignment = Pos.CENTER_LEFT
-                },
-                7,
-                0
+            children.addAll(
+                Label("アイテム:").apply { minWidth = Region.USE_PREF_SIZE },
+                itemSelector,
+                actionButtons
+            )
+            HBox.setHgrow(itemSelector, Priority.ALWAYS)
+        }
+        val valueRow = HBox(8.0).apply {
+            styleClass.add("drop-item-row-values")
+            alignment = Pos.CENTER_LEFT
+            children.addAll(
+                Label("試行回数 n:").apply { minWidth = Region.USE_PREF_SIZE },
+                countSpinner,
+                Label("成功確率 p:").apply { minWidth = Region.USE_PREF_SIZE },
+                probabilitySpinner,
+                expectedValueLabel
             )
         }
 
         refreshStatus()
-        return VBox(4.0, editorGrid, validationBox).apply {
+        return VBox(8.0, itemRow, valueRow, validationBox).apply {
             styleClass.add("drop-item-row")
             maxWidth = Double.MAX_VALUE
         }
     }
 
-    private fun createItemComboBox(
+    private fun createItemSelector(
         dropItem: MutableDropItemData,
         catalog: DropItemCatalog,
         onChanged: () -> Unit
-    ): ComboBox<DropItemChoice> {
+    ): VBox {
         val unresolvedChoice = dropItem.itemId
             ?.takeIf { catalog.resolve(it) == null }
             ?.let { DropItemChoice(it, null) }
         val allChoices = listOfNotNull(unresolvedChoice) + catalog.choices
         var updating = false
 
-        return ComboBox<DropItemChoice>().apply {
-            isEditable = true
-            prefWidth = 250.0
+        val comboBox = ComboBox<DropItemChoice>().apply {
+            isEditable = false
+            minWidth = 180.0
+            prefWidth = 360.0
+            maxWidth = Double.MAX_VALUE
             converter = object : StringConverter<DropItemChoice>() {
                 override fun toString(choice: DropItemChoice?): String = choice?.displayText.orEmpty()
 
@@ -343,33 +363,31 @@ internal object DropItemEditorDialog {
                 dropItem.itemId = selected.internalId
                 onChanged()
             }
-            editor.textProperty().addListener { _, _, query ->
-                if (updating || !editor.isFocused) return@addListener
-                val filtered = if (query.isBlank()) {
-                    allChoices
-                } else {
-                    allChoices.filter {
-                        it.displayText.contains(query, ignoreCase = true) ||
-                            it.internalId.value.contains(query, ignoreCase = true)
-                    }
-                }
-                val selected = value
+        }
+        val searchField = TextField().apply {
+            promptText = "独自IDを検索"
+            maxWidth = Double.MAX_VALUE
+            textProperty().addListener { _, _, query ->
+                val filtered = filterDropItemChoices(allChoices, query)
+                val displayChoices = filtered.ifEmpty { allChoices }
+                val selected = displayChoices.firstOrNull { it.internalId == dropItem.itemId }
+                    ?: displayChoices.firstOrNull()
                 updating = true
-                items.setAll(filtered)
-                value = selected
-                updating = false
-                if (isShowing) hide()
-                show()
-            }
-            editor.focusedProperty().addListener { _, _, focused ->
-                if (!focused) {
-                    val selected = value
-                    updating = true
-                    items.setAll(allChoices)
-                    editor.text = selected?.displayText.orEmpty()
+                try {
+                    comboBox.items.setAll(displayChoices)
+                    comboBox.value = selected
+                } finally {
                     updating = false
                 }
+                if (selected != null) {
+                    dropItem.itemId = selected.internalId
+                    onChanged()
+                }
             }
+        }
+        return VBox(6.0, searchField, comboBox).apply {
+            minWidth = 180.0
+            maxWidth = Double.MAX_VALUE
         }
     }
 
@@ -380,6 +398,7 @@ internal object DropItemEditorDialog {
         action: () -> Unit
     ): Button = Button(text).apply {
         isFocusTraversable = false
+        isMnemonicParsing = false
         isDisable = !enabled
         tooltip = Tooltip(tooltipText)
         styleClass.add("drop-item-move-button")

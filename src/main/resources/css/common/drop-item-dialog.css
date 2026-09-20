@@ -25,8 +25,13 @@
     -fx-background-radius: 2;
 }
 
-.drop-item-row-grid .label {
+.drop-item-row .label {
     -fx-text-fill: #f3f3f3;
+}
+
+.drop-item-row-top,
+.drop-item-row-values {
+    -fx-alignment: center-left;
 }
 
 .drop-item-expected-value {
@@ -38,4 +43,9 @@
 .drop-item-move-button {
     -fx-min-width: 34;
     -fx-pref-width: 34;
+    -fx-padding: 0;
+}
+
+.drop-item-delete-button {
+    -fx-min-width: 58;
 }
