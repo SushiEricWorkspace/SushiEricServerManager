@@ -12,6 +12,7 @@ import io.github.sushiericworkspace.common.data.item.model.detail.ShieldData
 import io.github.sushiericworkspace.common.data.item.model.detail.ShortBowData
 import io.github.sushiericworkspace.common.data.item.model.detail.ShortSwordData
 import io.github.sushiericworkspace.common.data.item.model.detail.OtherWeaponData
+import io.github.sushiericworkspace.common.data.item.model.detail.PickaxeData
 import io.github.sushiericworkspace.common.data.item.model.detail.SwordData
 
 /**
@@ -39,7 +40,7 @@ object ItemDetailContentFormatter {
             is ShortSwordData -> "短剣"
             is LongSwordData -> "長剣 cooldown=${content.cooldown}"
             is AxeData -> "斧"
-            is io.github.sushiericworkspace.common.data.item.model.detail.PickaxeData -> "ツルハシ"
+            is PickaxeData -> "ツルハシ"
 
             is BowContent -> {
                 val base = "弓 multi=${content.multi}, angle=${content.angle}, pierce=${content.pierce}"
