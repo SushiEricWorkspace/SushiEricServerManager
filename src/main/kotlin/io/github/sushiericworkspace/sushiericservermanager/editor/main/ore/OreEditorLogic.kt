@@ -6,6 +6,7 @@ import io.github.sushiericworkspace.common.data.item.model.mutable.MutableItemBa
 import io.github.sushiericworkspace.common.data.ore.model.mutable.MutableOreBaseData
 import io.github.sushiericworkspace.common.registry.VanillaIdRegistry
 import io.github.sushiericworkspace.sushiericservermanager.editor.component.DropItemEditorDialog
+import io.github.sushiericworkspace.sushiericservermanager.editor.component.SearchableComboBox
 import io.github.sushiericworkspace.sushiericservermanager.editor.controller.MainController
 import io.github.sushiericworkspace.sushiericservermanager.editor.service.EditorDataService
 import io.github.sushiericworkspace.sushiericservermanager.editor.store.StoreResult
@@ -17,7 +18,6 @@ import javafx.event.EventHandler
 import javafx.geometry.Insets
 import javafx.geometry.Pos
 import javafx.scene.control.Button
-import javafx.scene.control.ComboBox
 import javafx.scene.control.Label
 import javafx.scene.control.TextField
 import javafx.scene.control.TextFormatter
@@ -26,9 +26,6 @@ import javafx.scene.layout.GridPane
 import javafx.scene.layout.HBox
 import javafx.scene.layout.Priority
 import javafx.scene.layout.VBox
-
-internal fun filterVanillaBlockIds(ids: List<String>, query: String): List<String> =
-    if (query.isBlank()) ids else ids.filter { it.contains(query, ignoreCase = true) }
 
 internal fun parseHardnessInput(text: String): Double? =
     text.toDoubleOrNull()?.takeIf(Double::isFinite)
@@ -157,42 +154,17 @@ internal class OreEditorLogic(
     ): VBox {
         val registryIds = VanillaIdRegistry.allBlocks.map(VanillaBlockId::value)
         val allIds = (listOf(ore.blockId.value) + registryIds).filter(String::isNotBlank).distinct()
-        var updating = false
-
-        val comboBox = ComboBox<String>().apply {
-            isEditable = false
-            prefWidth = 360.0
-            maxWidth = Double.MAX_VALUE
-            items.setAll(allIds)
-            value = ore.blockId.value
-            valueProperty().addListener { _, _, selected ->
-                if (updating || selected.isNullOrBlank()) return@addListener
+        return SearchableComboBox(
+            allChoices = allIds,
+            initialValue = ore.blockId.value,
+            promptText = "ブロックIDを検索",
+            displayText = { it },
+            onSelected = { selected ->
                 ore.blockId = VanillaBlockId(selected)
                 onChanged()
             }
-        }
-        val searchField = TextField().apply {
-            promptText = "ブロックIDを検索"
-            maxWidth = Double.MAX_VALUE
-            textProperty().addListener { _, _, query ->
-                val filtered = filterVanillaBlockIds(allIds, query)
-                val displayIds = filtered.ifEmpty { allIds }
-                val selected = ore.blockId.value.takeIf { it in displayIds }
-                    ?: displayIds.firstOrNull()
-                updating = true
-                try {
-                    comboBox.items.setAll(displayIds)
-                    comboBox.value = selected
-                } finally {
-                    updating = false
-                }
-                if (selected != null) {
-                    ore.blockId = VanillaBlockId(selected)
-                    onChanged()
-                }
-            }
-        }
-        return VBox(6.0, searchField, comboBox).apply {
+        ).apply {
+            comboBox.prefWidth = 360.0
             maxWidth = Double.MAX_VALUE
         }
     }
