@@ -11,6 +11,7 @@ import io.github.sushiericworkspace.sushiericservermanager.ui.dialog.ErrorType
 import io.github.sushiericworkspace.sushiericservermanager.config.FilePath
 import io.github.sushiericworkspace.sushiericservermanager.config.ServerProfile
 import io.github.sushiericworkspace.sushiericservermanager.editor.main.item.ItemEditorLogic
+import io.github.sushiericworkspace.sushiericservermanager.editor.main.ore.OreEditorLogic
 import io.github.sushiericworkspace.sushiericservermanager.editor.service.EditorDataService
 import io.github.sushiericworkspace.sushiericservermanager.editor.session.EditorSession
 import io.github.sushiericworkspace.sushiericservermanager.editor.view.EditorView
@@ -471,6 +472,22 @@ class HomeController : Initializable {
 
             logic
         }
+    }
+
+    @FXML
+    @Suppress("unused")
+    fun onOpenOreEditor() {
+        openManagedDataEditor(
+            key = "ORE_EDITOR",
+            title = "鉱石エディタ",
+            dataAccessProvider = { it.ores },
+            logicFactory = { mainController, service ->
+                OreEditorLogic(
+                    main = mainController,
+                    dataService = service
+                )
+            }
+        )
     }
 
     private companion object {

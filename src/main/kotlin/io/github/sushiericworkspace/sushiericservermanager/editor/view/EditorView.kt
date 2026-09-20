@@ -4,6 +4,7 @@ import io.github.sushiericworkspace.common.data.core.identity.PublicId
 import io.github.sushiericworkspace.common.data.core.ManagedData
 import io.github.sushiericworkspace.common.data.ore.model.OreBaseData
 import io.github.sushiericworkspace.common.data.item.model.ItemBaseData
+import io.github.sushiericworkspace.common.data.item.model.ItemInternalId
 import io.github.sushiericworkspace.common.data.item.model.mutable.MutableItemBaseData
 import io.github.sushiericworkspace.sushiericservermanager.editor.controller.MainController
 import io.github.sushiericworkspace.sushiericservermanager.editor.result.ValidationResult
@@ -491,10 +492,7 @@ abstract class EditorView<T : ManagedData<T, *>>(
             selected = btn == selectedButton,
             modified = data != originalDataMap[id],
             invalid = data?.let {
-                val itemInternalIds = editingDataMap.values
-                    .filterIsInstance<MutableItemBaseData>()
-                    .mapTo(mutableSetOf()) { item -> item.internalId }
-                dataAccess.validationErrors(it, itemInternalIds).isNotEmpty()
+                dataAccess.validationErrors(it, availableItemInternalIds()).isNotEmpty()
             } ?: false,
             localOnly = id !in remoteDataIds
         )
@@ -549,6 +547,12 @@ abstract class EditorView<T : ManagedData<T, *>>(
             start()
         }
     }
+
+    /** 現在の検証で参照可能なアイテム内部IDを返します。 */
+    protected open fun availableItemInternalIds(): Set<ItemInternalId> =
+        editingDataMap.values
+            .filterIsInstance<MutableItemBaseData>()
+            .mapTo(mutableSetOf()) { item -> item.internalId }
 
     /**
      * 手元で変更されたデータ（editing != original）だけをローカルに自動保存する
@@ -755,7 +759,7 @@ abstract class EditorView<T : ManagedData<T, *>>(
         }
 
         if (inputText != null) {
-            val data = dataAccess.createDefault(inputText)
+            val data = prepareNewData(dataAccess.createDefault(inputText))
             when (val result = dataAccess.saveStore(inputText, data)) {
                 is StoreResult.Success -> {
                     editingDataMap[inputText] = data
@@ -768,4 +772,7 @@ abstract class EditorView<T : ManagedData<T, *>>(
             }
         }
     }
+
+    /** 新規データを初回保存できる初期状態へ調整します。 */
+    protected open fun prepareNewData(data: T): T = data
 }

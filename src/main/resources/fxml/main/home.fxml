@@ -33,7 +33,7 @@
                                     <children>
                                         <Label maxWidth="1.7976931348623157E308" styleClass="home-section-title" text="エディター" />
                                         <Button focusTraversable="false" maxWidth="1.7976931348623157E308" mnemonicParsing="false" onAction="#onOpenItemEditor" styleClass="button, data-btn" text="アイテム" />
-                                        <Button disable="true" focusTraversable="false" maxWidth="1.7976931348623157E308" mnemonicParsing="false" styleClass="button, data-btn, data-btn-unavailable" text="鉱石（未実装）" />
+                                        <Button focusTraversable="false" maxWidth="1.7976931348623157E308" mnemonicParsing="false" onAction="#onOpenOreEditor" styleClass="button, data-btn" text="鉱石" />
                                         <Button disable="true" focusTraversable="false" maxWidth="1.7976931348623157E308" mnemonicParsing="false" styleClass="button, data-btn, data-btn-unavailable" text="作物（未実装）" />
                                     </children>
                                 </VBox>
