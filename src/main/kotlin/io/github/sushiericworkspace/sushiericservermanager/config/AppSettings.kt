@@ -11,7 +11,8 @@ import kotlinx.serialization.Serializable
  */
 @Serializable
 data class AppSettings(
-    val monitorIntervalTicks: Int = DEFAULT_MONITOR_INTERVAL_TICKS
+    val monitorIntervalTicks: Int = DEFAULT_MONITOR_INTERVAL_TICKS,
+    val sidebarDirectoryExpanded: Map<String, Map<String, Boolean>> = emptyMap()
 ) {
     /**
      * 指定できる範囲へ丸めた更新間隔を返します。
