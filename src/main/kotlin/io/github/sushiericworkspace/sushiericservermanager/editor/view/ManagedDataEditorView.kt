@@ -265,7 +265,9 @@ internal abstract class ManagedDataEditorView<T : ManagedData<T, *>>(
                 .show()
             return
         }
-        val newId = requestNewId("${dataAccess.displayName}を複製", existingIds) ?: return
+        val directory = PublicId.directoryOf(id)
+        val newName = requestNewId("${dataAccess.displayName}を複製", directory, existingIds) ?: return
+        val newId = PublicId.join(directory, newName)
         val duplicate = dataAccess.duplicateAsNew(source, newId)
         when (val result = dataAccess.saveStore(newId, duplicate)) {
             is StoreResult.Success -> {
@@ -279,8 +281,10 @@ internal abstract class ManagedDataEditorView<T : ManagedData<T, *>>(
     }
 
     private fun requestRename(id: String, existingIds: Set<String>) {
-        val newId = requestNewId("名前変更", existingIds) ?: return
-        when (dataAccess.rename(id, newId)) {
+        val directory = PublicId.directoryOf(id)
+        val newName = requestNewId("名前変更", directory, existingIds) ?: return
+        val newId = PublicId.join(directory, newName)
+        when (dataAccess.rename(id, newName)) {
             RenameResult.SUCCESS -> {
                 renameCachedData(editingDataMap, id, newId)
                 renameCachedData(originalDataMap, id, newId)
@@ -327,12 +331,16 @@ internal abstract class ManagedDataEditorView<T : ManagedData<T, *>>(
         }
     }
 
-    private fun requestNewId(title: String, existingIds: Set<String>): String? =
+    private fun requestNewId(
+        title: String,
+        directory: List<String>,
+        existingIds: Set<String>
+    ): String? =
         main.requestInput(title) { input ->
             when {
                 input.isBlank() -> ValidationResult.Error("名前を入力してください")
                 !PublicId.isValid(input) -> ValidationResult.Error(PublicId.DESCRIPTION)
-                input in existingIds -> ValidationResult.Error("重複した名称です")
+                PublicId.join(directory, input) in existingIds -> ValidationResult.Error("重複した名称です")
                 else -> ValidationResult.Success
             }
         }

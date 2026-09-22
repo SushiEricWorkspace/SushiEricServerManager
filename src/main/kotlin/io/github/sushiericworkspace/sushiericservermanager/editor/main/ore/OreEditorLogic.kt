@@ -12,6 +12,7 @@ import io.github.sushiericworkspace.sushiericservermanager.editor.controller.Mai
 import io.github.sushiericworkspace.sushiericservermanager.editor.service.EditorDataService
 import io.github.sushiericworkspace.sushiericservermanager.editor.store.StoreResult
 import io.github.sushiericworkspace.sushiericservermanager.editor.view.ManagedDataEditorView
+import io.github.sushiericworkspace.sushiericservermanager.editor.view.createPublicIdDisplay
 import io.github.sushiericworkspace.sushiericservermanager.editor.validation.ValidationRepairRegistry
 import io.github.sushiericworkspace.sushiericservermanager.editor.validation.ValidationRepairResult
 import io.github.sushiericworkspace.sushiericservermanager.ui.dialog.CustomDialog
@@ -136,7 +137,7 @@ internal class OreEditorLogic(
             vgap = 12.0
             maxWidth = Double.MAX_VALUE
             add(Label("公開ID:"), 0, 0)
-            add(Label(selectData.id).apply { styleClass.add("editor-identity-value") }, 1, 0)
+            add(createPublicIdDisplay(selectData.id).apply { styleClass.add("editor-identity-value") }, 1, 0)
             add(Label("ブロックID:"), 0, 1)
             add(blockIdSelector, 1, 1)
             add(Label("硬度:"), 0, 2)

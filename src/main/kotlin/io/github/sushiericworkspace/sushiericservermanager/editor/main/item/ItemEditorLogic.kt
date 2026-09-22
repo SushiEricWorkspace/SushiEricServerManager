@@ -16,6 +16,7 @@ import io.github.sushiericworkspace.sushiericservermanager.editor.view.buildSide
 import io.github.sushiericworkspace.sushiericservermanager.editor.view.FlatSidebarRenderer
 import io.github.sushiericworkspace.sushiericservermanager.editor.view.SidebarDisplayMode
 import io.github.sushiericworkspace.sushiericservermanager.editor.view.idsInSidebarDirectory
+import io.github.sushiericworkspace.sushiericservermanager.editor.view.createPublicIdDisplay
 import io.github.sushiericworkspace.sushiericservermanager.editor.view.EditorView
 import io.github.sushiericworkspace.sushiericservermanager.editor.view.mergeSidebarIds
 import io.github.sushiericworkspace.sushiericservermanager.editor.controller.MainController
@@ -179,7 +180,7 @@ class ItemEditorLogic(
 
     private var previewCanvas: PreviewCanvas? = null
 
-    private val currentPublicIdLabel = Label().apply {
+    private val currentPublicIdDisplay = HBox().apply {
         styleClass.add("editor-identity-value")
     }
 
@@ -201,7 +202,7 @@ class ItemEditorLogic(
     private val currentIdentityPane = VBox(
         HBox(
             Label("公開ID:").apply { styleClass.add("editor-identity-label") },
-            currentPublicIdLabel
+            currentPublicIdDisplay
         ).apply {
             alignment = Pos.CENTER_LEFT
             styleClass.add("editor-identity-row")
@@ -506,15 +507,17 @@ class ItemEditorLogic(
             return
         }
 
-        val newId = main.requestInput("アイテムを複製") { input ->
+        val directory = PublicId.directoryOf(id)
+        val newName = main.requestInput("アイテムを複製") { input ->
             when {
                 input.isBlank() -> ValidationResult.Error("名前を入力してください")
                 !PublicId.isValid(input) -> ValidationResult.Error(PublicId.DESCRIPTION)
-                input in existingIds -> ValidationResult.Error("重複した名称です")
+                PublicId.join(directory, input) in existingIds -> ValidationResult.Error("重複した名称です")
                 else -> ValidationResult.Success
             }
         } ?: return
 
+        val newId = PublicId.join(directory, newName)
         val duplicate = dataAccess.duplicateAsNew(source, newId)
         when (val result = dataAccess.saveStore(newId, duplicate)) {
             is StoreResult.Success -> {
@@ -530,11 +533,12 @@ class ItemEditorLogic(
     }
 
     private fun requestRename(id: String, existingIds: Set<String>) {
-        val newId = main.requestInput("名前変更") { input ->
+        val directory = PublicId.directoryOf(id)
+        val newName = main.requestInput("名前変更") { input ->
             when {
                 input.isBlank() -> ValidationResult.Error("名前を入力してください")
                 !PublicId.isValid(input) -> ValidationResult.Error(PublicId.DESCRIPTION)
-                input in existingIds -> ValidationResult.Error("重複した名称です")
+                PublicId.join(directory, input) in existingIds -> ValidationResult.Error("重複した名称です")
                 else -> ValidationResult.Success
             }
         } ?: return
@@ -543,7 +547,8 @@ class ItemEditorLogic(
          * 永続識別子で解決するため、公開IDの変更で既存アイテムは無効化されない。
          * このため破壊的変更としての確認は行わない。
          */
-        when (dataAccess.rename(id, newId)) {
+        val newId = PublicId.join(directory, newName)
+        when (dataAccess.rename(id, newName)) {
             RenameResult.SUCCESS -> finishRename(id, newId)
             RenameResult.FILE_NOT_FOUND -> showRenameError(
                 header = "対象のファイルが見つかりません",
@@ -791,7 +796,7 @@ class ItemEditorLogic(
             )
         }
 
-        currentPublicIdLabel.text = selectData.id
+        currentPublicIdDisplay.children.setAll(createPublicIdDisplay(selectData.id).children)
         currentInternalIdField.text = selectData.internalId.value
         currentInternalIdField.tooltip = AppTooltip.create(selectData.internalId.value)
 

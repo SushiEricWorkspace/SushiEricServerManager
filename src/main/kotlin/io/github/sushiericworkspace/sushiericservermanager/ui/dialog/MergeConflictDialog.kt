@@ -4,6 +4,7 @@ import io.github.sushiericworkspace.sushiericservermanager.app.AppScreen
 import io.github.sushiericworkspace.sushiericservermanager.editor.merge.ConflictValueFormatter
 import io.github.sushiericworkspace.sushiericservermanager.editor.merge.DataConflict
 import io.github.sushiericworkspace.sushiericservermanager.editor.merge.DataFieldPath
+import io.github.sushiericworkspace.sushiericservermanager.editor.view.createPublicIdDisplay
 import javafx.geometry.Insets
 import javafx.geometry.Pos
 import javafx.scene.control.ButtonBar
@@ -39,7 +40,9 @@ object MergeConflictDialog {
         }
         return Dialog<Set<DataFieldPath>>().apply {
             title = "保存競合の解決"
-            headerText = "$dataId で競合したフィールドだけを表示しています"
+            dialogPane.header = HBox(4.0, createPublicIdDisplay(dataId), Label("で競合したフィールドだけを表示しています")).apply {
+                alignment = Pos.CENTER_LEFT
+            }
             owner?.let(::initOwner)
             dialogPane.buttonTypes.addAll(applyType, ButtonType.CANCEL)
             dialogPane.stylesheets.add(

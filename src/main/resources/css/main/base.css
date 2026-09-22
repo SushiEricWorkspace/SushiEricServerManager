@@ -131,6 +131,14 @@
     -fx-font-weight: bold;
 }
 
+.public-id-directory {
+    -fx-text-fill: -fx-text-muted-color;
+}
+
+.public-id-name {
+    -fx-text-fill: -fx-text-color;
+}
+
 .button-modified.button-warning {
     -fx-border-color: transparent -fx-success-color transparent -fx-warning-color !important;
     -fx-border-width: 0 4 0 4 !important;
