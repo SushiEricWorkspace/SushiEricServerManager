@@ -1,12 +1,14 @@
 package io.github.sushiericworkspace.sushiericservermanager.editor.store
 
 import io.github.sushiericworkspace.common.data.core.ManagedData
+import io.github.sushiericworkspace.common.data.core.identity.PublicId
 import java.util.concurrent.ConcurrentHashMap
 
 class InMemoryEditorDataStore(
     override val identity: String = "memory"
 ) : EditorDataStore {
     private val entries = ConcurrentHashMap<String, ManagedData<*, *>>()
+    private val directories = ConcurrentHashMap.newKeySet<String>()
 
     override val kind: EditorDataStoreKind = EditorDataStoreKind.IN_MEMORY
     override val isAvailable: Boolean = true
@@ -21,7 +23,13 @@ class InMemoryEditorDataStore(
                 .filter { it.startsWith(prefix) }
                 .map { it.removePrefix(prefix) }
                 .sorted()
-                .map { StoreResource(it, "$it.yml", "memory://$prefix$it.yml") }
+                .map {
+                    StoreResource(
+                        id = it,
+                        fileName = "${PublicId.nameOf(it)}.yml",
+                        location = "memory://$prefix${PublicId.relativePathOf(it)}.yml"
+                    )
+                }
                 .toList()
         )
     }
@@ -44,17 +52,45 @@ class InMemoryEditorDataStore(
     ): StoreResult<Unit> {
         if (!StorePathValidator.isValidId(id)) return invalidId(id)
         entries[key(descriptor, id)] = descriptor.deepCopy(data)
+        registerParentDirectories(descriptor, id)
         return StoreResult.Success(Unit)
     }
 
     override fun <T : ManagedData<T, *>> rename(
         descriptor: EditorDataDescriptor<T>,
         oldId: String,
-        newId: String
+        newName: String
     ): StoreResult<Unit> {
-        if (!StorePathValidator.isValidId(oldId) || !StorePathValidator.isValidId(newId)) {
-            return invalidId(newId)
+        if (!StorePathValidator.isValidId(oldId) || !StorePathValidator.isValidName(newName)) {
+            return invalidId(newName)
         }
+        val targetId = PublicId.join(PublicId.directoryOf(oldId), newName)
+        return when (val moved = relocate(descriptor, oldId, targetId)) {
+            is StoreResult.Success -> StoreResult.Success(Unit)
+            is StoreResult.Failure -> moved
+        }
+    }
+
+    override fun <T : ManagedData<T, *>> move(
+        descriptor: EditorDataDescriptor<T>,
+        id: String,
+        targetDirectory: String
+    ): StoreResult<String> {
+        if (!StorePathValidator.isValidId(id) ||
+            !StorePathValidator.isValidDirectory(targetDirectory)
+        ) {
+            return invalidId(id)
+        }
+        val targetId = PublicId.join(directorySegments(targetDirectory), PublicId.nameOf(id))
+        if (targetId == id) return StoreResult.Success(id)
+        return relocate(descriptor, id, targetId)
+    }
+
+    private fun <T : ManagedData<T, *>> relocate(
+        descriptor: EditorDataDescriptor<T>,
+        oldId: String,
+        newId: String
+    ): StoreResult<String> {
         val oldKey = key(descriptor, oldId)
         val newKey = key(descriptor, newId)
         if (entries.containsKey(newKey)) {
@@ -66,7 +102,8 @@ class InMemoryEditorDataStore(
         val renamed = descriptor.deepCopy(current as T).apply { id = newId }
         entries[newKey] = renamed
         entries.remove(oldKey)
-        return StoreResult.Success(Unit)
+        registerParentDirectories(descriptor, newId)
+        return StoreResult.Success(newId)
     }
 
     override fun <T : ManagedData<T, *>> delete(
@@ -81,10 +118,71 @@ class InMemoryEditorDataStore(
         }
     }
 
+    override fun <T : ManagedData<T, *>> createDirectory(
+        descriptor: EditorDataDescriptor<T>,
+        directory: String
+    ): StoreResult<Unit> {
+        if (!StorePathValidator.isValidDirectory(directory, allowRoot = false)) {
+            return invalidId(directory)
+        }
+        directorySegments(directory).indices.forEach { index ->
+            val parent = directorySegments(directory).take(index + 1).joinToString(".")
+            directories += directoryKey(descriptor, parent)
+        }
+        return StoreResult.Success(Unit)
+    }
+
+    override fun <T : ManagedData<T, *>> deleteDirectory(
+        descriptor: EditorDataDescriptor<T>,
+        directory: String
+    ): StoreResult<Unit> {
+        if (!StorePathValidator.isValidDirectory(directory, allowRoot = false)) {
+            return invalidId(directory)
+        }
+        val directoryPrefix = directoryKey(descriptor, directory)
+        if (directoryPrefix !in directories && entries.keys.none { it.startsWith("$directoryPrefix.") }) {
+            return StoreResult.Failure(StoreError(StoreErrorCode.FILE_NOT_FOUND, directory))
+        }
+        entries.keys.removeIf { it.startsWith("$directoryPrefix.") }
+        directories.removeIf { it == directoryPrefix || it.startsWith("$directoryPrefix.") }
+        return StoreResult.Success(Unit)
+    }
+
+    override fun <T : ManagedData<T, *>> listDirectories(
+        descriptor: EditorDataDescriptor<T>
+    ): StoreResult<List<String>> {
+        val prefix = "${descriptor.dataType.categoryDirName}/"
+        return StoreResult.Success(
+            directories.asSequence()
+                .filter { it.startsWith(prefix) }
+                .map { it.removePrefix(prefix) }
+                .sorted()
+                .toList()
+        )
+    }
+
     private fun <T : ManagedData<T, *>> key(
         descriptor: EditorDataDescriptor<T>,
         id: String
     ): String = "${descriptor.dataType.categoryDirName}/$id"
+
+    private fun <T : ManagedData<T, *>> directoryKey(
+        descriptor: EditorDataDescriptor<T>,
+        directory: String
+    ): String = "${descriptor.dataType.categoryDirName}/$directory"
+
+    private fun <T : ManagedData<T, *>> registerParentDirectories(
+        descriptor: EditorDataDescriptor<T>,
+        id: String
+    ) {
+        val segments = PublicId.directoryOf(id)
+        segments.indices.forEach { index ->
+            directories += directoryKey(descriptor, segments.take(index + 1).joinToString("."))
+        }
+    }
+
+    private fun directorySegments(directory: String): List<String> =
+        if (directory.isEmpty()) emptyList() else directory.split('.')
 
     private fun <T> invalidId(id: String): StoreResult<T> =
         StoreResult.Failure(StoreError(StoreErrorCode.INVALID_ID, id))

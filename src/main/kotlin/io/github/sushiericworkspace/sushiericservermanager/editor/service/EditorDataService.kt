@@ -2,6 +2,7 @@ package io.github.sushiericworkspace.sushiericservermanager.editor.service
 
 import io.github.sushiericworkspace.common.data.core.SushiEricDataType
 import io.github.sushiericworkspace.common.data.core.ManagedData
+import io.github.sushiericworkspace.common.data.core.identity.PublicId
 import io.github.sushiericworkspace.common.data.core.validation.SushiEricValidationError
 import io.github.sushiericworkspace.common.data.item.model.mutable.MutableItemBaseData
 import io.github.sushiericworkspace.common.data.item.model.ItemInternalId
@@ -35,7 +36,8 @@ import java.nio.file.StandardCopyOption
  * 既存のDataAccess APIは維持し、実際のI/Oだけを[EditorDataStore]へ委譲します。
  */
 class EditorDataService(
-    val store: EditorDataStore
+    val store: EditorDataStore,
+    private val autoSaveDirectory: File = FilePath.AUTOSAVE_DIR.toFile()
 ) {
     constructor(ssh: SshManager) : this(RemoteEditorDataStore(ssh))
 
@@ -90,7 +92,7 @@ class EditorDataService(
         fun listYmlResources(): Pair<List<RemoteResource>, Boolean> {
             return when (val result = store.list(descriptor)) {
                 is StoreResult.Success -> result.value.map {
-                    RemoteResource(name = it.fileName, remotePath = it.location)
+                    RemoteResource(name = "${it.id}.yml", remotePath = it.location)
                 } to true
                 is StoreResult.Failure -> {
                     logger.error(
@@ -185,8 +187,8 @@ class EditorDataService(
             if (!editing.isFile || !original.isFile) return null
 
             return try {
-                val editingData = descriptor.load(editing, null) ?: return null
-                val originalData = descriptor.load(original, null) ?: return null
+                val editingData = descriptor.load(editing, editing.parentFile) ?: return null
+                val originalData = descriptor.load(original, original.parentFile) ?: return null
                 editingData to originalData
             } catch (e: Exception) {
                 logger.error("自動保存ペアの読み込みに失敗しました: {}", fileName, e)
@@ -228,10 +230,30 @@ class EditorDataService(
         fun rename(oldName: String, newName: String): RenameResult {
             return when (val result = store.rename(descriptor, oldName, newName)) {
                 is StoreResult.Success -> {
-                    renameBackup(oldName, newName)
+                    val newId = PublicId.join(PublicId.directoryOf(oldName), newName)
+                    renameBackup(oldName, newId)
                     RenameResult.SUCCESS
                 }
                 is StoreResult.Failure -> result.error.code.toRenameResult()
+            }
+        }
+
+        fun createDirectory(directory: String): StoreResult<Unit> =
+            store.createDirectory(descriptor, directory)
+
+        fun deleteDirectory(directory: String): StoreResult<Unit> =
+            store.deleteDirectory(descriptor, directory)
+
+        fun listDirectories(): StoreResult<List<String>> =
+            store.listDirectories(descriptor)
+
+        fun move(id: String, targetDirectory: String): StoreResult<String> {
+            return when (val result = store.move(descriptor, id, targetDirectory)) {
+                is StoreResult.Success -> {
+                    renameBackup(id, result.value)
+                    result
+                }
+                is StoreResult.Failure -> result
             }
         }
 
@@ -239,7 +261,7 @@ class EditorDataService(
             listOf("editing", "original").forEach { subDirectory ->
                 val oldFile = resolveBackupFile(dataType.categoryDirName, subDirectory, oldName)
                 if (!oldFile.isFile) return@forEach
-                val data = descriptor.load(oldFile, null)
+                val data = descriptor.load(oldFile, oldFile.parentFile)
                 if (data == null) {
                     logger.warn("名称変更対象の自動保存を読み込めませんでした: {}", oldFile)
                     return@forEach
@@ -262,7 +284,7 @@ class EditorDataService(
     }
 
     private fun backupCategoryDirectory(categoryDirName: String, subDirName: String): File {
-        return FilePath.AUTOSAVE_DIR.toFile()
+        return autoSaveDirectory
             .resolve(cacheIdentity)
             .resolve(categoryDirName)
             .resolve(subDirName)

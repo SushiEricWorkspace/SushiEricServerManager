@@ -196,6 +196,84 @@ class LocalEditorDataStoreTest {
         }
     }
 
+    @Test
+    fun `サブディレクトリの完全IDを再帰一覧して読み書きする`() {
+        val root = createTempDirectory("offline-store-directory").toFile()
+        try {
+            val store = LocalEditorDataStore(root)
+            val descriptor = EditorDataDescriptors.item
+            val first = validItem("combat.sword.shared")
+            val second = validItem("mining.shared")
+
+            assertIs<StoreResult.Success<Unit>>(store.save(descriptor, first.id, first))
+            assertIs<StoreResult.Success<Unit>>(store.save(descriptor, second.id, second))
+            assertTrue(root.resolve("item_data/stats/combat/sword/shared.yml").isFile)
+            assertTrue(root.resolve("item_data/stats/mining/shared.yml").isFile)
+
+            val resources = assertIs<StoreResult.Success<List<StoreResource>>>(store.list(descriptor)).value
+            assertEquals(listOf(first.id, second.id), resources.map(StoreResource::id))
+            assertEquals("combat.sword", resources.first().directory)
+            assertEquals("shared", resources.first().name)
+            assertEquals(first.id, assertIs<StoreResult.Success<MutableItemBaseData>>(
+                store.load(descriptor, first.id)
+            ).value.id)
+        } finally {
+            root.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun `ディレクトリ作成と葉名変更と移動と再帰削除を行う`() {
+        val root = createTempDirectory("offline-store-directory-operations").toFile()
+        try {
+            val store = LocalEditorDataStore(root)
+            val descriptor = EditorDataDescriptors.item
+            val id = "combat.sword.test"
+            assertIs<StoreResult.Success<Unit>>(store.save(descriptor, id, validItem(id)))
+            assertIs<StoreResult.Success<Unit>>(store.createDirectory(descriptor, "archive.items"))
+            assertTrue(
+                "archive.items" in assertIs<StoreResult.Success<List<String>>>(
+                    store.listDirectories(descriptor)
+                ).value
+            )
+
+            assertIs<StoreResult.Success<Unit>>(store.rename(descriptor, id, "renamed"))
+            val moved = assertIs<StoreResult.Success<String>>(
+                store.move(descriptor, "combat.sword.renamed", "archive.items")
+            )
+            assertEquals("archive.items.renamed", moved.value)
+            assertTrue(root.resolve("item_data/stats/archive/items/renamed.yml").isFile)
+            assertFalse(root.resolve("item_data/stats/combat/sword/renamed.yml").exists())
+
+            assertEquals(
+                listOf("archive", "archive.items", "combat", "combat.sword"),
+                assertIs<StoreResult.Success<List<String>>>(store.listDirectories(descriptor)).value
+            )
+            assertIs<StoreResult.Success<Unit>>(store.deleteDirectory(descriptor, "archive"))
+            assertFalse(root.resolve("item_data/stats/archive").exists())
+        } finally {
+            root.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun `移動先の同じ葉名との重複を拒否する`() {
+        val root = createTempDirectory("offline-store-move-conflict").toFile()
+        try {
+            val store = LocalEditorDataStore(root)
+            val descriptor = EditorDataDescriptors.item
+            store.save(descriptor, "combat.shared", validItem("combat.shared"))
+            store.save(descriptor, "mining.shared", validItem("mining.shared"))
+
+            val result = store.move(descriptor, "mining.shared", "combat")
+
+            assertEquals(StoreErrorCode.ALREADY_EXISTS, assertIs<StoreResult.Failure>(result).error.code)
+            assertIs<StoreResult.Success<MutableItemBaseData>>(store.load(descriptor, "mining.shared"))
+        } finally {
+            root.deleteRecursively()
+        }
+    }
+
     private fun validItem(id: String): MutableItemBaseData = MutableItemBaseData(id = id).apply {
         display.displayName = "Sword"
     }

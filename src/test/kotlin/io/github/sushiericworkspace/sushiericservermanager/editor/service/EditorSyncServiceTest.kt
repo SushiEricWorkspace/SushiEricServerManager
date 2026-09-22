@@ -23,4 +23,18 @@ class EditorSyncServiceTest {
             assertIs<StoreResult.Success<Map<String, MutableItemBaseData>>>(result).value.keys
         )
     }
+
+    @Test
+    fun `全同期用取得はディレクトリ付き完全IDを維持する`() {
+        val store = InMemoryEditorDataStore()
+        val id = "combat.sword.test_sword"
+        store.save(EditorDataDescriptors.item, id, MutableItemBaseData(id = id))
+
+        val result = EditorSyncService(EditorDataService(store).items).fetchAll()
+
+        assertEquals(
+            setOf(id),
+            assertIs<StoreResult.Success<Map<String, MutableItemBaseData>>>(result).value.keys
+        )
+    }
 }

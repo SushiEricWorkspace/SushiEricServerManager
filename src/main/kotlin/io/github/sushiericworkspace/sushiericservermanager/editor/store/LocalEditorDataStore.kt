@@ -1,7 +1,9 @@
 package io.github.sushiericworkspace.sushiericservermanager.editor.store
 
 import io.github.sushiericworkspace.common.data.core.ManagedData
+import io.github.sushiericworkspace.common.data.core.identity.PublicId
 import io.github.sushiericworkspace.common.data.item.model.ItemInternalId
+import io.github.sushiericworkspace.common.path.SushiEricDataDirectory
 import org.slf4j.LoggerFactory
 import java.io.File
 import java.nio.file.AtomicMoveNotSupportedException
@@ -43,19 +45,22 @@ class LocalEditorDataStore(
         }
         val directory = descriptorDirectory(descriptor)
         return try {
-            val resources = directory.listFiles()
-                ?.asSequence()
-                ?.filter { it.isFile && it.extension.equals("yml", ignoreCase = true) }
-                ?.sortedBy { it.name }
-                ?.map {
+            val resources = SushiEricDataDirectory.walkYmlFiles(directory)
+                .asSequence()
+                .mapNotNull {
+                    val id = it.relativeTo(directory)
+                        .invariantSeparatorsPath
+                        .substringBeforeLast('.')
+                        .replace('/', '.')
+                    if (!StorePathValidator.isValidId(id)) return@mapNotNull null
                     StoreResource(
-                        id = it.nameWithoutExtension,
+                        id = id,
                         fileName = it.name,
                         location = it.absolutePath
                     )
                 }
-                ?.toList()
-                .orEmpty()
+                .sortedBy(StoreResource::id)
+                .toList()
             StoreResult.Success(resources)
         } catch (e: SecurityException) {
             failure(StoreErrorCode.PERMISSION_DENIED, cause = e)
@@ -70,7 +75,7 @@ class LocalEditorDataStore(
         if (!file.isFile) return failure(StoreErrorCode.FILE_NOT_FOUND, id)
 
         return try {
-            val data = descriptor.load(file, id)
+            val data = descriptor.load(file, descriptorDirectory(descriptor))
                 ?: return failure(StoreErrorCode.INVALID_YAML, id)
             StoreResult.Success(data)
         } catch (e: SecurityException) {
@@ -128,8 +133,38 @@ class LocalEditorDataStore(
     override fun <T : ManagedData<T, *>> rename(
         descriptor: EditorDataDescriptor<T>,
         oldId: String,
-        newId: String
+        newName: String
     ): StoreResult<Unit> {
+        if (!StorePathValidator.isValidId(oldId) || !StorePathValidator.isValidName(newName)) {
+            return failure(StoreErrorCode.INVALID_ID, newName)
+        }
+        val targetId = PublicId.join(PublicId.directoryOf(oldId), newName)
+        return when (val result = relocate(descriptor, oldId, targetId)) {
+            is StoreResult.Success -> StoreResult.Success(Unit)
+            is StoreResult.Failure -> result
+        }
+    }
+
+    override fun <T : ManagedData<T, *>> move(
+        descriptor: EditorDataDescriptor<T>,
+        id: String,
+        targetDirectory: String
+    ): StoreResult<String> {
+        if (!StorePathValidator.isValidId(id) ||
+            !StorePathValidator.isValidDirectory(targetDirectory)
+        ) {
+            return failure(StoreErrorCode.INVALID_ID, id)
+        }
+        val targetId = PublicId.join(directorySegments(targetDirectory), PublicId.nameOf(id))
+        if (targetId == id) return StoreResult.Success(id)
+        return relocate(descriptor, id, targetId)
+    }
+
+    private fun <T : ManagedData<T, *>> relocate(
+        descriptor: EditorDataDescriptor<T>,
+        oldId: String,
+        newId: String
+    ): StoreResult<String> {
         val source = resolveFile(descriptor, oldId) ?: return failure(StoreErrorCode.INVALID_ID, oldId)
         val target = resolveFile(descriptor, newId) ?: return failure(StoreErrorCode.INVALID_ID, newId)
         if (!source.isFile) return failure(StoreErrorCode.FILE_NOT_FOUND, oldId)
@@ -144,7 +179,7 @@ class LocalEditorDataStore(
                     is StoreResult.Success -> {
                         try {
                             Files.delete(source.toPath())
-                            StoreResult.Success(Unit)
+                            StoreResult.Success(newId)
                         } catch (e: Exception) {
                             target.delete()
                             failure(StoreErrorCode.IO_ERROR, oldId, cause = e)
@@ -152,6 +187,59 @@ class LocalEditorDataStore(
                     }
                 }
             }
+        }
+    }
+
+    override fun <T : ManagedData<T, *>> createDirectory(
+        descriptor: EditorDataDescriptor<T>,
+        directory: String
+    ): StoreResult<Unit> {
+        val target = resolveDirectory(descriptor, directory, allowRoot = false)
+            ?: return failure(StoreErrorCode.INVALID_ID, directory)
+        return try {
+            when {
+                target.isDirectory -> StoreResult.Success(Unit)
+                target.exists() -> failure(StoreErrorCode.ALREADY_EXISTS, directory)
+                target.mkdirs() -> StoreResult.Success(Unit)
+                else -> failure(StoreErrorCode.PERMISSION_DENIED, directory)
+            }
+        } catch (e: SecurityException) {
+            failure(StoreErrorCode.PERMISSION_DENIED, directory, cause = e)
+        }
+    }
+
+    override fun <T : ManagedData<T, *>> deleteDirectory(
+        descriptor: EditorDataDescriptor<T>,
+        directory: String
+    ): StoreResult<Unit> {
+        val target = resolveDirectory(descriptor, directory, allowRoot = false)
+            ?: return failure(StoreErrorCode.INVALID_ID, directory)
+        if (!target.isDirectory) return failure(StoreErrorCode.FILE_NOT_FOUND, directory)
+        return try {
+            if (target.deleteRecursively()) StoreResult.Success(Unit)
+            else failure(StoreErrorCode.IO_ERROR, directory)
+        } catch (e: SecurityException) {
+            failure(StoreErrorCode.PERMISSION_DENIED, directory, cause = e)
+        }
+    }
+
+    override fun <T : ManagedData<T, *>> listDirectories(
+        descriptor: EditorDataDescriptor<T>
+    ): StoreResult<List<String>> {
+        val base = descriptorDirectory(descriptor)
+        if (!base.exists() && !base.mkdirs()) return failure(StoreErrorCode.PERMISSION_DENIED)
+        return try {
+            StoreResult.Success(
+                base.walkTopDown()
+                    .filter(File::isDirectory)
+                    .drop(1)
+                    .map { it.relativeTo(base).invariantSeparatorsPath.replace('/', '.') }
+                    .filter { StorePathValidator.isValidDirectory(it) }
+                    .sorted()
+                    .toList()
+            )
+        } catch (e: SecurityException) {
+            failure(StoreErrorCode.PERMISSION_DENIED, cause = e)
         }
     }
 
@@ -183,9 +271,25 @@ class LocalEditorDataStore(
     ): File? {
         if (!StorePathValidator.isValidId(id)) return null
         val directory = descriptorDirectory(descriptor).canonicalFile
-        val file = directory.resolve("$id.yml").canonicalFile
-        return file.takeIf { it.parentFile == directory }
+        val file = descriptor.dataType.pathOf(id).resolve(rootDirectory).canonicalFile
+        return file.takeIf { it.toPath().startsWith(directory.toPath()) }
     }
+
+    private fun <T : ManagedData<T, *>> resolveDirectory(
+        descriptor: EditorDataDescriptor<T>,
+        directory: String,
+        allowRoot: Boolean
+    ): File? {
+        if (!StorePathValidator.isValidDirectory(directory, allowRoot)) return null
+        val base = descriptorDirectory(descriptor).canonicalFile
+        val target = directorySegments(directory)
+            .fold(base) { parent, segment -> parent.resolve(segment) }
+            .canonicalFile
+        return target.takeIf { it.toPath().startsWith(base.toPath()) }
+    }
+
+    private fun directorySegments(directory: String): List<String> =
+        if (directory.isEmpty()) emptyList() else directory.split('.')
 
     private fun localItemIds(): Set<ItemInternalId> {
         return when (val result = list(EditorDataDescriptors.item)) {
