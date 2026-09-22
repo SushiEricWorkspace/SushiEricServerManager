@@ -1,6 +1,7 @@
 package io.github.sushiericworkspace.sushiericservermanager.editor.offline
 
 import io.github.sushiericworkspace.common.data.core.ManagedData
+import io.github.sushiericworkspace.common.path.SushiEricDataDirectory
 import io.github.sushiericworkspace.sushiericservermanager.editor.store.EditorDataDescriptor
 import io.github.sushiericworkspace.sushiericservermanager.editor.store.EditorDataDescriptors
 import io.github.sushiericworkspace.sushiericservermanager.editor.store.LocalEditorDataStore
@@ -112,17 +113,19 @@ class OfflineWorkspaceMigrator(
         val migratedRoot = stagingRoot.resolve(".raw")
         EditorDataDescriptors.all.forEach { descriptor ->
             val sourceDirectory = sourceStore.root().resolve(descriptor.relativeDirectory)
-            sourceDirectory.listFiles()
-                ?.filter { it.isFile && it.extension.equals("yml", true) }
-                ?.forEach { original ->
+            SushiEricDataDirectory.walkYmlFiles(sourceDirectory)
+                .forEach { original ->
+                    val relativePath = original.relativeTo(sourceDirectory).invariantSeparatorsPath
                     var input = original
                     migrationPath.forEachIndexed { index, migration ->
-                        val target = migratedRoot.resolve(".steps/$index/${descriptor.relativeDirectory}/${original.name}")
+                        val target = migratedRoot.resolve(
+                            ".steps/$index/${descriptor.relativeDirectory}/$relativePath"
+                        )
                         target.parentFile.mkdirs()
                         migration.migrate(input, target)
                         input = target
                     }
-                    val finalTarget = migratedRoot.resolve(descriptor.relativeDirectory).resolve(original.name)
+                    val finalTarget = migratedRoot.resolve(descriptor.relativeDirectory).resolve(relativePath)
                     finalTarget.parentFile.mkdirs()
                     input.copyTo(finalTarget, overwrite = true)
                 }
@@ -150,7 +153,7 @@ class OfflineWorkspaceMigrator(
                 is StoreResult.Failure -> throw MigrationFailure(saved.error)
             }
             entries += OfflineManifestFile(
-                relativePath = "${descriptor.relativeDirectory}/${resource.fileName}",
+                relativePath = descriptor.dataType.pathOf(resource.id).getRawPath(),
                 dataFormatVersion = OfflineFormatVersion.CURRENT_DATA_FORMAT_VERSION
             )
         }

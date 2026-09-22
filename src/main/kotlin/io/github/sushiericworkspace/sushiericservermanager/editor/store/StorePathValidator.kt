@@ -1,12 +1,12 @@
 package io.github.sushiericworkspace.sushiericservermanager.editor.store
 
-object StorePathValidator {
-    private val validId = Regex("^[A-Za-z0-9_-]+$")
+import io.github.sushiericworkspace.common.data.core.identity.PublicId
 
-    fun isValidId(id: String): Boolean {
-        return id.isNotBlank() &&
-                id.matches(validId) &&
-                id != "." &&
-                id != ".."
-    }
+object StorePathValidator {
+    fun isValidId(id: String): Boolean = PublicId.isValidFull(id)
+
+    fun isValidName(name: String): Boolean = PublicId.isValid(name)
+
+    fun isValidDirectory(directory: String, allowRoot: Boolean = true): Boolean =
+        (allowRoot && directory.isEmpty()) || PublicId.isValidFull(directory)
 }

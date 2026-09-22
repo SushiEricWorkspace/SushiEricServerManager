@@ -130,12 +130,57 @@ class OfflineUploadServiceTest {
         override fun <T : ManagedData<T, *>> rename(
             descriptor: EditorDataDescriptor<T>,
             oldId: String,
-            newId: String
-        ): StoreResult<Unit> = delegate.rename(descriptor, oldId, newId)
+            newName: String
+        ): StoreResult<Unit> = delegate.rename(descriptor, oldId, newName)
 
         override fun <T : ManagedData<T, *>> delete(
             descriptor: EditorDataDescriptor<T>,
             id: String
         ): StoreResult<Unit> = delegate.delete(descriptor, id)
+
+        override fun <T : ManagedData<T, *>> createDirectory(
+            descriptor: EditorDataDescriptor<T>,
+            directory: String
+        ): StoreResult<Unit> = delegate.createDirectory(descriptor, directory)
+
+        override fun <T : ManagedData<T, *>> deleteDirectory(
+            descriptor: EditorDataDescriptor<T>,
+            directory: String
+        ): StoreResult<Unit> = delegate.deleteDirectory(descriptor, directory)
+
+        override fun <T : ManagedData<T, *>> listDirectories(
+            descriptor: EditorDataDescriptor<T>
+        ): StoreResult<List<String>> = delegate.listDirectories(descriptor)
+
+        override fun <T : ManagedData<T, *>> move(
+            descriptor: EditorDataDescriptor<T>,
+            id: String,
+            targetDirectory: String
+        ): StoreResult<String> = delegate.move(descriptor, id, targetDirectory)
+    }
+
+    @Test
+    fun `サブディレクトリの完全IDを維持してアップロードする`() {
+        val root = createTempDirectory("offline-upload-directory").toFile()
+        try {
+            val id = "combat.sword.test_sword"
+            val local = LocalEditorDataStore(root)
+            local.save(EditorDataDescriptors.item, id, validItem(id))
+            val remote = InMemoryEditorDataStore("server")
+            val service = OfflineUploadService(root, remote)
+
+            val scan = assertIs<UploadScanResult.Success>(service.scan())
+            val key = UploadKey(UploadDataCategory.ITEM, id)
+            assertEquals(UploadCandidateState.NEW, scan.candidates.single().state)
+
+            val result = service.upload(setOf(key), emptySet())
+
+            assertEquals(listOf(key), result.succeeded)
+            assertEquals(id, assertIs<StoreResult.Success<MutableItemBaseData>>(
+                remote.load(EditorDataDescriptors.item, id)
+            ).value.id)
+        } finally {
+            root.deleteRecursively()
+        }
     }
 }

@@ -59,6 +59,33 @@ class OfflineWorkspaceMigratorTest {
     }
 
     @Test
+    fun `サブディレクトリ構造を維持して正規化する`() {
+        val root = createTempDirectory("offline-migrate-directory").toFile()
+        try {
+            val id = "combat.sword.test_sword"
+            val store = LocalEditorDataStore(root)
+            assertIs<StoreResult.Success<Unit>>(
+                store.save(EditorDataDescriptors.item, id, validItem(id))
+            )
+
+            val result = assertIs<WorkspaceMigrationResult.Success>(
+                OfflineWorkspaceMigrator(root).migrateToCurrent()
+            )
+
+            assertEquals(1, result.normalizedFileCount)
+            assertTrue(root.resolve("item_data/stats/combat/sword/test_sword.yml").isFile)
+            assertTrue(result.manifest.files.any {
+                it.relativePath == "item_data/stats/combat/sword/test_sword.yml"
+            })
+            assertEquals(id, assertIs<StoreResult.Success<MutableItemBaseData>>(
+                LocalEditorDataStore(root).load(EditorDataDescriptors.item, id)
+            ).value.id)
+        } finally {
+            root.deleteRecursively()
+        }
+    }
+
+    @Test
     fun `変換失敗時に元ファイルを保持する`() {
         val root = createTempDirectory("offline-rollback").toFile()
         try {

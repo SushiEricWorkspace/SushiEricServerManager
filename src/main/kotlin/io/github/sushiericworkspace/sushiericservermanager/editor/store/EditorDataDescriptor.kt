@@ -15,7 +15,7 @@ import java.io.File
 
 class EditorDataDescriptor<T : ManagedData<T, *>>(
     val dataType: SushiEricDataType<T>,
-    val load: (File, String?) -> T?,
+    val load: (File, File) -> T?,
     val save: (File, T, Set<ItemInternalId>?) -> Unit,
     val validate: (T, Set<ItemInternalId>) -> List<SushiEricValidationError>,
     val merger: DataMerger<T>,

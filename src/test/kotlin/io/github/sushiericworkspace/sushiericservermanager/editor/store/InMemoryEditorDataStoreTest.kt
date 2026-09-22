@@ -7,6 +7,7 @@ import kotlin.test.assertEquals
 import kotlin.test.assertIs
 import kotlin.test.assertNotEquals
 import kotlin.test.assertNotSame
+import kotlin.test.assertTrue
 
 class InMemoryEditorDataStoreTest {
     @Test
@@ -69,5 +70,63 @@ class InMemoryEditorDataStoreTest {
         )
 
         assertEquals(StoreErrorCode.INVALID_ID, assertIs<StoreResult.Failure>(result).error.code)
+    }
+
+    @Test
+    fun `完全IDを再帰一覧して同じ葉名を別ディレクトリへ保存できる`() {
+        val store = InMemoryEditorDataStore()
+        val descriptor = EditorDataDescriptors.item
+
+        assertIs<StoreResult.Success<Unit>>(
+            store.save(descriptor, "combat.sword.shared", MutableItemBaseData(id = "combat.sword.shared"))
+        )
+        assertIs<StoreResult.Success<Unit>>(
+            store.save(descriptor, "mining.shared", MutableItemBaseData(id = "mining.shared"))
+        )
+
+        val resources = assertIs<StoreResult.Success<List<StoreResource>>>(store.list(descriptor)).value
+        assertEquals(listOf("combat.sword.shared", "mining.shared"), resources.map(StoreResource::id))
+        assertEquals("combat.sword", resources.first().directory)
+        assertEquals("shared", resources.first().name)
+        assertEquals(listOf("combat", "combat.sword", "mining"),
+            assertIs<StoreResult.Success<List<String>>>(store.listDirectories(descriptor)).value)
+    }
+
+    @Test
+    fun `完全IDの葉名変更とディレクトリ移動と再帰削除を行う`() {
+        val store = InMemoryEditorDataStore()
+        val descriptor = EditorDataDescriptors.item
+        store.save(descriptor, "combat.sword.test", MutableItemBaseData(id = "combat.sword.test"))
+        store.createDirectory(descriptor, "archive.items")
+        assertTrue(
+            "archive.items" in assertIs<StoreResult.Success<List<String>>>(
+                store.listDirectories(descriptor)
+            ).value
+        )
+
+        assertIs<StoreResult.Success<Unit>>(store.rename(descriptor, "combat.sword.test", "renamed"))
+        val moved = assertIs<StoreResult.Success<String>>(
+            store.move(descriptor, "combat.sword.renamed", "archive.items")
+        )
+        assertEquals("archive.items.renamed", moved.value)
+        assertEquals("archive.items.renamed", assertIs<StoreResult.Success<MutableItemBaseData>>(
+            store.load(descriptor, moved.value)
+        ).value.id)
+
+        assertIs<StoreResult.Success<Unit>>(store.deleteDirectory(descriptor, "archive"))
+        assertTrue(assertIs<StoreResult.Success<List<StoreResource>>>(store.list(descriptor)).value.isEmpty())
+    }
+
+    @Test
+    fun `移動先の同じ葉名との重複を拒否する`() {
+        val store = InMemoryEditorDataStore()
+        val descriptor = EditorDataDescriptors.item
+        store.save(descriptor, "combat.shared", MutableItemBaseData(id = "combat.shared"))
+        store.save(descriptor, "mining.shared", MutableItemBaseData(id = "mining.shared"))
+
+        val result = store.move(descriptor, "mining.shared", "combat")
+
+        assertEquals(StoreErrorCode.ALREADY_EXISTS, assertIs<StoreResult.Failure>(result).error.code)
+        assertIs<StoreResult.Success<MutableItemBaseData>>(store.load(descriptor, "mining.shared"))
     }
 }

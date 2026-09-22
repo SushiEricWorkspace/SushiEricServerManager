@@ -102,8 +102,21 @@ class SshManager(
         activeSftp().rm(remotePath)
     }
 
+    fun removeDirectory(remotePath: String) {
+        activeSftp().rmdir(remotePath)
+    }
+
     fun rename(oldRemotePath: String, newRemotePath: String) {
         activeSftp().rename(oldRemotePath, newRemotePath)
+    }
+
+    fun exists(remotePath: String): Boolean {
+        return try {
+            activeSftp().stat(remotePath)
+            true
+        } catch (e: SFTPException) {
+            if (e.statusCode == Response.StatusCode.NO_SUCH_FILE) false else throw e
+        }
     }
 
     fun createDirectories(remoteDirPath: String) {

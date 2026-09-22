@@ -1,5 +1,7 @@
 package io.github.sushiericworkspace.sushiericservermanager.editor.store
 
+import io.github.sushiericworkspace.common.data.core.identity.PublicId
+
 sealed interface StoreResult<out T> {
     data class Success<T>(val value: T) : StoreResult<T>
     data class Failure(val error: StoreError) : StoreResult<Nothing>
@@ -29,7 +31,9 @@ enum class StoreErrorCode {
 data class StoreResource(
     val id: String,
     val fileName: String,
-    val location: String
+    val location: String,
+    val directory: String = PublicId.directoryOf(id).joinToString("."),
+    val name: String = PublicId.nameOf(id)
 )
 
 enum class EditorDataStoreKind {
