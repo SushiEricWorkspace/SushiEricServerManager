@@ -22,13 +22,10 @@ internal data class SidebarDataState(
         }
 
     fun displayText(name: String): String = buildString {
-        when {
-            hasErrors -> append("⛔ ")
-            hasWarnings -> append("⚠ ")
-        }
         if (localOnly) append("＋ ")
         append(name)
-        if (modified) append("  ●")
+        if (hasErrors) append(" ⚠")
+        if (hasWarnings) append(" ⚠")
     }
 
     fun description(): String? {

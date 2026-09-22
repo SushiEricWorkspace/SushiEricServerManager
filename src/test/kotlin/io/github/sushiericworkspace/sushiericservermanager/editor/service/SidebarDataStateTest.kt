@@ -21,10 +21,10 @@ class SidebarDataStateTest {
         val error = SidebarDataState(false, false, hasWarnings = false, hasErrors = true)
 
         assertEquals(listOf("button-warning"), warning.styleClasses)
-        assertEquals("⚠ sample", warning.displayText("sample"))
+        assertEquals("sample ⚠", warning.displayText("sample"))
         assertEquals("警告あり", warning.description())
         assertEquals(listOf("button-invalid"), error.styleClasses)
-        assertEquals("⛔ sample", error.displayText("sample"))
+        assertEquals("sample ⚠", error.displayText("sample"))
         assertEquals("エラーあり", error.description())
     }
 
@@ -36,7 +36,7 @@ class SidebarDataStateTest {
             listOf("button-selected", "button-modified", "button-warning", "button-invalid"),
             state.styleClasses
         )
-        assertEquals("⛔ sample  ●", state.displayText("sample"))
+        assertEquals("sample ⚠ ⚠", state.displayText("sample"))
         assertEquals("選択中 / 未保存の変更あり / 警告あり / エラーあり", state.description())
     }
 
@@ -54,7 +54,7 @@ class SidebarDataStateTest {
             listOf("button-selected", "button-modified", "button-warning", "button-local-only"),
             state.styleClasses
         )
-        assertEquals("⚠ ＋ sample  ●", state.displayText("sample"))
+        assertEquals("＋ sample ⚠", state.displayText("sample"))
         assertEquals(
             "選択中 / サーバー未保存 / 未保存の変更あり / 警告あり",
             state.description()

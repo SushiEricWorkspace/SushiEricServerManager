@@ -8,6 +8,7 @@ import io.github.sushiericworkspace.common.data.item.model.ItemInternalId
 import io.github.sushiericworkspace.common.data.item.model.mutable.MutableItemBaseData
 import io.github.sushiericworkspace.common.data.core.validation.SushiEricValidationError
 import io.github.sushiericworkspace.sushiericservermanager.editor.controller.MainController
+import io.github.sushiericworkspace.sushiericservermanager.config.AppSettingsManager
 import io.github.sushiericworkspace.sushiericservermanager.editor.result.ValidationResult
 import io.github.sushiericworkspace.sushiericservermanager.editor.result.dataservice.LoadResult
 import io.github.sushiericworkspace.sushiericservermanager.editor.service.EditorDataService
@@ -31,6 +32,7 @@ import javafx.event.EventHandler
 import javafx.concurrent.Task
 import javafx.scene.Node
 import javafx.scene.control.Button
+import javafx.scene.control.Label
 import javafx.scene.control.MenuItem
 import javafx.scene.layout.HBox
 import javafx.scene.layout.Priority
@@ -63,6 +65,19 @@ abstract class EditorView<T : ManagedData<T, *>>(
     protected val dataService: EditorDataService,
     protected val dataAccess: EditorDataService.DataAccess<T>
 ) {
+    /** サイドバー表示方式。必要なエディターは従来の平坦表示へ切り替えられます。 */
+    protected open val sidebarDisplayMode: SidebarDisplayMode = SidebarDisplayMode.TREE
+    private val sidebarStateKey = "${dataService.cacheIdentity}:${dataAccess.dataType.categoryDirName}"
+    protected val sidebarExpandedState: MutableMap<String, Boolean> =
+        AppSettingsManager.load().sidebarDirectoryExpanded[sidebarStateKey].orEmpty().toMutableMap()
+
+    protected fun persistSidebarExpandedState() {
+        val settings = AppSettingsManager.load()
+        AppSettingsManager.save(settings.copy(
+            sidebarDirectoryExpanded = settings.sidebarDirectoryExpanded +
+                (sidebarStateKey to sidebarExpandedState.toMap())
+        ))
+    }
     var openCancelled: Boolean = false
         private set
 
@@ -173,10 +188,17 @@ abstract class EditorView<T : ManagedData<T, *>>(
         actions.add(repairAllErrorsButton!!)
         actions.add(spacer)
         actions.add(
-            Button("新規作成").apply {
+            Button("データを作成").apply {
                 styleClass.addAll("editor-action-button", "btn-success")
                 isFocusTraversable = false
                 onAction = EventHandler { handleCreateNewItem() }
+            }
+        )
+        actions.add(
+            Button("ディレクトリを作成").apply {
+                styleClass.addAll("editor-action-button", "btn-secondary")
+                isFocusTraversable = false
+                onAction = EventHandler { handleCreateDirectory() }
             }
         )
         container.children.setAll(actions)
@@ -526,7 +548,19 @@ abstract class EditorView<T : ManagedData<T, *>>(
 
         btn.styleClass.removeAll(SidebarDataState.STYLE_CLASSES)
         btn.styleClass.addAll(state.styleClasses)
-        btn.text = state.displayText(PublicId.normalizeForLoad(id))
+        btn.text = ""
+        btn.graphic = HBox(5.0).apply {
+            if (state.localOnly) children += Label("＋").apply { styleClass.add("sidebar-local-only-mark") }
+            children += Label(
+                btn.properties[TreeSidebarRenderer.DISPLAY_NAME_KEY] as? String
+                    ?: PublicId.normalizeForLoad(id)
+            ).apply {
+                styleClass.add("sidebar-data-name")
+                if (state.modified) styleClass.add("sidebar-data-modified")
+            }
+            if (state.hasErrors) children += Label("⚠").apply { styleClass.add("sidebar-error-mark") }
+            if (state.hasWarnings) children += Label("⚠").apply { styleClass.add("sidebar-warning-mark") }
+        }
         btn.accessibleText = listOfNotNull(PublicId.normalizeForLoad(id), state.description())
             .joinToString(" / ")
         btn.tooltip = state.description()?.let(AppTooltip::create)
@@ -938,7 +972,29 @@ abstract class EditorView<T : ManagedData<T, *>>(
      * そのため、ItemやOreなどの具体型に依存せず、
      * 共通の新規作成処理として利用できます。
      */
-    protected open fun handleCreateNewItem() {
+    protected open fun handleCreateNewItem() = handleCreateNewItem("")
+
+    /** ルートから完全IDを指定してディレクトリを作成します。 */
+    protected open fun handleCreateDirectory() {
+        val directory = main.requestInput("ディレクトリを作成") { input ->
+            when {
+                input.isBlank() -> ValidationResult.Error("名前を入力してください")
+                !PublicId.isValidFull(input) -> ValidationResult.Error(PublicId.DESCRIPTION)
+                else -> ValidationResult.Success
+            }
+        } ?: return
+        when (dataAccess.createDirectory(directory)) {
+            is StoreResult.Success -> setupSidebar(main.sidebarContainer, currentSelectedDataId)
+            is StoreResult.Failure -> CustomDialog.error()
+                .title("ディレクトリ作成エラー")
+                .header("ディレクトリを作成できませんでした")
+                .owner(main.currentStage)
+                .show()
+        }
+    }
+
+    /** 指定したディレクトリへ新しい管理データを作成します。 */
+    protected fun handleCreateNewItem(directory: String) {
         val (fileResources, isSuccess) = dataAccess.listYmlResources()
         if (!isSuccess) {
             CustomDialog.error()
@@ -951,8 +1007,16 @@ abstract class EditorView<T : ManagedData<T, *>>(
         }
 
         val inputText = main.requestInput("${dataAccess.displayName}を追加") { input ->
-            val containsInvalidChar = !PublicId.isValid(input)
-            val isDuplicate = fileResources.any { it.name == "$input.yml" }
+            val containsInvalidChar = !(if (directory.isEmpty()) {
+                PublicId.isValidFull(input)
+            } else {
+                PublicId.isValid(input)
+            })
+            val fullId = PublicId.join(
+                directory.split('.').filter(String::isNotEmpty),
+                input
+            )
+            val isDuplicate = fileResources.any { it.name == "$fullId.yml" }
             when {
                 input.isBlank() -> ValidationResult.Error("名前を入力してください")
                 containsInvalidChar -> ValidationResult.Error(PublicId.DESCRIPTION)
@@ -962,14 +1026,18 @@ abstract class EditorView<T : ManagedData<T, *>>(
         }
 
         if (inputText != null) {
-            val data = prepareNewData(dataAccess.createDefault(inputText))
-            when (val result = dataAccess.saveStore(inputText, data)) {
+            val fullId = PublicId.join(
+                directory.split('.').filter(String::isNotEmpty),
+                inputText
+            )
+            val data = prepareNewData(dataAccess.createDefault(fullId))
+            when (val result = dataAccess.saveStore(fullId, data)) {
                 is StoreResult.Success -> {
-                    editingDataMap[inputText] = data
-                    originalDataMap[inputText] = data.deepCopy()
+                    editingDataMap[fullId] = data
+                    originalDataMap[fullId] = data.deepCopy()
 
                     setupSidebar(main.sidebarContainer)
-                    selectTab(inputText)
+                    selectTab(fullId)
                 }
                 is StoreResult.Failure -> handleSaveFailure(result.error)
             }

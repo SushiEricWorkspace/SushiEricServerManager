@@ -53,6 +53,7 @@ internal abstract class ManagedDataEditorView<T : ManagedData<T, *>>(
         styleClass.add("sidebar-no-results-label")
     }
     private var sidebarDataIds: List<String> = emptyList()
+    private var sidebarDirectories: List<String> = emptyList()
 
     override fun setupSidebar(container: VBox, selectId: String?) {
         container.children.setAll(sidebarSearchField, sidebarResultsContainer)
@@ -77,10 +78,21 @@ internal abstract class ManagedDataEditorView<T : ManagedData<T, *>>(
         remoteDataIds = remoteIds.toSet()
         val ids = mergeSidebarIds(remoteIds, editingDataMap.keys)
         sidebarDataIds = ids
+        sidebarDirectories = when (val result = dataAccess.listDirectories()) {
+            is StoreResult.Success -> result.value
+            is StoreResult.Failure -> emptyList()
+        }
         val existingIds = ids.toSet()
         ids.forEach { id ->
             sidebarButtons[id] = createSidebarButton(id, existingIds)
         }
+        TreeSidebarRenderer(
+            createDataButton = { id -> sidebarButtons.getValue(id) },
+            createDirectoryMenu = ::createDirectoryContextMenu,
+            onMove = ::moveData,
+            expandedState = sidebarExpandedState,
+            onExpandedStateChanged = ::persistSidebarExpandedState
+        ).enableRootDrop(sidebarResultsContainer)
         renderSidebarResults()
 
         if (ids.isEmpty()) {
@@ -103,15 +115,95 @@ internal abstract class ManagedDataEditorView<T : ManagedData<T, *>>(
     }
 
     private fun renderSidebarResults() {
-        val visibleButtons = filterManagedDataIds(
-            sidebarDataIds,
-            sidebarSearchField.text.orEmpty()
-        ).mapNotNull(sidebarButtons::get)
-        if (visibleButtons.isEmpty()) {
+        if (sidebarDisplayMode == SidebarDisplayMode.FLAT) {
+            val buttons = FlatSidebarRenderer { id -> sidebarButtons.getValue(id) }
+                .render(sidebarDataIds, sidebarSearchField.text.orEmpty())
+            sidebarResultsContainer.children.setAll(buttons.ifEmpty { listOf(sidebarNoResultsLabel) })
+            return
+        }
+        val nodes = buildSidebarTree(sidebarDataIds, sidebarDirectories, sidebarSearchField.text.orEmpty())
+        if (nodes.isEmpty()) {
             sidebarResultsContainer.children.setAll(sidebarNoResultsLabel)
         } else {
-            sidebarResultsContainer.children.setAll(visibleButtons)
+            sidebarResultsContainer.children.setAll(
+                TreeSidebarRenderer(
+                    createDataButton = { id -> sidebarButtons.getValue(id) },
+                    createDirectoryMenu = ::createDirectoryContextMenu,
+                    onMove = ::moveData,
+                    expandedState = sidebarExpandedState,
+                    onExpandedStateChanged = ::persistSidebarExpandedState
+                ).render(nodes)
+            )
         }
+    }
+
+    private fun createDirectoryContextMenu(directory: String): ContextMenu {
+        val items = mutableListOf<MenuItem>()
+        items += MenuItem("ディレクトリを追加").apply {
+            onAction = EventHandler { requestCreateDirectory(directory) }
+        }
+        items += MenuItem("データを追加").apply {
+            onAction = EventHandler { handleCreateNewItem(directory) }
+        }
+        if (directory.isNotEmpty()) {
+            items += MenuItem("削除").apply {
+                styleClass.add("menu-item-danger")
+                onAction = EventHandler { requestDeleteDirectory(directory) }
+            }
+        }
+        return ContextMenu(*items.toTypedArray())
+    }
+
+    private fun requestCreateDirectory(parent: String) {
+        val name = main.requestInput("ディレクトリを追加") { input ->
+            when {
+                input.isBlank() -> ValidationResult.Error("名前を入力してください")
+                !PublicId.isValid(input) -> ValidationResult.Error(PublicId.DESCRIPTION)
+                else -> ValidationResult.Success
+            }
+        } ?: return
+        val directory = PublicId.join(parent.split('.').filter(String::isNotEmpty), name)
+        when (dataAccess.createDirectory(directory)) {
+            is StoreResult.Success -> setupSidebar(main.sidebarContainer, currentSelectedDataId)
+            is StoreResult.Failure -> showDirectoryError("ディレクトリを作成できませんでした")
+        }
+    }
+
+    private fun requestDeleteDirectory(directory: String) {
+        val affected = idsInSidebarDirectory(sidebarDataIds, directory)
+        val confirmed = CustomDialog.confirmation()
+            .title("ディレクトリを削除")
+            .header("配下のデータも削除されます")
+            .content((listOf("ディレクトリ: $directory", "", "削除対象:") + affected).joinToString("\n"))
+            .okButton("削除", Color.RED)
+            .owner(main.currentStage)
+            .show()
+        if (!confirmed) return
+        when (dataAccess.deleteDirectory(directory)) {
+            is StoreResult.Success -> {
+                affected.forEach { id -> editingDataMap.remove(id); originalDataMap.remove(id) }
+                setupSidebar(main.sidebarContainer)
+            }
+            is StoreResult.Failure -> showDirectoryError("ディレクトリを削除できませんでした")
+        }
+    }
+
+    private fun moveData(id: String, directory: String): Boolean = when (val result = dataAccess.move(id, directory)) {
+        is StoreResult.Success -> {
+            renameCachedData(editingDataMap, id, result.value)
+            renameCachedData(originalDataMap, id, result.value)
+            onDataRenamed(id, result.value)
+            setupSidebar(main.sidebarContainer, result.value)
+            true
+        }
+        is StoreResult.Failure -> {
+            showDirectoryError(if (result.error.code.name == "ALREADY_EXISTS") "移動先に同名のデータがあります" else "データを移動できませんでした")
+            false
+        }
+    }
+
+    private fun showDirectoryError(message: String) {
+        CustomDialog.error().title("ディレクトリ操作エラー").header(message).owner(main.currentStage).show()
     }
 
     private fun createSidebarButton(id: String, existingIds: Set<String>): Button =

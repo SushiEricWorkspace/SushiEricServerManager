@@ -55,9 +55,7 @@
 }
 
 .button-selected {
-    -fx-background-color: -fx-line-emphasis-color !important;
-    -fx-text-fill: white !important;
-    -fx-font-weight: bold !important;
+    -fx-background-color: -fx-bg-elevated !important;
 }
 
 .button-modified {
@@ -101,7 +99,36 @@
 
 /* 選択中は背景が強調色になるため、文字色を戻す */
 .button-selected.button-local-only {
-    -fx-text-fill: white !important;
+    -fx-text-fill: -fx-warning-color !important;
+}
+
+.sidebar-tree-children {
+    -fx-padding: 0 0 0 14px;
+}
+
+.sidebar-directory-button {
+    -fx-font-weight: bold !important;
+    -fx-text-fill: -fx-text-muted-color !important;
+}
+
+.sidebar-data-name {
+    -fx-text-fill: -fx-text-color;
+}
+
+.sidebar-data-modified {
+    -fx-text-fill: -fx-success-color;
+    -fx-font-weight: bold;
+}
+
+.sidebar-error-mark {
+    -fx-text-fill: -fx-danger-color;
+    -fx-font-weight: bold;
+}
+
+.sidebar-warning-mark,
+.sidebar-local-only-mark {
+    -fx-text-fill: -fx-warning-color;
+    -fx-font-weight: bold;
 }
 
 .button-modified.button-warning {
