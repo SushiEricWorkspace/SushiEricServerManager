@@ -48,6 +48,52 @@
     -fx-background-color: transparent !important;
     -fx-text-fill: -fx-text-color !important;
     -fx-border-color: transparent !important;
+    -fx-indent: 16px;
+}
+
+/*
+ * 階層の線。
+ * TreeViewのインデントはセル内部で確保されるため、深さごとのスタイルクラス
+ * （EditorTreeCellが付与するtree-indent-N）で線を重ねて引く。
+ * 背景はホバーと選択で使うため、線はborderの多重指定で描く。
+ */
+.custom-tree-cell.tree-indent-1 {
+    -fx-border-color: -fx-line-emphasis-color !important;
+    -fx-border-width: 0 0 0 1px !important;
+    -fx-border-insets: 0 0 0 8px !important;
+}
+
+.custom-tree-cell.tree-indent-2 {
+    -fx-border-color: -fx-line-emphasis-color, -fx-line-emphasis-color !important;
+    -fx-border-width: 0 0 0 1px, 0 0 0 1px !important;
+    -fx-border-insets: 0 0 0 8px, 0 0 0 24px !important;
+}
+
+.custom-tree-cell.tree-indent-3 {
+    -fx-border-color: -fx-line-emphasis-color, -fx-line-emphasis-color, -fx-line-emphasis-color !important;
+    -fx-border-width: 0 0 0 1px, 0 0 0 1px, 0 0 0 1px !important;
+    -fx-border-insets: 0 0 0 8px, 0 0 0 24px, 0 0 0 40px !important;
+}
+
+.custom-tree-cell.tree-indent-4 {
+    -fx-border-color: -fx-line-emphasis-color, -fx-line-emphasis-color, -fx-line-emphasis-color,
+        -fx-line-emphasis-color !important;
+    -fx-border-width: 0 0 0 1px, 0 0 0 1px, 0 0 0 1px, 0 0 0 1px !important;
+    -fx-border-insets: 0 0 0 8px, 0 0 0 24px, 0 0 0 40px, 0 0 0 56px !important;
+}
+
+.custom-tree-cell.tree-indent-5 {
+    -fx-border-color: -fx-line-emphasis-color, -fx-line-emphasis-color, -fx-line-emphasis-color,
+        -fx-line-emphasis-color, -fx-line-emphasis-color !important;
+    -fx-border-width: 0 0 0 1px, 0 0 0 1px, 0 0 0 1px, 0 0 0 1px, 0 0 0 1px !important;
+    -fx-border-insets: 0 0 0 8px, 0 0 0 24px, 0 0 0 40px, 0 0 0 56px, 0 0 0 72px !important;
+}
+
+.custom-tree-cell.tree-indent-6 {
+    -fx-border-color: -fx-line-emphasis-color, -fx-line-emphasis-color, -fx-line-emphasis-color,
+        -fx-line-emphasis-color, -fx-line-emphasis-color, -fx-line-emphasis-color !important;
+    -fx-border-width: 0 0 0 1px, 0 0 0 1px, 0 0 0 1px, 0 0 0 1px, 0 0 0 1px, 0 0 0 1px !important;
+    -fx-border-insets: 0 0 0 8px, 0 0 0 24px, 0 0 0 40px, 0 0 0 56px, 0 0 0 72px, 0 0 0 88px !important;
 }
 
 .custom-tree-cell.folder-cell {
