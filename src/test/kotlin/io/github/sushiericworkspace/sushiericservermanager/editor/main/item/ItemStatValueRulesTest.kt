@@ -3,7 +3,9 @@ package io.github.sushiericworkspace.sushiericservermanager.editor.main.item
 import io.github.sushiericworkspace.common.stats.player.StatsType
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertNotEquals
+import kotlin.test.assertTrue
 
 class ItemStatValueRulesTest {
     @Test
@@ -31,9 +33,44 @@ class ItemStatValueRulesTest {
     }
 
     @Test
-    fun `0は未設定として初期値へ置き換える`() {
-        assertEquals(1.0, normalizeItemStatValue(StatsType.BREAK_EFFICIENCY, 0.0))
-        assertEquals(1.0, normalizeItemStatValue(StatsType.STRENGTH, 0.0))
+    fun `0は加算なしとしてそのまま保持する`() {
+        assertEquals(NO_FLAT_ITEM_STAT_VALUE, normalizeItemStatValue(StatsType.BREAK_EFFICIENCY, 0.0))
+        assertEquals(NO_FLAT_ITEM_STAT_VALUE, normalizeItemStatValue(StatsType.STRENGTH, 0.0))
+        assertEquals(NO_FLAT_ITEM_STAT_VALUE, normalizeItemStatValue(StatsType.SPEED, 0.0))
+    }
+
+    @Test
+    fun `数値として読めない値は加算なしへ戻す`() {
+        assertEquals(NO_FLAT_ITEM_STAT_VALUE, normalizeItemStatValue(StatsType.STRENGTH, Double.NaN))
+    }
+
+    @Test
+    fun `加算値を持つかどうかを0で判定する`() {
+        assertFalse(hasFlatItemStatValue(0.0))
+        assertTrue(hasFlatItemStatValue(1.0))
+        assertTrue(hasFlatItemStatValue(-1.0))
+    }
+
+    @Test
+    fun `表示する種類は加算値と倍率の和集合を宣言順で返す`() {
+        assertEquals(
+            listOf(StatsType.STRENGTH, StatsType.DEFENCE, StatsType.SPEED),
+            visibleItemStatTypes(
+                flatTypes = setOf(StatsType.SPEED, StatsType.STRENGTH),
+                multiplierTypes = setOf(StatsType.DEFENCE, StatsType.STRENGTH)
+            )
+        )
+    }
+
+    @Test
+    fun `倍率だけの種類も表示対象にする`() {
+        assertEquals(
+            listOf(StatsType.DEFENCE),
+            visibleItemStatTypes(
+                flatTypes = emptySet(),
+                multiplierTypes = setOf(StatsType.DEFENCE)
+            )
+        )
     }
 
     @Test
