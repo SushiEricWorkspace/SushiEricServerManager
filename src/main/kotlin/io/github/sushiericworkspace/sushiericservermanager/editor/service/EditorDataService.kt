@@ -24,6 +24,9 @@ import io.github.sushiericworkspace.sushiericservermanager.editor.store.StoreErr
 import io.github.sushiericworkspace.sushiericservermanager.editor.store.StoreResource
 import io.github.sushiericworkspace.sushiericservermanager.editor.store.StoreResult
 import io.github.sushiericworkspace.sushiericservermanager.util.Utility
+import kotlinx.serialization.SerializationException
+import kotlinx.serialization.encodeToString
+import kotlinx.serialization.json.Json
 import org.slf4j.LoggerFactory
 import java.io.File
 import java.nio.file.AtomicMoveNotSupportedException
@@ -42,6 +45,10 @@ class EditorDataService(
     constructor(ssh: SshManager) : this(RemoteEditorDataStore(ssh))
 
     private val logger = LoggerFactory.getLogger(javaClass)
+    private val pendingOperationJson = Json {
+        prettyPrint = true
+        ignoreUnknownKeys = true
+    }
 
     val items: DataAccess<MutableItemBaseData> = DataAccess(EditorDataDescriptors.item)
     val ores: DataAccess<MutableOreBaseData> = DataAccess(EditorDataDescriptors.ore)
@@ -228,10 +235,75 @@ class EditorDataService(
         }
 
         fun rename(oldName: String, newName: String): RenameResult {
-            return when (val result = store.rename(descriptor, oldName, newName)) {
+            val newId = PublicId.join(PublicId.directoryOf(oldName), newName)
+            return renameTo(oldName, newId)
+        }
+
+        internal fun loadPendingStoreOperations(): List<PendingStoreOperationRecord> {
+            val file = pendingOperationFile(dataType.categoryDirName)
+            if (!file.isFile) return emptyList()
+            return try {
+                pendingOperationJson.decodeFromString(file.readText())
+            } catch (e: SerializationException) {
+                logger.error("保存待ち操作を読み込めませんでした: {}", file, e)
+                emptyList()
+            } catch (e: Exception) {
+                logger.error("保存待ち操作の読み込みに失敗しました: {}", file, e)
+                emptyList()
+            }
+        }
+
+        internal fun savePendingStoreOperations(operations: Collection<PendingStoreOperationRecord>): Boolean {
+            val file = pendingOperationFile(dataType.categoryDirName)
+            if (operations.isEmpty()) {
+                return !file.exists() || file.delete().also { deleted ->
+                    if (!deleted) logger.warn("保存待ち操作ファイルを削除できませんでした: {}", file)
+                }
+            }
+
+            val parent = file.parentFile
+            if (!parent.exists() && !parent.mkdirs()) return false
+            val temporary = try {
+                Files.createTempFile(parent.toPath(), ".pending-operations-", ".tmp").toFile()
+            } catch (e: Exception) {
+                logger.error("保存待ち操作の一時ファイルを作成できませんでした: {}", file, e)
+                return false
+            }
+
+            return try {
+                val sorted = operations.sortedBy(PendingStoreOperationRecord::currentId)
+                temporary.writeText(pendingOperationJson.encodeToString(sorted))
+                replaceAtomically(temporary, file)
+                true
+            } catch (e: Exception) {
+                logger.error("保存待ち操作を保存できませんでした: {}", file, e)
+                false
+            } finally {
+                temporary.delete()
+            }
+        }
+
+        fun renameTo(oldId: String, newId: String): RenameResult {
+            val oldDirectory = PublicId.directoryOf(oldId)
+            val newDirectory = PublicId.directoryOf(newId)
+            val newName = PublicId.nameOf(newId)
+            val result = if (oldDirectory == newDirectory) {
+                store.rename(descriptor, oldId, newName)
+            } else {
+                when (val moved = store.move(descriptor, oldId, newDirectory.joinToString("."))) {
+                    is StoreResult.Failure -> moved
+                    is StoreResult.Success -> {
+                        if (moved.value == newId) {
+                            StoreResult.Success(Unit)
+                        } else {
+                            store.rename(descriptor, moved.value, newName)
+                        }
+                    }
+                }
+            }
+            return when (result) {
                 is StoreResult.Success -> {
-                    val newId = PublicId.join(PublicId.directoryOf(oldName), newName)
-                    renameBackup(oldName, newId)
+                    renameBackup(oldId, newId)
                     RenameResult.SUCCESS
                 }
                 is StoreResult.Failure -> result.error.code.toRenameResult()
@@ -289,6 +361,12 @@ class EditorDataService(
             .resolve(categoryDirName)
             .resolve(subDirName)
     }
+
+    private fun pendingOperationFile(categoryDirName: String): File =
+        autoSaveDirectory
+            .resolve(cacheIdentity)
+            .resolve(categoryDirName)
+            .resolve("pending-operations.json")
 
     private fun replaceAtomically(source: File, target: File) {
         try {

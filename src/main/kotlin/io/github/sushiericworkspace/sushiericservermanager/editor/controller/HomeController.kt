@@ -456,8 +456,15 @@ class HomeController : Initializable {
                             val backupPair = dataAccess.loadBackupPair(id)
 
                             if (backupPair != null) {
-                                editingCaches[id] = backupPair.first
-                                originalCaches[id] = backupPair.second
+                                val restoredId = backupPair.first.id
+                                editingCaches[restoredId] = backupPair.first
+                                originalCaches[restoredId] = backupPair.second.apply { this.id = restoredId }
+                                if (restoredId != id) {
+                                    dataAccess.saveToLocalBackup(restoredId, "editing", backupPair.first)
+                                    dataAccess.saveToLocalBackup(restoredId, "original", backupPair.second)
+                                    dataAccess.deleteLocalBackup(id)
+                                    logger.info("旧形式の自動保存IDを移行しました: {} -> {}", id, restoredId)
+                                }
                             }
                         }
 
