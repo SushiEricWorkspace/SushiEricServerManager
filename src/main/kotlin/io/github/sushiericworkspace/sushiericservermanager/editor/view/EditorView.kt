@@ -17,6 +17,8 @@ import io.github.sushiericworkspace.sushiericservermanager.editor.service.Editor
 import io.github.sushiericworkspace.sushiericservermanager.editor.service.EditorSyncService
 import io.github.sushiericworkspace.sushiericservermanager.editor.merge.DataConflict
 import io.github.sushiericworkspace.sushiericservermanager.editor.history.EditorDataHistory
+import io.github.sushiericworkspace.sushiericservermanager.editor.history.shouldCommitHistoryOnKeyPress
+import io.github.sushiericworkspace.sushiericservermanager.editor.history.shouldCommitHistoryOnMousePress
 import io.github.sushiericworkspace.sushiericservermanager.editor.store.StoreError
 import io.github.sushiericworkspace.sushiericservermanager.editor.store.StoreErrorCode
 import io.github.sushiericworkspace.sushiericservermanager.editor.store.StoreResult
@@ -40,6 +42,8 @@ import javafx.scene.control.MenuButton
 import javafx.scene.control.MenuItem
 import javafx.scene.control.SeparatorMenuItem
 import javafx.scene.control.TextInputControl
+import javafx.scene.input.KeyEvent
+import javafx.scene.input.MouseEvent
 import javafx.scene.layout.HBox
 import javafx.scene.layout.VBox
 import javafx.scene.paint.Color
@@ -112,6 +116,9 @@ abstract class EditorView<T : ManagedData<T, *>>(
     private val mergeConflicts = mutableMapOf<String, List<DataConflict>>()
     private val pendingStoreOperations = mutableMapOf<String, PendingStoreOperation>()
     private val editHistory = EditorDataHistory<T>(copy = { it.deepCopy() })
+
+    /** 入力中のテキストを履歴へ確定するフィルターを登録済みかどうかです。 */
+    private var historyCommitFilterInstalled = false
     private val syncService = EditorSyncService(dataAccess)
     private var saveMenuItem: MenuItem? = null
     private var saveAllMenuItem: MenuItem? = null
@@ -417,6 +424,7 @@ abstract class EditorView<T : ManagedData<T, *>>(
         refreshSyncButtonState()
         editHistory.initialize(targetId, editingDataMap.getValue(targetId))
         setupMainContent(editingDataMap[targetId]!!)
+        installHistoryCommitFilter()
     }
 
     private fun mergeSelectedWithLatest(targetId: String) {
@@ -961,6 +969,51 @@ abstract class EditorView<T : ManagedData<T, *>>(
             editHistory.initialize(id, data)
             editHistory.record(id, data)
         }
+    }
+
+    /**
+     * 入力中のテキストを履歴へ確定するイベントフィルターを、1度だけSceneへ登録します。
+     *
+     * ボタンやメニューは`isFocusTraversable = false`のものが多く、操作してもテキスト入力の
+     * フォーカスが外れません。そのままでは入力中の変更が確定しないまま次の操作の変更と
+     * 1件へまとまるため、イベントが処理される前に確定します。
+     */
+    private fun installHistoryCommitFilter() {
+        if (historyCommitFilterInstalled) return
+
+        val scene = main.mainContentContainer.scene ?: return
+
+        scene.addEventFilter(MouseEvent.MOUSE_PRESSED) { event ->
+            val focusOwner = scene.focusOwner
+
+            if (
+                shouldCommitHistoryOnMousePress(
+                    focusOwnerIsTextInput = focusOwner is TextInputControl,
+                    targetIsFocusOwner = event.target === focusOwner
+                )
+            ) {
+                commitPendingTextEdit()
+            }
+        }
+
+        scene.addEventFilter(KeyEvent.KEY_PRESSED) { event ->
+            if (
+                shouldCommitHistoryOnKeyPress(
+                    focusOwnerIsTextInput = scene.focusOwner is TextInputControl,
+                    code = event.code,
+                    shortcutDown = event.isShortcutDown
+                )
+            ) {
+                commitPendingTextEdit()
+            }
+        }
+
+        historyCommitFilterInstalled = true
+    }
+
+    /** 選択中データの入力中の変更を、1件の履歴として確定します。 */
+    private fun commitPendingTextEdit() {
+        currentSelectedDataId?.let(::recordHistorySnapshot)
     }
 
     /** 現在選択中のデータを1段階前の編集状態へ戻します。 */
