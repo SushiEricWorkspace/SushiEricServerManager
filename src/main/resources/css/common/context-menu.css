@@ -1,6 +1,9 @@
 /*
  * context-menu.css
- * 役割: ContextMenuとMenuItemの背景、枠線、ホバー色を定義する。
+ * 役割: ContextMenuとMenuItemの背景、枠線、余白、ホバー色を定義する。
+ *
+ * 右クリックで開くメニューとサブメニューの両方へ同じ基準を適用する。
+ * 各画面固有CSSへメニューの定義を重複させない。
  */
 
 .context-menu-popup {
@@ -14,24 +17,55 @@
     -fx-background-radius: 0;
     -fx-border-radius: 0;
     -fx-padding: 4;
+    -fx-min-width: 180px;
     -fx-effect: dropshadow(three-pass-box, rgba(0,0,0,0.15), 5, 0.0, 0, 2);
 }
 
+/* 項目名が長くても折り返さず、クリックできる範囲を行全体にそろえる */
 .context-menu .menu-item {
     -fx-background-radius: 0;
-    -fx-padding: 2px 12px;
+    -fx-padding: 6px 16px;
     -fx-background-color: transparent;
 }
 
 .context-menu .menu-item .label {
     -fx-text-fill: -fx-text-color;
     -fx-font-size: 14px;
+    -fx-padding: 0;
 }
 
-.context-menu .menu-item:hover {
+/* マウス操作とキーボード操作で同じハイライトにする */
+.context-menu .menu-item:hover,
+.context-menu .menu-item:focused,
+.context-menu .menu-item:showing {
     -fx-background-color: -fx-line-color;
 }
 
 .context-menu .menu-item.menu-item-danger .label {
     -fx-text-fill: -fx-danger-color;
+}
+
+/* サブメニューを開く項目は、矢印と項目名が重ならないよう右側を空ける */
+.context-menu .menu-item > .right-container {
+    -fx-padding: 0 0 0 12px;
+}
+
+.context-menu .menu-item > .right-container > .arrow {
+    -fx-background-color: -fx-text-muted-color;
+    -fx-shape: "M 0 0 L 5 4 L 0 8 Z";
+    -fx-scale-shape: false;
+    -fx-min-width: 5px;
+    -fx-min-height: 8px;
+}
+
+.context-menu .menu-item:hover > .right-container > .arrow,
+.context-menu .menu-item:focused > .right-container > .arrow,
+.context-menu .menu-item:showing > .right-container > .arrow {
+    -fx-background-color: -fx-text-color;
+}
+
+.context-menu .separator:horizontal .line {
+    -fx-border-color: -fx-line-color transparent transparent transparent;
+    -fx-border-width: 1px 0 0 0;
+    -fx-padding: 2px 0 0 0;
 }
