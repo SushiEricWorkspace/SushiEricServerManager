@@ -7,6 +7,7 @@ import io.github.sushiericworkspace.common.data.item.model.mutable.MutableItemBa
 import io.github.sushiericworkspace.common.data.ore.model.mutable.MutableOreBaseData
 import io.github.sushiericworkspace.common.registry.VanillaIdRegistry
 import io.github.sushiericworkspace.sushiericservermanager.editor.component.DropItemEditorDialog
+import io.github.sushiericworkspace.sushiericservermanager.editor.component.EditorSpinnerFactory
 import io.github.sushiericworkspace.sushiericservermanager.editor.component.SearchableComboBox
 import io.github.sushiericworkspace.sushiericservermanager.editor.controller.MainController
 import io.github.sushiericworkspace.sushiericservermanager.editor.service.EditorDataService
@@ -112,9 +113,20 @@ internal class OreEditorLogic(
         val hardnessField = createHardnessField(selectData) {
             refreshValidation()
         }
+        val requiredTierSpinner = EditorSpinnerFactory.intSpinner(
+            initialValue = selectData.requiredTier,
+            min = 0,
+            max = Int.MAX_VALUE,
+            step = 1,
+            prefWidth = 180.0
+        ) { value ->
+            selectData.requiredTier = value
+            refreshValidation()
+        }
         validationFocusTargets.clear()
         validationFocusTargets["blockId"] = blockIdSelector.children.first()
         validationFocusTargets["hardness"] = hardnessField
+        validationFocusTargets["requiredTier"] = requiredTierSpinner
         validationFocusTargets["dropItems"] = dropItemButton
         dropItemButton.onAction = EventHandler {
             val owner = main.currentStage ?: return@EventHandler
@@ -142,8 +154,10 @@ internal class OreEditorLogic(
             add(blockIdSelector, 1, 1)
             add(Label("硬度:"), 0, 2)
             add(hardnessField, 1, 2)
-            add(Label("ドロップアイテム:"), 0, 3)
-            add(dropItemButton, 1, 3)
+            add(Label("要求Tier:"), 0, 3)
+            add(requiredTierSpinner, 1, 3)
+            add(Label("ドロップアイテム:"), 0, 4)
+            add(dropItemButton, 1, 4)
         }
 
         val content = VBox(16.0, inputGrid, validationBox).apply {

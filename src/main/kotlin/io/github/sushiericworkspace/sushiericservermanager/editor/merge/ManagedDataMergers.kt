@@ -101,6 +101,12 @@ object OreDataMerger : DataMerger<MutableOreBaseData> {
         accumulator.mergeValue(DataFields.hardness, base.hardness, local.hardness, remote.hardness) { data, value ->
             data.hardness = value
         }
+        accumulator.mergeValue(
+            DataFields.requiredTier,
+            base.requiredTier,
+            local.requiredTier,
+            remote.requiredTier
+        ) { data, value -> data.requiredTier = value }
         accumulator.mergeList(
             path = DataFields.dropItems,
             base = base.mutableDropItems,

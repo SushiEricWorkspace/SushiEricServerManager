@@ -19,6 +19,7 @@ import io.github.sushiericworkspace.common.data.item.model.mutable.detail.Mutabl
 import io.github.sushiericworkspace.common.data.item.model.mutable.detail.MutableBowContent
 import io.github.sushiericworkspace.common.data.item.model.mutable.detail.MutableCrossbowData
 import io.github.sushiericworkspace.common.data.item.model.mutable.detail.MutableLongSwordData
+import io.github.sushiericworkspace.common.data.item.model.mutable.detail.MutablePickaxeData
 import io.github.sushiericworkspace.common.data.item.model.mutable.detail.MutablePotionData
 import io.github.sushiericworkspace.common.data.item.model.mutable.detail.MutableShieldData
 import io.github.sushiericworkspace.common.data.item.model.mutable.detail.MutableShortBowData
@@ -251,6 +252,15 @@ class ItemEditorFactory(
             },
             doubleSpinnerRow("レンジ:", content.range, 0.0, 999.0, 0.1, 1) { value ->
                 content.range = value
+                refreshButtonVisual(itemData.id)
+            }
+        )
+    }
+
+    private fun createPickaxeRows(content: MutablePickaxeData): List<Node> {
+        return listOf(
+            intSpinnerRow("Tier:", content.tier, 0, Int.MAX_VALUE, 1) { value ->
+                content.tier = value
                 refreshButtonVisual(itemData.id)
             }
         )
@@ -569,7 +579,10 @@ class ItemEditorFactory(
 
                                     AXE -> emptyList()
 
-                                    PICKAXE -> emptyList()
+                                    PICKAXE -> {
+                                        content as MutablePickaxeData
+                                        createPickaxeRows(content)
+                                    }
 
                                     BOW, SHORT_BOW -> {
                                         content as MutableBowContent

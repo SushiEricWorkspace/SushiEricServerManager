@@ -11,23 +11,29 @@ import kotlin.test.assertFalse
 import kotlin.test.assertIs
 import kotlin.test.assertTrue
 
-/**
- * PICKAXEのアイテム編集が、種類固有の値を持たない種別として既存の規則へ追従することを確認します。
- */
+/** PICKAXE固有のTierを含む編集用データが既存の規則へ追従することを確認します。 */
 class PickaxeEditorContentTest {
     @Test
-    fun `PICKAXEは種類固有の値を持たない編集用データを生成する`() {
+    fun `PICKAXEはTierを保持する編集用データを生成する`() {
         val content = ItemType.PICKAXE.createMutableContent()
 
         assertIs<MutablePickaxeData>(content)
-        assertIs<PickaxeData>(content.freeze())
+        assertEquals(0, content.tier)
+
+        content.tier = 3
+        val frozen = assertIs<PickaxeData>(content.freeze())
+
+        assertEquals(3, frozen.tier)
     }
 
     @Test
-    fun `PICKAXEの要約は種別名だけを表示する`() {
+    fun `PICKAXEの要約はTierを表示する`() {
+        val content = ItemType.PICKAXE.createMutableContent()
+        assertIs<MutablePickaxeData>(content).tier = 4
+
         assertEquals(
-            "ツルハシ",
-            ItemDetailContentFormatter.format(ItemType.PICKAXE.createMutableContent().freeze())
+            "ツルハシ tier=4",
+            ItemDetailContentFormatter.format(content.freeze())
         )
     }
 
