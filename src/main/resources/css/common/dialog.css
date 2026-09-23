@@ -91,6 +91,10 @@
     -fx-background-color: -fx-bg-shallow;
 }
 
+.dialog-pane .dialog-scrollable-content {
+    -fx-font-size: 15px;
+}
+
 .rewrite-confirmation-root {
     -fx-background-color: -fx-bg-deep;
 }

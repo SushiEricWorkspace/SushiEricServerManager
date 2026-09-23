@@ -11,6 +11,8 @@ import io.github.sushiericworkspace.sushiericservermanager.editor.controller.Mai
 import io.github.sushiericworkspace.sushiericservermanager.config.AppSettingsManager
 import io.github.sushiericworkspace.sushiericservermanager.editor.result.ValidationResult
 import io.github.sushiericworkspace.sushiericservermanager.editor.result.dataservice.LoadResult
+import io.github.sushiericworkspace.sushiericservermanager.editor.result.dataservice.DeleteResult
+import io.github.sushiericworkspace.sushiericservermanager.editor.result.dataservice.RenameResult
 import io.github.sushiericworkspace.sushiericservermanager.editor.service.EditorDataService
 import io.github.sushiericworkspace.sushiericservermanager.editor.service.EditorSyncService
 import io.github.sushiericworkspace.sushiericservermanager.editor.merge.DataConflict
@@ -98,6 +100,7 @@ abstract class EditorView<T : ManagedData<T, *>>(
     protected val editingDataMap = mutableMapOf<String, T>()
     protected val originalDataMap = mutableMapOf<String, T>()
     private val mergeConflicts = mutableMapOf<String, List<DataConflict>>()
+    private val pendingStoreOperations = mutableMapOf<String, PendingStoreOperation>()
     private val syncService = EditorSyncService(dataAccess)
     private var syncButton: Button? = null
     private var syncAllButton: Button? = null
@@ -128,6 +131,111 @@ abstract class EditorView<T : ManagedData<T, *>>(
         originalDataMap.remove(id)
         mergeConflicts.remove(id)
         dataAccess.deleteLocalBackup(id)
+    }
+
+    /** 新規データを、保存時にストアへ追加する保留操作として登録します。 */
+    protected fun stageDataCreation(id: String) {
+        pendingStoreOperations[id] = PendingStoreOperation.Create(id)
+        persistPendingStoreState()
+        refreshButtonVisual(id)
+        refreshSyncButtonState()
+    }
+
+    /**
+     * ID変更を保留し、編集中データのキーと公開IDだけを先に更新します。
+     * ストア上のファイル名は保存が確定するまで変更しません。
+     */
+    protected fun stageDataRename(oldId: String, newId: String) {
+        val previous = pendingStoreOperations.remove(oldId)
+        val operation = when (previous) {
+            is PendingStoreOperation.Create -> PendingStoreOperation.Create(newId)
+            is PendingStoreOperation.Rename -> PendingStoreOperation.Rename(previous.sourceId, newId)
+            is PendingStoreOperation.Delete -> PendingStoreOperation.Delete(newId, previous.sourceId)
+            null -> PendingStoreOperation.Rename(oldId, newId)
+        }
+        renameEditingCache(editingDataMap, oldId, newId)
+        renameEditingCache(originalDataMap, oldId, newId)
+        mergeConflicts.remove(oldId)?.let { mergeConflicts[newId] = it }
+        pendingStoreOperations[newId] = operation
+        dataAccess.deleteLocalBackup(oldId)
+        persistPendingStoreState()
+        refreshSyncButtonState()
+    }
+
+    /**
+     * 削除を保存時まで保留します。
+     *
+     * @return 未保存の追加を取り消して、その場で一覧から除外した場合は`true`。
+     */
+    protected fun stageDataDeletion(id: String): Boolean {
+        return when (val previous = pendingStoreOperations[id]) {
+            is PendingStoreOperation.Create -> {
+                pendingStoreOperations.remove(id)
+                discardLocalEditingData(id)
+                persistPendingStoreState()
+                refreshSyncButtonState()
+                true
+            }
+            is PendingStoreOperation.Rename -> {
+                pendingStoreOperations[id] = PendingStoreOperation.Delete(id, previous.sourceId)
+                persistPendingStoreState()
+                refreshButtonVisual(id)
+                refreshSyncButtonState()
+                false
+            }
+            is PendingStoreOperation.Delete -> false
+            null -> {
+                pendingStoreOperations[id] = PendingStoreOperation.Delete(id, id)
+                persistPendingStoreState()
+                refreshButtonVisual(id)
+                refreshSyncButtonState()
+                false
+            }
+        }
+    }
+
+    protected fun hasPendingStoreOperation(id: String): Boolean = id in pendingStoreOperations
+
+    protected fun isPendingStoreDeletion(id: String): Boolean =
+        pendingStoreOperations[id] is PendingStoreOperation.Delete
+
+    /** 削除保留を取り消し、削除前にID変更があった場合はその保留状態へ戻します。 */
+    protected fun cancelPendingStoreDeletion(id: String): Boolean {
+        val deletion = pendingStoreOperations[id] as? PendingStoreOperation.Delete ?: return false
+        if (deletion.sourceId == id) {
+            pendingStoreOperations.remove(id)
+        } else {
+            pendingStoreOperations[id] = PendingStoreOperation.Rename(deletion.sourceId, id)
+        }
+        persistPendingStoreState()
+        refreshButtonVisual(id)
+        refreshSyncButtonState()
+        return true
+    }
+
+    protected fun pendingOperationHasStoredSource(id: String): Boolean =
+        when (val operation = pendingStoreOperations[id]) {
+            is PendingStoreOperation.Rename -> operation.sourceId in remoteDataIds
+            is PendingStoreOperation.Delete -> operation.sourceId in remoteDataIds
+            is PendingStoreOperation.Create, null -> false
+        }
+
+    protected fun mergeSidebarIdsWithPending(remoteIds: Collection<String>): List<String> {
+        val renamedSourceIds = pendingStoreOperations.values.mapNotNullTo(mutableSetOf()) { operation ->
+            when (operation) {
+                is PendingStoreOperation.Rename -> operation.sourceId
+                is PendingStoreOperation.Delete -> operation.sourceId.takeIf { it != operation.currentId }
+                is PendingStoreOperation.Create -> null
+            }
+        }
+        return mergeSidebarIds(remoteIds.filterNot(renamedSourceIds::contains), editingDataMap.keys)
+    }
+
+    private fun renameEditingCache(cache: MutableMap<String, T>, oldId: String, newId: String) {
+        cache.remove(oldId)?.let { data ->
+            data.id = newId
+            cache[newId] = data
+        }
     }
 
     protected fun cancelOpen() {
@@ -225,12 +333,15 @@ abstract class EditorView<T : ManagedData<T, *>>(
      * @param targetId 選択対象となるリソースの識別子（ID）
      */
     open fun selectTab(targetId: String) {
+        if (isPendingStoreDeletion(targetId)) return
         this.currentSelectedDataId = targetId // 現在選択中のIDを更新
 
         val hasCache = editingDataMap.containsKey(targetId)
         val isUnchanged = hasCache && (originalDataMap[targetId] == editingDataMap[targetId])
 
-        if (hasCache && dataService.isRemote) {
+        if (hasCache && hasPendingStoreOperation(targetId)) {
+            // 保存前の追加・削除・ID変更はストア上の状態と一致しないため、編集キャッシュをそのまま使う。
+        } else if (hasCache && dataService.isRemote) {
             mergeSelectedWithLatest(targetId)
         } else if (!hasCache || isUnchanged) {
             val (data, accessResult) = dataAccess.load(targetId)
@@ -245,7 +356,7 @@ abstract class EditorView<T : ManagedData<T, *>>(
         }
 
         selectButtonById(targetId)
-        syncButton?.isDisable = false
+        refreshSyncButtonState()
         setupMainContent(editingDataMap[targetId]!!)
     }
 
@@ -297,16 +408,43 @@ abstract class EditorView<T : ManagedData<T, *>>(
         val dataId = targetDataId ?: currentSelectedDataId ?: return false
         val currentEdit = editingDataMap[dataId] ?: return false
         val original = originalDataMap[dataId] ?: return false
+        val pendingOperation = pendingStoreOperations[dataId]
+        val contentChanged = original != currentEdit
 
-        if (original == currentEdit) return false
+        if (!contentChanged && pendingOperation == null) return false
 
-        val saveData = prepareSaveData(dataId, currentEdit, original) ?: return false
-        return persistSaveData(dataId, saveData)
+        if (pendingOperation is PendingStoreOperation.Delete) {
+            if (!confirmSaveChanges(dataId, pendingOperation, original, currentEdit)) return false
+            return persistDelete(dataId, pendingOperation)
+        }
+
+        val sourceId = (pendingOperation as? PendingStoreOperation.Rename)?.sourceId ?: dataId
+        val saveData = prepareSaveData(dataId, sourceId, currentEdit, original) ?: return false
+        if (!confirmSaveChanges(dataId, pendingOperation, original, saveData)) return false
+        return persistSaveData(dataId, saveData, pendingOperation)
     }
 
-    private fun prepareSaveData(dataId: String, currentEdit: T, original: T): T? {
+    private fun confirmSaveChanges(
+        dataId: String,
+        operation: PendingStoreOperation?,
+        original: T,
+        saveData: T
+    ): Boolean {
+        val details = saveChangeDetails(dataId, operation, original, saveData)
+        if (details.isEmpty()) return false
+        return CustomDialog.confirmation()
+            .title("変更内容を保存")
+            .header("以下の変更をストアへ反映します")
+            .content(details)
+            .scrollableContent()
+            .okButton("保存", Color.DODGERBLUE)
+            .owner(main.currentStage)
+            .show()
+    }
+
+    private fun prepareSaveData(dataId: String, sourceId: String, currentEdit: T, original: T): T? {
         if (!dataService.isRemote) return currentEdit.deepCopy()
-        val (serverData, accessResult) = dataAccess.load(dataId)
+        val (serverData, accessResult) = dataAccess.load(sourceId)
 
         return when (accessResult) {
             LoadResult.FAILED,
@@ -366,27 +504,100 @@ abstract class EditorView<T : ManagedData<T, *>>(
         }
     }
 
-    private fun persistSaveData(dataId: String, saveData: T): Boolean {
-        return when (val result = dataAccess.saveStore(dataId, saveData)) {
+    private fun persistSaveData(
+        dataId: String,
+        saveData: T,
+        pendingOperation: PendingStoreOperation?
+    ): Boolean {
+        val normalizedSaveData = saveData.deepCopy().apply { id = dataId }
+        if (pendingOperation is PendingStoreOperation.Rename) {
+            when (dataAccess.renameTo(pendingOperation.sourceId, dataId)) {
+                RenameResult.SUCCESS -> Unit
+                RenameResult.FILE_NOT_FOUND -> {
+                    CustomDialog.error(ErrorType.FILE_NOT_FOUND).owner(main.currentStage).show()
+                    return false
+                }
+                RenameResult.ALREADY_EXISTS -> {
+                    CustomDialog.error()
+                        .title("保存エラー")
+                        .header("変更先のIDが既に存在します")
+                        .content("対象ID: $dataId")
+                        .owner(main.currentStage)
+                        .show()
+                    return false
+                }
+                RenameResult.FAILED,
+                RenameResult.PROFILE_NOT_SELECTED,
+                RenameResult.SFTP_INACTIVE -> {
+                    CustomDialog.error(ErrorType.NETWORK_ERROR).owner(main.currentStage).show()
+                    return false
+                }
+            }
+        }
+        return when (val result = dataAccess.saveStore(dataId, normalizedSaveData)) {
             is StoreResult.Success -> {
-                originalDataMap[dataId] = saveData.deepCopy()
-                editingDataMap[dataId] = saveData.deepCopy()
+                originalDataMap[dataId] = normalizedSaveData.deepCopy()
+                editingDataMap[dataId] = normalizedSaveData.deepCopy()
                 mergeConflicts.remove(dataId)
-
-                if (dataId == currentSelectedDataId) {
-                    selectTab(dataId)
-                } else {
-                    refreshButtonVisual(dataId)
+                pendingStoreOperations.remove(dataId)
+                persistPendingStoreState()
+                refreshSyncButtonState()
+                remoteDataIds = remoteDataIds.toMutableSet().apply {
+                    if (pendingOperation is PendingStoreOperation.Rename) remove(pendingOperation.sourceId)
+                    add(dataId)
                 }
 
+                (pendingOperation as? PendingStoreOperation.Rename)?.let { operation ->
+                    dataAccess.deleteLocalBackup(operation.sourceId)
+                }
                 dataAccess.deleteLocalBackup(dataId)
-
+                setupSidebar(main.sidebarContainer, dataId.takeIf { it == currentSelectedDataId })
                 main.showTimedTopLabel("$dataId を保存しました", Color.GREENYELLOW)
                 true
             }
-            is StoreResult.Failure -> handleSaveFailure(result.error)
+            is StoreResult.Failure -> {
+                if (pendingOperation is PendingStoreOperation.Rename) {
+                    val rollbackResult = dataAccess.renameTo(dataId, pendingOperation.sourceId)
+                    if (rollbackResult != RenameResult.SUCCESS) {
+                        logger.error(
+                            "保存失敗後にID変更を元へ戻せませんでした: currentId={}, sourceId={}, result={}",
+                            dataId,
+                            pendingOperation.sourceId,
+                            rollbackResult
+                        )
+                    }
+                }
+                handleSaveFailure(result.error)
+            }
         }
     }
+
+    private fun persistDelete(dataId: String, operation: PendingStoreOperation.Delete): Boolean {
+        return when (dataAccess.delete(operation.sourceId)) {
+            DeleteResult.SUCCESS,
+            DeleteResult.FILE_NOT_FOUND -> {
+                pendingStoreOperations.remove(dataId)
+                discardLocalEditingData(dataId)
+                if (operation.sourceId != dataId) dataAccess.deleteLocalBackup(operation.sourceId)
+                persistPendingStoreState()
+                refreshSyncButtonState()
+                remoteDataIds = remoteDataIds - operation.sourceId
+                onPersistedDataDeleted(dataId)
+                setupSidebar(main.sidebarContainer)
+                main.showTimedTopLabel("${operation.sourceId} を削除しました", Color.GREENYELLOW)
+                true
+            }
+            DeleteResult.FAILED,
+            DeleteResult.PROFILE_NOT_SELECTED,
+            DeleteResult.SFTP_INACTIVE -> {
+                CustomDialog.error(ErrorType.NETWORK_ERROR).owner(main.currentStage).show()
+                false
+            }
+        }
+    }
+
+    /** 保存が確定した削除に対する、データ種別固有のUIキャッシュ破棄処理です。 */
+    protected open fun onPersistedDataDeleted(id: String) = Unit
 
     protected fun handleSaveFailure(error: StoreError): Boolean {
         logger.error(
@@ -490,7 +701,7 @@ abstract class EditorView<T : ManagedData<T, *>>(
     open fun onClose(): Boolean {
         logger.info("アイテムエディタのクローズ処理を開始します。未保存の変更をローカルへ即時保存します。")
 
-        // どのような経路（通常・強制）で閉じられても、その瞬間の最新データを100%確実にローカルへ退避
+        // 通常の編集内容と保存待ちの構造変更をローカルへ退避する
         executeAutoSave()
 
         // 安全にタイマーを停止
@@ -502,6 +713,7 @@ abstract class EditorView<T : ManagedData<T, *>>(
         editingDataMap.clear()
         originalDataMap.clear()
         mergeConflicts.clear()
+        pendingStoreOperations.clear()
         sidebarButtons.clear()
         selectedButton = null
         currentSelectedDataId = null
@@ -524,6 +736,13 @@ abstract class EditorView<T : ManagedData<T, *>>(
         // 編集データとオリジナルデータを両方とも最初から完全に復元
         editingDataMap.putAll(editingCaches)
         originalDataMap.putAll(originalCaches)
+
+        val storedOperations = dataAccess.loadPendingStoreOperations()
+        val restoredOperations = storedOperations
+            .mapNotNull { it.toPendingOperation() }
+            .filter { it.currentId in editingCaches && it.currentId in originalCaches }
+        pendingStoreOperations.putAll(restoredOperations.associateBy(PendingStoreOperation::currentId))
+        if (restoredOperations.size != storedOperations.size) persistPendingStoreState()
 
         restoredCacheCount = editingCaches.size
     }
@@ -550,20 +769,26 @@ abstract class EditorView<T : ManagedData<T, *>>(
     protected open fun refreshButtonVisual(id: String) {
         val btn = sidebarButtons[id] ?: return
         val data = editingDataMap[id]
-        val validationErrors = data?.let(::validationErrors).orEmpty()
+        val pendingDeletion = isPendingStoreDeletion(id)
+        val validationErrors = if (pendingDeletion) emptyList() else data?.let(::validationErrors).orEmpty()
         val state = SidebarDataState(
             selected = btn == selectedButton,
-            modified = data != originalDataMap[id],
+            modified = data != originalDataMap[id] || hasPendingStoreOperation(id),
             hasWarnings = validationErrors.any(SushiEricValidationError::isWarning),
             hasErrors = validationErrors.any(SushiEricValidationError::isError),
-            localOnly = id !in remoteDataIds
+            localOnly = id !in remoteDataIds,
+            pendingDeletion = pendingDeletion
         )
 
         btn.styleClass.removeAll(SidebarDataState.STYLE_CLASSES)
         btn.styleClass.addAll(state.styleClasses)
         btn.text = ""
         btn.graphic = HBox(5.0).apply {
-            if (state.localOnly) children += Label("＋").apply { styleClass.add("sidebar-local-only-mark") }
+            if (state.pendingDeletion) {
+                children += Label("－").apply { styleClass.add("sidebar-pending-deletion-mark") }
+            } else if (state.localOnly) {
+                children += Label("＋").apply { styleClass.add("sidebar-local-only-mark") }
+            }
             children += Label(
                 btn.properties[TreeSidebarRenderer.DISPLAY_NAME_KEY] as? String
                     ?: PublicId.normalizeForLoad(id)
@@ -804,13 +1029,15 @@ abstract class EditorView<T : ManagedData<T, *>>(
             .filterIsInstance<MutableItemBaseData>()
             .mapTo(mutableSetOf()) { item -> item.internalId }
 
-    /**
-     * 手元で変更されたデータ（editing != original）だけをローカルに自動保存する
-     */
+    /** 内容変更と保存待ちの構造変更をローカルに自動保存します。 */
     protected fun executeAutoSave() {
-        // 変更があるデータだけをフィルタリング
-        val changedData = editingDataMap.filter { (id, data) -> data != originalDataMap[id] }
-        if (changedData.isEmpty()) return
+        val changedData = editingDataMap.filter { (id, data) ->
+            hasPendingStoreOperation(id) || data != originalDataMap[id]
+        }
+        if (changedData.isEmpty()) {
+            persistPendingStoreState()
+            return
+        }
 
         logger.info("【自動保存】未保存の変更を検知しました（${changedData.size} 件）。ローカルキャッシュを更新します。")
 
@@ -825,7 +1052,19 @@ abstract class EditorView<T : ManagedData<T, *>>(
             }
         }
 
+        persistPendingStoreState()
+
         main.showTimedTopLabel("${changedData.size} 件の項目を自動バックアップしました。", Color.GREENYELLOW)
+    }
+
+    private fun persistPendingStoreState() {
+        pendingStoreOperations.keys.forEach { id ->
+            val editing = editingDataMap[id] ?: return@forEach
+            val original = originalDataMap[id] ?: return@forEach
+            dataAccess.saveToLocalBackup(id, "editing", editing)
+            dataAccess.saveToLocalBackup(id, "original", original)
+        }
+        dataAccess.savePendingStoreOperations(pendingStoreOperations.values.map(PendingStoreOperation::toRecord))
     }
 
     /**
@@ -856,6 +1095,7 @@ abstract class EditorView<T : ManagedData<T, *>>(
 
     private fun synchronizeSelected() {
         val dataId = currentSelectedDataId ?: return
+        if (hasPendingStoreOperation(dataId)) return
         val hasUnsavedChanges = editingDataMap[dataId] != originalDataMap[dataId]
         if (hasUnsavedChanges) {
             val confirmed = CustomDialog.confirmation()
@@ -900,6 +1140,7 @@ abstract class EditorView<T : ManagedData<T, *>>(
     }
 
     private fun synchronizeAll() {
+        if (pendingStoreOperations.isNotEmpty()) return
         setSyncBusy(true)
         val task = object : Task<StoreResult<Map<String, T>>>() {
             override fun call(): StoreResult<Map<String, T>> = syncService.fetchAll()
@@ -958,9 +1199,12 @@ abstract class EditorView<T : ManagedData<T, *>>(
     }
 
     private fun setSyncBusy(busy: Boolean) {
-        syncButton?.isDisable = busy || currentSelectedDataId == null
-        syncAllButton?.isDisable = busy
+        syncButton?.isDisable = busy || currentSelectedDataId == null ||
+            currentSelectedDataId?.let(::hasPendingStoreOperation) == true
+        syncAllButton?.isDisable = busy || pendingStoreOperations.isNotEmpty()
     }
+
+    private fun refreshSyncButtonState() = setSyncBusy(false)
 
     private fun showSyncFailure(target: String, failure: StoreResult.Failure) {
         logger.error(
@@ -979,7 +1223,7 @@ abstract class EditorView<T : ManagedData<T, *>>(
     }
 
     /**
-     * 新しい管理データを作成し、リモートへ保存したうえでサイドバーに追加します。
+     * 新しい管理データを作成し、保存待ちの状態でサイドバーに追加します。
      *
      * 新規データの実体は、このエディタが保持している[dataAccess]の[SushiEricDataType]から生成します。
      * そのため、ItemやOreなどの具体型に依存せず、
@@ -1044,16 +1288,11 @@ abstract class EditorView<T : ManagedData<T, *>>(
                 inputText
             )
             val data = prepareNewData(dataAccess.createDefault(fullId))
-            when (val result = dataAccess.saveStore(fullId, data)) {
-                is StoreResult.Success -> {
-                    editingDataMap[fullId] = data
-                    originalDataMap[fullId] = data.deepCopy()
-
-                    setupSidebar(main.sidebarContainer)
-                    selectTab(fullId)
-                }
-                is StoreResult.Failure -> handleSaveFailure(result.error)
-            }
+            editingDataMap[fullId] = data
+            originalDataMap[fullId] = data.deepCopy()
+            stageDataCreation(fullId)
+            setupSidebar(main.sidebarContainer, fullId)
+            main.showTimedTopLabel("$fullId の追加を保留しました。保存すると反映されます", Color.GREENYELLOW)
         }
     }
 

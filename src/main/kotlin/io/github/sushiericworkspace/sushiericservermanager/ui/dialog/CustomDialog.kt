@@ -24,6 +24,7 @@ class CustomDialog private constructor(private val type: Alert.AlertType) {
     private var title: String = if (type == Alert.AlertType.ERROR) "システムエラー" else "確認"
     private var header: String? = if (type == Alert.AlertType.ERROR) "予期しないエラーが発生しました" else "処理を続行しますか？"
     private var contentText: String = ""
+    private var scrollableContent: Boolean = false
     private var owner: Stage? = null
 
     // 例外用
@@ -77,6 +78,11 @@ class CustomDialog private constructor(private val type: Alert.AlertType) {
      */
     fun content(contentLines: List<String>) = apply {
         this.contentText = contentLines.joinToString("\n")
+    }
+
+    /** 長い複数行本文を、折り返し可能なスクロール領域で表示します。 */
+    fun scrollableContent() = apply {
+        scrollableContent = true
     }
 
     /** 例外オブジェクトと自動ログを登録する。 */
@@ -140,6 +146,17 @@ class CustomDialog private constructor(private val type: Alert.AlertType) {
 
                 // テーマの適用
                 applyCommonStyle()
+
+                if (scrollableContent && throwable == null) {
+                    dialogPane.content = TextArea(this@CustomDialog.contentText).apply {
+                        styleClass.add("dialog-scrollable-content")
+                        isEditable = false
+                        isWrapText = true
+                        prefColumnCount = 72
+                        prefRowCount = 18
+                    }
+                    dialogPane.prefWidth = 760.0
+                }
 
                 // --- エラー用: スタックトレースの展開 ---
                 if (type == Alert.AlertType.ERROR && throwable != null) {

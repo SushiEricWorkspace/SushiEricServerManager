@@ -131,6 +131,11 @@
     -fx-font-weight: bold;
 }
 
+.sidebar-pending-deletion-mark {
+    -fx-text-fill: -fx-danger-color;
+    -fx-font-weight: bold;
+}
+
 .public-id-directory {
     -fx-text-fill: -fx-text-muted-color;
 }

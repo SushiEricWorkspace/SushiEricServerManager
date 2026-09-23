@@ -4,13 +4,15 @@ package io.github.sushiericworkspace.sushiericservermanager.editor.view
  * サイドバーに表示するデータの状態を、互いに独立したフラグとして保持します。
  *
  * @property localOnly サーバーへ未保存で、ローカルの編集キャッシュにだけ存在する状態。
+ * @property pendingDeletion 保存時に削除される保留状態。
  */
 internal data class SidebarDataState(
     val selected: Boolean,
     val modified: Boolean,
     val hasWarnings: Boolean,
     val hasErrors: Boolean,
-    val localOnly: Boolean = false
+    val localOnly: Boolean = false,
+    val pendingDeletion: Boolean = false
 ) {
     val styleClasses: List<String>
         get() = buildList {
@@ -22,7 +24,7 @@ internal data class SidebarDataState(
         }
 
     fun displayText(name: String): String = buildString {
-        if (localOnly) append("＋ ")
+        if (pendingDeletion) append("－ ") else if (localOnly) append("＋ ")
         append(name)
         if (hasErrors) append(" ⚠")
         if (hasWarnings) append(" ⚠")
@@ -31,7 +33,7 @@ internal data class SidebarDataState(
     fun description(): String? {
         val states = buildList {
             if (selected) add("選択中")
-            if (localOnly) add("サーバー未保存")
+            if (pendingDeletion) add("削除保留") else if (localOnly) add("サーバー未保存")
             if (modified) add("未保存の変更あり")
             if (hasWarnings) add("警告あり")
             if (hasErrors) add("エラーあり")

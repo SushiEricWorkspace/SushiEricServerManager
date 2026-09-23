@@ -60,4 +60,19 @@ class SidebarDataStateTest {
             state.description()
         )
     }
+
+    @Test
+    fun `削除保留は未保存表示より優先してマイナスを表示する`() {
+        val state = SidebarDataState(
+            selected = false,
+            modified = true,
+            hasWarnings = false,
+            hasErrors = false,
+            localOnly = true,
+            pendingDeletion = true
+        )
+
+        assertEquals("－ sample", state.displayText("sample"))
+        assertEquals("削除保留 / 未保存の変更あり", state.description())
+    }
 }
