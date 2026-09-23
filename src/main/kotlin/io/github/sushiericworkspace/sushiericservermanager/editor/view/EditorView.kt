@@ -117,6 +117,19 @@ abstract class EditorView<T : ManagedData<T, *>>(
      */
     protected var remoteDataIds: Set<String> = emptySet()
 
+    /**
+     * 指定したデータの編集キャッシュと自動保存バックアップを破棄します。
+     *
+     * ストア上のファイルには触れないため、サーバー未保存データの削除や、
+     * ストア側の削除が完了した後の後処理に使用します。
+     */
+    protected fun discardLocalEditingData(id: String) {
+        editingDataMap.remove(id)
+        originalDataMap.remove(id)
+        mergeConflicts.remove(id)
+        dataAccess.deleteLocalBackup(id)
+    }
+
     protected fun cancelOpen() {
         openCancelled = true
     }
