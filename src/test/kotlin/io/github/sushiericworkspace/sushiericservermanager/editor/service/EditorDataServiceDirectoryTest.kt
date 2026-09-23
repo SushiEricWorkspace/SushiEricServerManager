@@ -1,6 +1,7 @@
 package io.github.sushiericworkspace.sushiericservermanager.editor.service
 
 import io.github.sushiericworkspace.common.data.item.model.mutable.MutableItemBaseData
+import io.github.sushiericworkspace.sushiericservermanager.editor.result.dataservice.DeleteResult
 import io.github.sushiericworkspace.sushiericservermanager.editor.store.EditorDataDescriptors
 import io.github.sushiericworkspace.sushiericservermanager.editor.store.InMemoryEditorDataStore
 import io.github.sushiericworkspace.sushiericservermanager.editor.store.StoreResult
@@ -31,6 +32,27 @@ class EditorDataServiceDirectoryTest {
             val movedPair = assertNotNull(access.loadBackupPair(moved.value))
             assertEquals(moved.value, movedPair.first.id)
             assertEquals(moved.value, movedPair.second.id)
+        } finally {
+            backupRoot.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun `サーバー未保存データの自動保存ペアを明示的に破棄できる`() {
+        val backupRoot = createTempDirectory("editor-backup-discard").toFile()
+        try {
+            val id = "draft.unsaved_item"
+            val data = MutableItemBaseData(id = id)
+            val access = EditorDataService(InMemoryEditorDataStore("backup-discard-test"), backupRoot).items
+            access.saveToLocalBackup(id, "editing", data)
+            access.saveToLocalBackup(id, "original", data)
+
+            assertEquals(DeleteResult.FILE_NOT_FOUND, access.delete(id))
+            assertNotNull(access.loadBackupPair(id))
+
+            access.deleteLocalBackup(id)
+
+            assertNull(access.loadBackupPair(id))
         } finally {
             backupRoot.deleteRecursively()
         }

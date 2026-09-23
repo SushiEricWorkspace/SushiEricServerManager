@@ -31,6 +31,16 @@ internal fun filterManagedDataIds(ids: List<String>, query: String): List<String
     }
 }
 
+internal fun isLocalOnlyData(id: String, remoteDataIds: Set<String>): Boolean =
+    id !in remoteDataIds
+
+internal fun isLocalOnlyDirectory(
+    directory: String,
+    affectedIds: Collection<String>,
+    remoteDataIds: Set<String>,
+    remoteDirectories: Collection<String>
+): Boolean = directory !in remoteDirectories && affectedIds.none(remoteDataIds::contains)
+
 /** 公開IDで管理するデータエディタのサイドバーとCRUD操作を共通提供します。 */
 internal abstract class ManagedDataEditorView<T : ManagedData<T, *>>(
     main: MainController,
@@ -171,17 +181,43 @@ internal abstract class ManagedDataEditorView<T : ManagedData<T, *>>(
 
     private fun requestDeleteDirectory(directory: String) {
         val affected = idsInSidebarDirectory(sidebarDataIds, directory)
+        val localOnly = isLocalOnlyDirectory(
+            directory = directory,
+            affectedIds = affected,
+            remoteDataIds = remoteDataIds,
+            remoteDirectories = sidebarDirectories
+        )
         val confirmed = CustomDialog.confirmation()
             .title("ディレクトリを削除")
-            .header("配下のデータも削除されます")
-            .content((listOf("ディレクトリ: $directory", "", "削除対象:") + affected).joinToString("\n"))
+            .header(if (localOnly) "ローカルの編集内容を破棄します" else "配下のデータも削除されます")
+            .content(
+                (listOf(
+                    "ディレクトリ: $directory",
+                    "",
+                    if (localOnly) {
+                        "サーバー上のファイルは削除せず、配下の編集内容と自動保存を破棄します。"
+                    } else {
+                        "サーバー上のディレクトリと配下のデータを削除します。"
+                    },
+                    "",
+                    "削除対象:"
+                ) + affected).joinToString("\n")
+            )
             .okButton("削除", Color.RED)
             .owner(main.currentStage)
             .show()
         if (!confirmed) return
+
+        if (localOnly) {
+            affected.forEach(::discardData)
+            main.showTimedTopLabel("$directory のローカル編集内容を破棄しました", Color.GREENYELLOW)
+            setupSidebar(main.sidebarContainer)
+            return
+        }
+
         when (dataAccess.deleteDirectory(directory)) {
             is StoreResult.Success -> {
-                affected.forEach { id -> editingDataMap.remove(id); originalDataMap.remove(id) }
+                affected.forEach(::discardData)
                 setupSidebar(main.sidebarContainer)
             }
             is StoreResult.Failure -> showDirectoryError("ディレクトリを削除できませんでした")
@@ -303,25 +339,42 @@ internal abstract class ManagedDataEditorView<T : ManagedData<T, *>>(
     }
 
     private fun requestDelete(id: String) {
+        val localOnly = isLocalOnlyData(id, remoteDataIds)
         val confirmed = CustomDialog.confirmation()
-            .title("警告")
-            .header("破壊的変更")
-            .content("${dataAccess.displayName}ID: $id\n\nファイルを削除します。この操作は元に戻せません。")
+            .title(if (localOnly) "未保存データを破棄" else "警告")
+            .header(if (localOnly) "ローカルの編集内容を破棄します" else "破壊的変更")
+            .content(
+                if (localOnly) {
+                    "${dataAccess.displayName}ID: $id\n\n" +
+                        "サーバー上のファイルは削除せず、編集内容と自動保存を破棄します。"
+                } else {
+                    "${dataAccess.displayName}ID: $id\n\nファイルを削除します。この操作は元に戻せません。"
+                }
+            )
             .okButton("削除", Color.RED)
             .owner(main.currentStage)
             .show()
         if (!confirmed) return
 
+        if (localOnly) {
+            discardData(id)
+            main.showTimedTopLabel("$id のローカル編集内容を破棄しました", Color.GREENYELLOW)
+            setupSidebar(main.sidebarContainer)
+            return
+        }
+
         when (dataAccess.delete(id)) {
             DeleteResult.SUCCESS -> {
-                editingDataMap.remove(id)
-                originalDataMap.remove(id)
-                onDataDeleted(id)
+                discardData(id)
                 main.showTimedTopLabel("$id を削除しました", Color.GREENYELLOW)
                 setupSidebar(main.sidebarContainer)
             }
             DeleteResult.FILE_NOT_FOUND -> {
-                CustomDialog.error(ErrorType.FILE_NOT_FOUND).owner(main.currentStage).show()
+                discardData(id)
+                main.showTimedTopLabel(
+                    "$id はサーバー上に存在しないため、ローカル編集内容を破棄しました",
+                    Color.GREENYELLOW
+                )
                 setupSidebar(main.sidebarContainer)
             }
             DeleteResult.FAILED, DeleteResult.PROFILE_NOT_SELECTED, DeleteResult.SFTP_INACTIVE -> {
@@ -329,6 +382,11 @@ internal abstract class ManagedDataEditorView<T : ManagedData<T, *>>(
                 handleForceBackToSelect()
             }
         }
+    }
+
+    private fun discardData(id: String) {
+        discardLocalEditingData(id)
+        onDataDeleted(id)
     }
 
     private fun requestNewId(

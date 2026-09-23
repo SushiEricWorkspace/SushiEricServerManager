@@ -12,4 +12,31 @@ class ManagedDataEditorViewTest {
         assertEquals(listOf("deep_gold"), filterManagedDataIds(ids, "GOLD"))
         assertEquals(ids, filterManagedDataIds(ids, "  "))
     }
+
+    @Test
+    fun `サーバーに存在しないデータだけをローカル限定と判定する`() {
+        val remoteIds = setOf("saved", "directory.saved")
+
+        assertEquals(false, isLocalOnlyData("saved", remoteIds))
+        assertEquals(true, isLocalOnlyData("draft", remoteIds))
+    }
+
+    @Test
+    fun `サーバーに存在しないディレクトリだけをローカル限定と判定する`() {
+        val remoteIds = setOf("saved", "remote.saved")
+        val remoteDirectories = setOf("remote", "empty")
+
+        assertEquals(
+            true,
+            isLocalOnlyDirectory("draft", listOf("draft.one"), remoteIds, remoteDirectories)
+        )
+        assertEquals(
+            false,
+            isLocalOnlyDirectory("remote", listOf("remote.saved", "remote.draft"), remoteIds, remoteDirectories)
+        )
+        assertEquals(
+            false,
+            isLocalOnlyDirectory("empty", emptyList(), remoteIds, remoteDirectories)
+        )
+    }
 }

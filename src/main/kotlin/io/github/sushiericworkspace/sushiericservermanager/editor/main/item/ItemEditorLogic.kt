@@ -16,6 +16,8 @@ import io.github.sushiericworkspace.sushiericservermanager.editor.view.buildSide
 import io.github.sushiericworkspace.sushiericservermanager.editor.view.FlatSidebarRenderer
 import io.github.sushiericworkspace.sushiericservermanager.editor.view.SidebarDisplayMode
 import io.github.sushiericworkspace.sushiericservermanager.editor.view.idsInSidebarDirectory
+import io.github.sushiericworkspace.sushiericservermanager.editor.view.isLocalOnlyData
+import io.github.sushiericworkspace.sushiericservermanager.editor.view.isLocalOnlyDirectory
 import io.github.sushiericworkspace.sushiericservermanager.editor.view.createPublicIdDisplay
 import io.github.sushiericworkspace.sushiericservermanager.editor.view.EditorView
 import io.github.sushiericworkspace.sushiericservermanager.editor.view.mergeSidebarIds
@@ -367,21 +369,43 @@ class ItemEditorLogic(
 
     private fun requestDeleteDirectory(directory: String) {
         val affected = idsInSidebarDirectory(sidebarItemIds, directory)
+        val localOnly = isLocalOnlyDirectory(
+            directory = directory,
+            affectedIds = affected,
+            remoteDataIds = remoteDataIds,
+            remoteDirectories = sidebarDirectories
+        )
         val confirmed = CustomDialog.confirmation()
             .title("ディレクトリを削除")
-            .header("配下のデータも削除されます")
-            .content((listOf("ディレクトリ: $directory", "", "削除対象:") + affected).joinToString("\n"))
+            .header(if (localOnly) "ローカルの編集内容を破棄します" else "配下のデータも削除されます")
+            .content(
+                (listOf(
+                    "ディレクトリ: $directory",
+                    "",
+                    if (localOnly) {
+                        "サーバー上のファイルは削除せず、配下の編集内容と自動保存を破棄します。"
+                    } else {
+                        "サーバー上のディレクトリと配下のデータを削除します。"
+                    },
+                    "",
+                    "削除対象:"
+                ) + affected).joinToString("\n")
+            )
             .okButton("削除", Color.RED)
             .owner(main.currentStage)
             .show()
         if (!confirmed) return
+
+        if (localOnly) {
+            affected.forEach(::discardItemData)
+            main.showTimedTopLabel("$directory のローカル編集内容を破棄しました", Color.GREENYELLOW)
+            setupSidebar(main.sidebarContainer)
+            return
+        }
+
         when (dataAccess.deleteDirectory(directory)) {
             is StoreResult.Success -> {
-                affected.forEach { id ->
-                    editingDataMap.remove(id)
-                    originalDataMap.remove(id)
-                    removeCachedData(id)
-                }
+                affected.forEach(::discardItemData)
                 setupSidebar(main.sidebarContainer)
             }
             is StoreResult.Failure -> showDirectoryError("ディレクトリを削除できませんでした")
@@ -604,22 +628,38 @@ class ItemEditorLogic(
     }
 
     private fun requestDelete(id: String) {
+        val localOnly = isLocalOnlyData(id, remoteDataIds)
         val confirmed = CustomDialog.confirmation()
-            .title("警告")
-            .header("破壊的変更")
+            .title(if (localOnly) "未保存データを破棄" else "警告")
+            .header(if (localOnly) "ローカルの編集内容を破棄します" else "破壊的変更")
             .content(
-                listOf(
-                    "アイテムID: $id",
-                    "",
-                    "この操作を実行するとサーバー上のファイルが物理削除され、",
-                    "元の状態に戻すことはできなくなります。",
-                    "本当に削除しますか？"
-                )
+                if (localOnly) {
+                    listOf(
+                        "アイテムID: $id",
+                        "",
+                        "サーバー上のファイルは削除せず、編集内容と自動保存を破棄します。"
+                    )
+                } else {
+                    listOf(
+                        "アイテムID: $id",
+                        "",
+                        "この操作を実行するとサーバー上のファイルが物理削除され、",
+                        "元の状態に戻すことはできなくなります。",
+                        "本当に削除しますか？"
+                    )
+                }
             )
             .okButton("削除", Color.RED)
             .owner(main.currentStage)
             .show()
         if (!confirmed) return
+
+        if (localOnly) {
+            discardItemData(id)
+            main.showTimedTopLabel("$id のローカル編集内容を破棄しました", Color.GREENYELLOW)
+            setupSidebar(main.sidebarContainer)
+            return
+        }
 
         when (dataAccess.delete(id)) {
             DeleteResult.FAILED, DeleteResult.PROFILE_NOT_SELECTED, DeleteResult.SFTP_INACTIVE -> {
@@ -629,18 +669,24 @@ class ItemEditorLogic(
                 handleForceBackToSelect()
             }
             DeleteResult.FILE_NOT_FOUND -> {
-                CustomDialog.error(ErrorType.FILE_NOT_FOUND)
-                    .content("データを再読み込みします...")
-                    .owner(main.currentStage)
-                    .show()
+                discardItemData(id)
+                main.showTimedTopLabel(
+                    "$id はサーバー上に存在しないため、ローカル編集内容を破棄しました",
+                    Color.GREENYELLOW
+                )
                 setupSidebar(main.sidebarContainer)
             }
             DeleteResult.SUCCESS -> {
                 main.showTimedTopLabel("$id を削除しました", Color.GREENYELLOW)
-                removeCachedData(id)
+                discardItemData(id)
                 setupSidebar(main.sidebarContainer)
             }
         }
+    }
+
+    private fun discardItemData(id: String) {
+        discardLocalEditingData(id)
+        removeCachedData(id)
     }
 
     private fun removeCachedData(id: String) {
