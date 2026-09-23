@@ -613,6 +613,19 @@ abstract class EditorView<T : ManagedData<T, *>>(
     /** 現在の参照アイテム集合を使って検証結果を取得します。 */
     protected fun validationErrors(data: T): List<SushiEricValidationError> =
         dataAccess.validationErrors(data, availableItemInternalIds())
+            .filterNot(::isPendingValidationError)
+
+    /**
+     * 判定を保留する検証結果かどうかを返します。
+     *
+     * 参照アイテム一覧を読み込む前は、参照先が存在しないのか読み込めていないだけなのかを
+     * 区別できません。区別できるようになるまで結果を伏せたいエディターが上書きします。
+     * 既定では保留しません。
+     *
+     * @param error Common側の検証が返した結果。
+     * @return 表示・集計の対象から外す場合は`true`。
+     */
+    protected open fun isPendingValidationError(error: SushiEricValidationError): Boolean = false
 
     /**
      * エラーに対応する入力UIへ移動します。
