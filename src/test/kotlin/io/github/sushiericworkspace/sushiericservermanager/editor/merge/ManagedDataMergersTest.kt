@@ -4,10 +4,13 @@ import io.github.sushiericworkspace.common.data.item.model.mutable.MutableItemBa
 import io.github.sushiericworkspace.common.data.item.model.HeadSkinSource
 import io.github.sushiericworkspace.common.data.item.model.mutable.MutableHeadSkinData
 import io.github.sushiericworkspace.common.data.item.model.ItemStatMultiplier
+import io.github.sushiericworkspace.common.data.item.model.mutable.detail.MutablePickaxeData
+import io.github.sushiericworkspace.common.data.ore.model.mutable.MutableOreBaseData
 import io.github.sushiericworkspace.common.stats.player.StatsPartTarget
 import io.github.sushiericworkspace.common.stats.player.StatsType
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertIs
 import kotlin.test.assertTrue
 
 class ManagedDataMergersTest {
@@ -178,6 +181,62 @@ class ManagedDataMergersTest {
         assertEquals(
             "local",
             result.resolveWithLocal(setOf(DataFields.headSkin)).itemDetail.mutableHeadSkin?.value
+        )
+    }
+
+    @Test
+    fun `鉱石の要求Tierと別フィールドの変更を自動マージする`() {
+        val base = MutableOreBaseData(id = "ore").apply {
+            requiredTier = 1
+            hardness = 1.0
+        }
+        val local = base.deepCopy().apply { requiredTier = 2 }
+        val remote = base.deepCopy().apply { hardness = 2.0 }
+
+        val result = OreDataMerger.merge(base, local, remote)
+
+        assertTrue(result.conflicts.isEmpty())
+        assertEquals(2, result.merged.requiredTier)
+        assertEquals(2.0, result.merged.hardness)
+    }
+
+    @Test
+    fun `鉱石の要求Tierの同時変更を競合として解決できる`() {
+        val base = MutableOreBaseData(id = "ore").apply { requiredTier = 1 }
+        val local = base.deepCopy().apply { requiredTier = 2 }
+        val remote = base.deepCopy().apply { requiredTier = 3 }
+
+        val result = OreDataMerger.merge(base, local, remote)
+
+        assertEquals(listOf(DataFields.requiredTier), result.conflicts.map { it.path })
+        assertEquals(3, result.merged.requiredTier)
+        assertEquals(
+            2,
+            result.resolveWithLocal(setOf(DataFields.requiredTier)).requiredTier
+        )
+    }
+
+    @Test
+    fun `PICKAXEのTierの同時変更を種別固有データの競合として解決できる`() {
+        val base = MutableItemBaseData(id = "pickaxe").apply {
+            itemDetail.content = MutablePickaxeData(tier = 1)
+        }
+        val local = base.deepCopy().apply {
+            assertIs<MutablePickaxeData>(itemDetail.content).tier = 2
+        }
+        val remote = base.deepCopy().apply {
+            assertIs<MutablePickaxeData>(itemDetail.content).tier = 3
+        }
+
+        val result = ItemDataMerger.merge(base, local, remote)
+
+        assertEquals(listOf(DataFields.detailContent), result.conflicts.map { it.path })
+        assertEquals(3, assertIs<MutablePickaxeData>(result.merged.itemDetail.content).tier)
+        assertEquals(
+            2,
+            assertIs<MutablePickaxeData>(
+                result.resolveWithLocal(setOf(DataFields.detailContent)).itemDetail.content
+            ).tier
         )
     }
 

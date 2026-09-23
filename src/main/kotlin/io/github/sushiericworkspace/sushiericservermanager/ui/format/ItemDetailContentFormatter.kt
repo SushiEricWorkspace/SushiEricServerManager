@@ -40,7 +40,7 @@ object ItemDetailContentFormatter {
             is ShortSwordData -> "短剣"
             is LongSwordData -> "長剣 cooldown=${content.cooldown}"
             is AxeData -> "斧"
-            is PickaxeData -> "ツルハシ"
+            is PickaxeData -> "ツルハシ tier=${content.tier}"
 
             is BowContent -> {
                 val base = "弓 multi=${content.multi}, angle=${content.angle}, pierce=${content.pierce}"

@@ -59,6 +59,7 @@ object DataFields {
     val comments = DataFieldPath.property("editor-comment", "エディターコメント")
     val blockId = DataFieldPath.property("block-id", "ブロックID")
     val hardness = DataFieldPath.property("hardness", "硬度")
+    val requiredTier = DataFieldPath.property("required-tier", "要求Tier")
     val dropItems = DataFieldPath.property("drop-items", "ドロップアイテム")
     val entityData = DataFieldPath.property("entity-data", "エンティティデータ")
     val equipment = DataFieldPath.property("equipment", "装備")
