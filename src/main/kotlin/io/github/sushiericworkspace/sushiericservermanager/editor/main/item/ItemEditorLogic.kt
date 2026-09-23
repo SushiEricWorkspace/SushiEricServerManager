@@ -636,6 +636,12 @@ class ItemEditorLogic(
         removeCachedData(id)
     }
 
+    override fun onHistoryDataRestored(id: String) {
+        // 復元したデータから入力欄を作り直す必要はあるが、
+        // ユーザーが開いていたツリーの状態はUndo/Redo後も維持する。
+        treeCache.remove(id)
+    }
+
     override fun resolveSaveConflict(
         dataId: String,
         originalData: MutableItemBaseData,
@@ -1408,6 +1414,7 @@ class ItemEditorLogic(
             LoreDragDropTreeCell(
                 itemData = selectData,
                 refreshButtonVisual = ::refreshButtonVisual,
+                recordHistorySnapshot = ::recordHistorySnapshot,
                 onRefresh = { row -> handleRefresh(row) },
                 loreTreeUiIdMemory = loreTreeUiIdMemory,
                 folderGraphicFactory = folderGraphicFactory,

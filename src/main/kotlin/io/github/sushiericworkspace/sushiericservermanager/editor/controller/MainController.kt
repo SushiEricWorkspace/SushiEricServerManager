@@ -100,6 +100,11 @@ class MainController {
         ) {
             logic.onSave()
         }
+        ShortcutManager.registerHistoryShortcuts(
+            scene = scene,
+            onUndo = logic::onUndo,
+            onRedo = logic::onRedo
+        )
     }
 
     /**

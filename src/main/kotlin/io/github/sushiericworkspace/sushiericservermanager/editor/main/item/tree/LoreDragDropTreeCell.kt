@@ -15,12 +15,13 @@ import io.github.sushiericworkspace.sushiericservermanager.editor.tree.EditorTre
 class LoreDragDropTreeCell(
     itemData: MutableItemBaseData,
     refreshButtonVisual: (String) -> Unit,
+    recordHistorySnapshot: (String) -> Unit = refreshButtonVisual,
     onRefresh: (TreeRow) -> Unit,
     loreTreeUiIdMemory: LoreTreeUiIdMemory,
     folderGraphicFactory: EditorFolderGraphicFactory<TreeRow>? = null,
     contextMenuFactory: EditorContextMenuFactory<TreeRow>? = null
 ) : EditorTreeCell<TreeRow>(
-    graphicFactory = ItemEditorFactory(itemData, refreshButtonVisual),
+    graphicFactory = ItemEditorFactory(itemData, refreshButtonVisual, recordHistorySnapshot),
     dragValidator = ItemTreeDragValidator,
     moveHandler = ItemTreeMoveHandler(itemData, refreshButtonVisual, loreTreeUiIdMemory),
     onRefresh = onRefresh,
