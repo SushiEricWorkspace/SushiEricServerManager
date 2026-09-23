@@ -4,6 +4,7 @@ import io.github.sushiericworkspace.common.data.core.identity.VanillaBlockId
 import io.github.sushiericworkspace.common.data.core.validation.SushiEricValidationError
 import io.github.sushiericworkspace.common.data.item.model.ItemInternalId
 import io.github.sushiericworkspace.common.data.item.model.mutable.MutableItemBaseData
+import io.github.sushiericworkspace.common.data.ore.model.OreBaseDataView
 import io.github.sushiericworkspace.common.data.ore.model.mutable.MutableOreBaseData
 import io.github.sushiericworkspace.common.registry.VanillaIdRegistry
 import io.github.sushiericworkspace.sushiericservermanager.editor.component.DropItemEditorDialog
@@ -35,6 +36,53 @@ import javafx.scene.layout.VBox
 
 internal fun parseHardnessInput(text: String): Double? =
     text.toDoubleOrNull()?.takeIf(Double::isFinite)
+
+/**
+ * ドロップ参照に使うアイテム一覧の読込状態です。
+ *
+ * 参照先が存在しないのか、まだ一覧を読み込めていないだけなのかを区別するために使用します。
+ */
+internal enum class ItemCatalogState {
+    /** 読み込み中。 */
+    LOADING,
+
+    /** 読み込み済み。参照の検証ができます。 */
+    LOADED,
+
+    /** 読み込みに失敗した。参照の検証はできません。 */
+    FAILED
+}
+
+/**
+ * アイテム一覧を読み込むまで判定を保留する検証結果かどうかを返します。
+ *
+ * ドロップ参照の警告だけが対象です。未選択や試行回数など、参照先に依存しない問題は保留しません。
+ *
+ * @param error Common側の検証が返した結果。
+ * @param state アイテム一覧の読込状態。
+ */
+internal fun isPendingDropItemReferenceError(
+    error: SushiEricValidationError,
+    state: ItemCatalogState
+): Boolean =
+    state != ItemCatalogState.LOADED &&
+            error.isWarning &&
+            error.property.name == OreBaseDataView::dropItems.name
+
+/**
+ * アイテム一覧の読込状態を伝える文言を返します。
+ *
+ * 読み込み済みで伝えることがない場合は`null`です。
+ */
+internal fun itemCatalogStatusMessage(state: ItemCatalogState): String? = when (state) {
+    ItemCatalogState.LOADED -> null
+
+    ItemCatalogState.FAILED ->
+        "アイテム一覧を読み込めなかったため、ドロップアイテムの参照を検証できません。"
+
+    ItemCatalogState.LOADING ->
+        "アイテム一覧を読み込んでいます。ドロップアイテムの参照はまだ検証していません。"
+}
 
 internal fun formatDropItemCount(count: Int): String = "ドロップアイテムを編集（${count}件）"
 
@@ -70,16 +118,22 @@ internal class OreEditorLogic(
     override val validationRepairRegistry = createOreValidationRepairRegistry()
 
     private var availableItems: List<MutableItemBaseData> = emptyList()
-    private var itemCatalogLoading = false
-    private var itemCatalogLoaded = false
+    private var itemCatalogState = ItemCatalogState.LOADING
+    private var itemCatalogRequested = false
     private var refreshCurrentValidation: (() -> Unit)? = null
     private var dropItemEditorButton: Button? = null
     private val validationFocusTargets = mutableMapOf<String, Node>()
 
     override fun setupSidebar(container: VBox, selectId: String?) {
-        if (!itemCatalogLoaded && !itemCatalogLoading) itemCatalogLoading = true
+        val shouldLoad = !itemCatalogRequested || itemCatalogState == ItemCatalogState.FAILED
+
+        if (shouldLoad) {
+            itemCatalogState = ItemCatalogState.LOADING
+        }
+
         super.setupSidebar(container, selectId)
-        if (itemCatalogLoading && !itemCatalogLoaded) loadAvailableItems()
+
+        if (shouldLoad) loadAvailableItems()
     }
 
     override fun setupMainContent(selectData: MutableOreBaseData) {
@@ -94,15 +148,39 @@ internal class OreEditorLogic(
 
         fun refreshValidation() {
             dropItemButton.text = formatDropItemCount(selectData.mutableDropItems.size)
-            dropItemButton.isDisable = itemCatalogLoading
-            validationBox.children.setAll(
-                dataAccess.validationErrors(selectData, availableItemInternalIds()).map { result ->
-                    Label(result.message).apply {
-                        styleClass.add(if (result.isWarning) "warning-label" else "error-label")
-                        isWrapText = true
-                    }
+            dropItemButton.isDisable = itemCatalogState == ItemCatalogState.LOADING
+
+            /*
+             * アイテム一覧を読み込むまではドロップの参照を検証できないため、
+             * 参照の警告の代わりに現在の状態を表示する。
+             */
+            val labels = buildList {
+                itemCatalogStatusMessage(itemCatalogState)?.let { message ->
+                    add(
+                        Label(message).apply {
+                            styleClass.add(
+                                if (itemCatalogState == ItemCatalogState.FAILED) {
+                                    "warning-label"
+                                } else {
+                                    "status-label"
+                                }
+                            )
+                            isWrapText = true
+                        }
+                    )
                 }
-            )
+
+                validationErrors(selectData).forEach { result ->
+                    add(
+                        Label(result.message).apply {
+                            styleClass.add(if (result.isWarning) "warning-label" else "error-label")
+                            isWrapText = true
+                        }
+                    )
+                }
+            }
+
+            validationBox.children.setAll(labels)
             refreshButtonVisual(selectData.id)
         }
         refreshCurrentValidation = ::refreshValidation
@@ -130,7 +208,7 @@ internal class OreEditorLogic(
         validationFocusTargets["dropItems"] = dropItemButton
         dropItemButton.onAction = EventHandler {
             val owner = main.currentStage ?: return@EventHandler
-            itemCatalogLoading = true
+            itemCatalogState = ItemCatalogState.LOADING
             refreshValidation()
             loadAvailableItems {
                 DropItemEditorDialog.show(
@@ -179,6 +257,15 @@ internal class OreEditorLogic(
 
     override fun availableItemInternalIds(): Set<ItemInternalId> =
         availableItems.mapTo(mutableSetOf()) { it.internalId }
+
+    /**
+     * アイテム一覧を読み込めていない間は、ドロップの参照に関する警告を保留します。
+     *
+     * 参照先が存在しないのか、まだ一覧を読み込めていないだけなのかを区別できないためです。
+     * 未選択や試行回数など、参照先に依存しない問題はそのまま表示します。
+     */
+    override fun isPendingValidationError(error: SushiEricValidationError): Boolean =
+        isPendingDropItemReferenceError(error, itemCatalogState)
 
     override fun prepareNewData(data: MutableOreBaseData): MutableOreBaseData = data.apply {
         blockId = VanillaIdRegistry.defaultBlock
@@ -256,6 +343,8 @@ internal class OreEditorLogic(
     }
 
     private fun loadAvailableItems(onLoaded: (() -> Unit)? = null) {
+        itemCatalogRequested = true
+
         val task = object : Task<List<MutableItemBaseData>>() {
             override fun call(): List<MutableItemBaseData> {
                 return when (val listed = dataService.items.listStoreResources()) {
@@ -274,15 +363,14 @@ internal class OreEditorLogic(
         }
         task.setOnSucceeded {
             availableItems = task.value
-            itemCatalogLoading = false
-            itemCatalogLoaded = true
+            itemCatalogState = ItemCatalogState.LOADED
             sidebarButtons.keys.forEach(::refreshButtonVisual)
             refreshCurrentValidation?.invoke()
             onLoaded?.invoke()
         }
         task.setOnFailed {
-            itemCatalogLoading = false
-            itemCatalogLoaded = false
+            itemCatalogState = ItemCatalogState.FAILED
+            sidebarButtons.keys.forEach(::refreshButtonVisual)
             refreshCurrentValidation?.invoke()
             logger.error("ドロップ参照用のアイテム一覧を読み込めませんでした", task.exception)
             CustomDialog.error()
