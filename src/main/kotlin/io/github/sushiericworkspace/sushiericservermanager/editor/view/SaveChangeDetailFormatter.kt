@@ -42,6 +42,15 @@ internal fun saveChangeDetails(
     }
 }
 
+/** 複数データの保存内容を、データIDごとの見出し付きで1つの確認表示へまとめます。 */
+internal fun combinedSaveChangeDetails(entries: List<Pair<String, List<String>>>): List<String> = buildList {
+    entries.forEachIndexed { index, (dataId, details) ->
+        if (index > 0) add("")
+        add("【$dataId】")
+        addAll(details)
+    }
+}
+
 private data class Change(
     val label: String,
     val before: Any?,

@@ -79,7 +79,7 @@ object ShortcutManager {
     /**
      * 指定したSceneからエディタ用ショートカットをすべて解除する。
      *
-     * 今は保存のみだが、EditorShortcutに項目が増えた場合もまとめて解除できる。
+     * [EditorShortcut]に定義された項目をまとめて解除する。
      *
      * @param scene 解除対象のScene。nullの場合は何もしない。
      */

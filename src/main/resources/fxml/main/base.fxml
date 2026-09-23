@@ -11,8 +11,8 @@
 <BorderPane fx:id="rootPane" prefHeight="720.0" prefWidth="1360.0" xmlns="http://javafx.com/javafx/21.0.1" xmlns:fx="http://javafx.com/fxml/1" fx:controller="io.github.sushiericworkspace.sushiericservermanager.editor.controller.MainController">
 
    <top>
-      <HBox fx:id="topBar" alignment="CENTER_LEFT" minHeight="50.0" spacing="12.0">
-         <HBox fx:id="actionButtonContainer" alignment="CENTER_LEFT" spacing="8.0" />
+      <HBox fx:id="topBar" alignment="CENTER_LEFT" minHeight="24.0" prefHeight="24.0" spacing="12.0">
+         <HBox fx:id="actionButtonContainer" alignment="CENTER_LEFT" spacing="0.0" />
          <Region HBox.hgrow="ALWAYS" />
          <Label fx:id="topInfoLabel" />
       </HBox>

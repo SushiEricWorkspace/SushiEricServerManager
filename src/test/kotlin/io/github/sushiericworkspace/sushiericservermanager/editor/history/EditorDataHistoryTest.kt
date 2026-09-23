@@ -2,7 +2,9 @@ package io.github.sushiericworkspace.sushiericservermanager.editor.history
 
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertNull
+import kotlin.test.assertTrue
 
 class EditorDataHistoryTest {
     @Test
@@ -55,5 +57,21 @@ class EditorDataHistoryTest {
 
         assertEquals("A", history.undo("new", "B"))
         assertNull(history.undo("old", "B"))
+    }
+
+    @Test
+    fun `元に戻す・やり直しの可否を履歴状態から判定できる`() {
+        val history = EditorDataHistory<String>(copy = { it })
+        history.initialize("data", "A")
+        assertFalse(history.canUndo("data"))
+        assertFalse(history.canRedo("data"))
+
+        history.record("data", "B")
+        assertTrue(history.canUndo("data"))
+        assertFalse(history.canRedo("data"))
+
+        history.undo("data", "B")
+        assertFalse(history.canUndo("data"))
+        assertTrue(history.canRedo("data"))
     }
 }

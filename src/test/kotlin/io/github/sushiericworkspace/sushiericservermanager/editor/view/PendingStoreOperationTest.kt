@@ -86,4 +86,27 @@ class PendingStoreOperationTest {
         assertTrue("  値: 8.0" in details)
         assertTrue("・要求Tier" in details)
     }
+
+    @Test
+    fun `一括保存の変更内容をデータごとに一つの一覧へまとめる`() {
+        val details = combinedSaveChangeDetails(
+            listOf(
+                "first" to listOf("【ストア操作】", "・内容変更: first"),
+                "second" to listOf("【ストア操作】", "・削除: second")
+            )
+        )
+
+        assertEquals(
+            listOf(
+                "【first】",
+                "【ストア操作】",
+                "・内容変更: first",
+                "",
+                "【second】",
+                "【ストア操作】",
+                "・削除: second"
+            ),
+            details
+        )
+    }
 }
