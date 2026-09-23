@@ -98,12 +98,14 @@ private data class HeadSkinSourceOption(val source: HeadSkinSource?) {
  *
  * @property itemData 編集対象のItem定義。
  * @property refreshButtonVisual 変更を保存ボタンの表示へ反映する処理。
+ * @property recordHistorySnapshot 確定した操作を編集履歴へ記録する処理。
  * @property headSkinTextureLookup ヘッドスキンのテクスチャ値取得。
  * 既定はMojang APIを使用する実装。
  */
 class ItemEditorFactory(
     private val itemData: MutableItemBaseData,
     private val refreshButtonVisual: (String) -> Unit,
+    private val recordHistorySnapshot: (String) -> Unit = refreshButtonVisual,
     private val headSkinTextureLookup: HeadSkinTextureLookup =
         MojangHeadSkinTextureLookup()
 ) : EditorGraphicFactory<TreeRow> {
@@ -1502,6 +1504,7 @@ class ItemEditorFactory(
                                 }
 
                                 visibleTypes.add(type)
+                                recordHistorySnapshot(itemData.id)
                                 refreshButtonVisual(itemData.id)
                                 rebuildStatsList(statsListBox)
                             }

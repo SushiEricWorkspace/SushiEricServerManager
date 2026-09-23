@@ -16,6 +16,7 @@ import io.github.sushiericworkspace.sushiericservermanager.editor.result.dataser
 import io.github.sushiericworkspace.sushiericservermanager.editor.service.EditorDataService
 import io.github.sushiericworkspace.sushiericservermanager.editor.service.EditorSyncService
 import io.github.sushiericworkspace.sushiericservermanager.editor.merge.DataConflict
+import io.github.sushiericworkspace.sushiericservermanager.editor.history.EditorDataHistory
 import io.github.sushiericworkspace.sushiericservermanager.editor.store.StoreError
 import io.github.sushiericworkspace.sushiericservermanager.editor.store.StoreErrorCode
 import io.github.sushiericworkspace.sushiericservermanager.editor.store.StoreResult
@@ -36,6 +37,7 @@ import javafx.scene.Node
 import javafx.scene.control.Button
 import javafx.scene.control.Label
 import javafx.scene.control.MenuItem
+import javafx.scene.control.TextInputControl
 import javafx.scene.layout.HBox
 import javafx.scene.layout.Priority
 import javafx.scene.layout.Region
@@ -101,6 +103,7 @@ abstract class EditorView<T : ManagedData<T, *>>(
     protected val originalDataMap = mutableMapOf<String, T>()
     private val mergeConflicts = mutableMapOf<String, List<DataConflict>>()
     private val pendingStoreOperations = mutableMapOf<String, PendingStoreOperation>()
+    private val editHistory = EditorDataHistory<T>(copy = { it.deepCopy() })
     private val syncService = EditorSyncService(dataAccess)
     private var syncButton: Button? = null
     private var syncAllButton: Button? = null
@@ -130,12 +133,14 @@ abstract class EditorView<T : ManagedData<T, *>>(
         editingDataMap.remove(id)
         originalDataMap.remove(id)
         mergeConflicts.remove(id)
+        editHistory.remove(id)
         dataAccess.deleteLocalBackup(id)
     }
 
     /** 新規データを、保存時にストアへ追加する保留操作として登録します。 */
     protected fun stageDataCreation(id: String) {
         pendingStoreOperations[id] = PendingStoreOperation.Create(id)
+        editingDataMap[id]?.let { editHistory.reset(id, it) }
         persistPendingStoreState()
         refreshButtonVisual(id)
         refreshSyncButtonState()
@@ -156,6 +161,7 @@ abstract class EditorView<T : ManagedData<T, *>>(
         renameEditingCache(editingDataMap, oldId, newId)
         renameEditingCache(originalDataMap, oldId, newId)
         mergeConflicts.remove(oldId)?.let { mergeConflicts[newId] = it }
+        editHistory.rename(oldId, newId)
         pendingStoreOperations[newId] = operation
         dataAccess.deleteLocalBackup(oldId)
         persistPendingStoreState()
@@ -357,6 +363,7 @@ abstract class EditorView<T : ManagedData<T, *>>(
 
         selectButtonById(targetId)
         refreshSyncButtonState()
+        editHistory.initialize(targetId, editingDataMap.getValue(targetId))
         setupMainContent(editingDataMap[targetId]!!)
     }
 
@@ -382,6 +389,7 @@ abstract class EditorView<T : ManagedData<T, *>>(
         val merge = dataAccess.merge(base, local, remote)
         editingDataMap[targetId] = merge.merged
         originalDataMap[targetId] = remote.deepCopy()
+        if (remote != base) editHistory.reset(targetId, merge.merged)
         mergeConflicts[targetId] = merge.conflicts
         if (merge.merged != remote) {
             dataAccess.saveToLocalBackup(targetId, "editing", merge.merged)
@@ -538,6 +546,7 @@ abstract class EditorView<T : ManagedData<T, *>>(
             is StoreResult.Success -> {
                 originalDataMap[dataId] = normalizedSaveData.deepCopy()
                 editingDataMap[dataId] = normalizedSaveData.deepCopy()
+                editHistory.reset(dataId, normalizedSaveData)
                 mergeConflicts.remove(dataId)
                 pendingStoreOperations.remove(dataId)
                 persistPendingStoreState()
@@ -714,6 +723,7 @@ abstract class EditorView<T : ManagedData<T, *>>(
         originalDataMap.clear()
         mergeConflicts.clear()
         pendingStoreOperations.clear()
+        editHistory.clear()
         sidebarButtons.clear()
         selectedButton = null
         currentSelectedDataId = null
@@ -767,6 +777,12 @@ abstract class EditorView<T : ManagedData<T, *>>(
 
     /** 指定したデータIDの選択、変更、検証状態をサイドバーへ反映します。 */
     protected open fun refreshButtonVisual(id: String) {
+        editingDataMap[id]?.let { data ->
+            editHistory.initialize(id, data)
+            if (main.mainContentContainer.scene?.focusOwner !is TextInputControl) {
+                recordHistorySnapshot(id)
+            }
+        }
         val btn = sidebarButtons[id] ?: return
         val data = editingDataMap[id]
         val pendingDeletion = isPendingStoreDeletion(id)
@@ -804,6 +820,45 @@ abstract class EditorView<T : ManagedData<T, *>>(
         btn.tooltip = state.description()?.let(AppTooltip::create)
         refreshValidationActionButtons()
     }
+
+    /** フォーカス状態にかかわらず、現在の編集内容を履歴へ記録します。 */
+    protected fun recordHistorySnapshot(id: String) {
+        editingDataMap[id]?.let { data ->
+            editHistory.initialize(id, data)
+            editHistory.record(id, data)
+        }
+    }
+
+    /** 現在選択中のデータを1段階前の編集状態へ戻します。 */
+    fun onUndo(): Boolean {
+        val id = currentSelectedDataId ?: return false
+        val current = editingDataMap[id] ?: return false
+        editHistory.record(id, current)
+        val restored = editHistory.undo(id, current) ?: return false
+        applyHistoryData(id, restored, "元に戻しました")
+        return true
+    }
+
+    /** 現在選択中のデータで、直前に元へ戻した編集をやり直します。 */
+    fun onRedo(): Boolean {
+        val id = currentSelectedDataId ?: return false
+        val current = editingDataMap[id] ?: return false
+        editHistory.record(id, current)
+        val restored = editHistory.redo(id, current) ?: return false
+        applyHistoryData(id, restored, "やり直しました")
+        return true
+    }
+
+    private fun applyHistoryData(id: String, restored: T, notification: String) {
+        editingDataMap[id] = restored
+        onHistoryDataRestored(id)
+        setupMainContent(restored)
+        refreshButtonVisual(id)
+        main.showTimedTopLabel("$id: $notification", Color.GREENYELLOW)
+    }
+
+    /** 履歴から復元する前に、データ種別固有のUIキャッシュを破棄します。 */
+    protected open fun onHistoryDataRestored(id: String) = Unit
 
     /** サイドバーの重大度別修正項目をまとめて保持します。 */
     protected data class ValidationContextMenuItems(
@@ -1118,6 +1173,7 @@ abstract class EditorView<T : ManagedData<T, *>>(
                     val latest = result.value
                     editingDataMap[dataId] = latest.deepCopy()
                     originalDataMap[dataId] = latest.deepCopy()
+                    editHistory.reset(dataId, latest)
                     mergeConflicts.remove(dataId)
                     dataAccess.deleteLocalBackup(dataId)
                     setupMainContent(editingDataMap.getValue(dataId))
@@ -1185,9 +1241,11 @@ abstract class EditorView<T : ManagedData<T, *>>(
         val previousSelection = currentSelectedDataId
         editingDataMap.clear()
         originalDataMap.clear()
+        editHistory.clear()
         remoteData.forEach { (id, data) ->
             editingDataMap[id] = data.deepCopy()
             originalDataMap[id] = data.deepCopy()
+            editHistory.reset(id, data)
         }
         mergeConflicts.clear()
         dataAccess.clearLocalBackupsExcept()

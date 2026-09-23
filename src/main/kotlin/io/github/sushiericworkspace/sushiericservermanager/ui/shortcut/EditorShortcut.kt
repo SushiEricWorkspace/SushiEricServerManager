@@ -20,5 +20,27 @@ enum class EditorShortcut(
             KeyCode.S,
             KeyCombination.SHORTCUT_DOWN
         )
+    ),
+    UNDO(
+        displayName = "元に戻す",
+        combination = KeyCodeCombination(
+            KeyCode.Z,
+            KeyCombination.SHORTCUT_DOWN
+        )
+    ),
+    REDO(
+        displayName = "やり直す",
+        combination = KeyCodeCombination(
+            KeyCode.Z,
+            KeyCombination.SHORTCUT_DOWN,
+            KeyCombination.SHIFT_DOWN
+        )
+    ),
+    REDO_ALTERNATIVE(
+        displayName = "やり直す",
+        combination = KeyCodeCombination(
+            KeyCode.Y,
+            KeyCombination.CONTROL_DOWN
+        )
     )
 }
