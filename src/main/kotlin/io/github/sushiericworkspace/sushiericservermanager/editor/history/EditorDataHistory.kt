@@ -46,6 +46,10 @@ internal class EditorDataHistory<T>(
         return copy(next)
     }
 
+    fun canUndo(id: String): Boolean = states[id]?.undo?.isNotEmpty() == true
+
+    fun canRedo(id: String): Boolean = states[id]?.redo?.isNotEmpty() == true
+
     fun reset(id: String, value: T) {
         states[id] = State(current = copy(value))
     }

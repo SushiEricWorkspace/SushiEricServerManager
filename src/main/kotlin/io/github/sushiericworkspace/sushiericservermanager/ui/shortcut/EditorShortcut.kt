@@ -21,6 +21,44 @@ enum class EditorShortcut(
             KeyCombination.SHORTCUT_DOWN
         )
     ),
+    SAVE_ALL(
+        displayName = "すべて保存",
+        combination = KeyCodeCombination(
+            KeyCode.S,
+            KeyCombination.SHORTCUT_DOWN,
+            KeyCombination.SHIFT_DOWN
+        )
+    ),
+    SYNC(
+        displayName = "同期",
+        combination = KeyCodeCombination(
+            KeyCode.R,
+            KeyCombination.SHORTCUT_DOWN
+        )
+    ),
+    SYNC_ALL(
+        displayName = "すべて同期",
+        combination = KeyCodeCombination(
+            KeyCode.R,
+            KeyCombination.SHORTCUT_DOWN,
+            KeyCombination.SHIFT_DOWN
+        )
+    ),
+    CREATE_DATA(
+        displayName = "新規データ作成",
+        combination = KeyCodeCombination(
+            KeyCode.N,
+            KeyCombination.SHORTCUT_DOWN
+        )
+    ),
+    CREATE_DIRECTORY(
+        displayName = "新規ディレクトリ作成",
+        combination = KeyCodeCombination(
+            KeyCode.N,
+            KeyCombination.SHORTCUT_DOWN,
+            KeyCombination.SHIFT_DOWN
+        )
+    ),
     UNDO(
         displayName = "元に戻す",
         combination = KeyCodeCombination(
@@ -41,6 +79,40 @@ enum class EditorShortcut(
         combination = KeyCodeCombination(
             KeyCode.Y,
             KeyCombination.CONTROL_DOWN
+        )
+    ),
+    REPAIR_WARNING(
+        displayName = "警告を修正",
+        combination = KeyCodeCombination(
+            KeyCode.W,
+            KeyCombination.SHORTCUT_DOWN,
+            KeyCombination.ALT_DOWN
+        )
+    ),
+    REPAIR_ALL_WARNINGS(
+        displayName = "全警告を修正",
+        combination = KeyCodeCombination(
+            KeyCode.W,
+            KeyCombination.SHORTCUT_DOWN,
+            KeyCombination.ALT_DOWN,
+            KeyCombination.SHIFT_DOWN
+        )
+    ),
+    FOCUS_ERROR(
+        displayName = "エラーを修正",
+        combination = KeyCodeCombination(
+            KeyCode.E,
+            KeyCombination.SHORTCUT_DOWN,
+            KeyCombination.ALT_DOWN
+        )
+    ),
+    FOCUS_ALL_ERRORS(
+        displayName = "全エラーを修正",
+        combination = KeyCodeCombination(
+            KeyCode.E,
+            KeyCombination.SHORTCUT_DOWN,
+            KeyCombination.ALT_DOWN,
+            KeyCombination.SHIFT_DOWN
         )
     )
 }

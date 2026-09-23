@@ -100,6 +100,19 @@ class MainController {
         ) {
             logic.onSave()
         }
+        listOf(
+            EditorShortcut.SAVE_ALL to logic::onSaveAll,
+            EditorShortcut.SYNC to logic::onSynchronizeSelected,
+            EditorShortcut.SYNC_ALL to logic::onSynchronizeAll,
+            EditorShortcut.CREATE_DATA to logic::onCreateData,
+            EditorShortcut.CREATE_DIRECTORY to logic::onCreateDirectory,
+            EditorShortcut.REPAIR_WARNING to logic::repairSelectedWarnings,
+            EditorShortcut.REPAIR_ALL_WARNINGS to logic::repairAllWarnings,
+            EditorShortcut.FOCUS_ERROR to logic::focusSelectedError,
+            EditorShortcut.FOCUS_ALL_ERRORS to logic::focusAllErrors
+        ).forEach { (shortcut, action) ->
+            ShortcutManager.register(scene, shortcut) { action() }
+        }
         ShortcutManager.registerHistoryShortcuts(
             scene = scene,
             onUndo = logic::onUndo,

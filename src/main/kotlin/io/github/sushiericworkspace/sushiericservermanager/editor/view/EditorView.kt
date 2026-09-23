@@ -26,6 +26,7 @@ import io.github.sushiericworkspace.sushiericservermanager.ui.AppTooltip
 import io.github.sushiericworkspace.sushiericservermanager.ui.dialog.CustomDialog
 import io.github.sushiericworkspace.sushiericservermanager.ui.dialog.ErrorType
 import io.github.sushiericworkspace.sushiericservermanager.ui.dialog.MergeConflictDialog
+import io.github.sushiericworkspace.sushiericservermanager.ui.shortcut.EditorShortcut
 import io.github.sushiericworkspace.common.data.core.SushiEricDataType
 import javafx.animation.Animation
 import javafx.animation.KeyFrame
@@ -33,14 +34,13 @@ import javafx.animation.Timeline
 import javafx.application.Platform
 import javafx.event.EventHandler
 import javafx.concurrent.Task
-import javafx.scene.Node
 import javafx.scene.control.Button
 import javafx.scene.control.Label
+import javafx.scene.control.MenuButton
 import javafx.scene.control.MenuItem
+import javafx.scene.control.SeparatorMenuItem
 import javafx.scene.control.TextInputControl
 import javafx.scene.layout.HBox
-import javafx.scene.layout.Priority
-import javafx.scene.layout.Region
 import javafx.scene.layout.VBox
 import javafx.scene.paint.Color
 import javafx.util.Duration
@@ -69,6 +69,14 @@ abstract class EditorView<T : ManagedData<T, *>>(
     protected val dataService: EditorDataService,
     protected val dataAccess: EditorDataService.DataAccess<T>
 ) {
+    private data class PreparedSave<D : ManagedData<D, *>>(
+        val dataId: String,
+        val operation: PendingStoreOperation?,
+        val original: D,
+        val previewData: D,
+        val saveData: D?
+    )
+
     /** サイドバー表示方式。必要なエディターは従来の平坦表示へ切り替えられます。 */
     protected open val sidebarDisplayMode: SidebarDisplayMode = SidebarDisplayMode.TREE
     private val sidebarStateKey = "${dataService.cacheIdentity}:${dataAccess.dataType.categoryDirName}"
@@ -105,10 +113,17 @@ abstract class EditorView<T : ManagedData<T, *>>(
     private val pendingStoreOperations = mutableMapOf<String, PendingStoreOperation>()
     private val editHistory = EditorDataHistory<T>(copy = { it.deepCopy() })
     private val syncService = EditorSyncService(dataAccess)
-    private var syncButton: Button? = null
-    private var syncAllButton: Button? = null
-    private var repairAllWarningsButton: Button? = null
-    private var repairAllErrorsButton: Button? = null
+    private var saveMenuItem: MenuItem? = null
+    private var saveAllMenuItem: MenuItem? = null
+    private var syncMenuItem: MenuItem? = null
+    private var syncAllMenuItem: MenuItem? = null
+    private var undoMenuItem: MenuItem? = null
+    private var redoMenuItem: MenuItem? = null
+    private var repairWarningsMenuItem: MenuItem? = null
+    private var repairAllWarningsMenuItem: MenuItem? = null
+    private var repairErrorsMenuItem: MenuItem? = null
+    private var repairAllErrorsMenuItem: MenuItem? = null
+    private var syncBusy = false
     private var sidebarPreloadGeneration = 0
 
     /** データ種別固有の警告修正アクションです。 */
@@ -276,61 +291,98 @@ abstract class EditorView<T : ManagedData<T, *>>(
      * @param container アクションボタンを水平に並べるためのトップレイアウトコンテナ
      */
     open fun setupActions(container: HBox) {
-        val spacer = Region().apply { HBox.setHgrow(this, Priority.ALWAYS) }
-        val actions = mutableListOf<Node>(
-            Button("${dataAccess.displayName}保存").apply {
-                styleClass.addAll("editor-action-button", "btn-primary")
-                isFocusTraversable = false
-                onAction = EventHandler { onSave() }
-            }
+        saveMenuItem = actionMenuItem("保存", EditorShortcut.SAVE) { onSave() }
+        saveAllMenuItem = actionMenuItem("すべて保存", EditorShortcut.SAVE_ALL) { onSaveAll() }
+
+        syncMenuItem = actionMenuItem("同期", EditorShortcut.SYNC) { onSynchronizeSelected() }
+        syncAllMenuItem = actionMenuItem("すべて同期", EditorShortcut.SYNC_ALL) { onSynchronizeAll() }
+
+        val fileItems = mutableListOf<MenuItem>(
+            saveMenuItem!!,
+            saveAllMenuItem!!,
+            syncMenuItem!!,
+            syncAllMenuItem!!
         )
-        if (dataService.isRemote) {
-            syncButton = Button("同期").apply {
-                styleClass.addAll("editor-action-button", "btn-secondary")
-                isFocusTraversable = false
-                isDisable = currentSelectedDataId == null
-                onAction = EventHandler { synchronizeSelected() }
-            }
-            syncAllButton = Button("すべて同期").apply {
-                styleClass.addAll("editor-action-button", "btn-danger")
-                isFocusTraversable = false
-                onAction = EventHandler { synchronizeAll() }
-            }
-            actions.add(syncButton!!)
-            actions.add(syncAllButton!!)
+        fileItems += SeparatorMenuItem()
+        fileItems += actionMenuItem("新規データ作成", EditorShortcut.CREATE_DATA) { handleCreateNewItem() }
+        fileItems += actionMenuItem("新規ディレクトリ作成", EditorShortcut.CREATE_DIRECTORY) {
+            handleCreateDirectory()
         }
-        repairAllWarningsButton = Button("全警告を修正").apply {
-            styleClass.addAll("editor-action-button", "btn-secondary")
+
+        undoMenuItem = actionMenuItem("元に戻す", EditorShortcut.UNDO) { onUndo() }
+        redoMenuItem = actionMenuItem("やり直す", EditorShortcut.REDO) { onRedo() }
+        repairWarningsMenuItem = actionMenuItem("警告を修正", EditorShortcut.REPAIR_WARNING) {
+            repairSelectedWarnings()
+        }
+        repairAllWarningsMenuItem = actionMenuItem("全警告を修正", EditorShortcut.REPAIR_ALL_WARNINGS) {
+            repairAllWarnings()
+        }
+        repairErrorsMenuItem = actionMenuItem("エラーを修正", EditorShortcut.FOCUS_ERROR) {
+            focusSelectedError()
+        }
+        repairAllErrorsMenuItem = actionMenuItem("全エラーを修正", EditorShortcut.FOCUS_ALL_ERRORS) {
+            focusAllErrors()
+        }
+
+        val fileMenu = MenuButton("ファイル(F)").apply {
+            styleClass.addAll("editor-menu-button", "editor-menu-button-first")
             isFocusTraversable = false
-            isDisable = true
-            onAction = EventHandler { repairWarnings(editingDataMap.keys, confirmBatch = true) }
+            maxHeight = Double.MAX_VALUE
+            items.setAll(fileItems)
         }
-        repairAllErrorsButton = Button("全エラーを修正").apply {
-            styleClass.addAll("editor-action-button", "btn-secondary")
+        val editMenu = MenuButton("編集(E)").apply {
+            styleClass.addAll("editor-menu-button", "editor-menu-button-last")
             isFocusTraversable = false
-            isDisable = true
-            onAction = EventHandler { focusFirstError(editingDataMap.keys, confirmBatch = true) }
+            maxHeight = Double.MAX_VALUE
+            items.setAll(
+                undoMenuItem,
+                redoMenuItem,
+                SeparatorMenuItem(),
+                repairWarningsMenuItem,
+                repairAllWarningsMenuItem,
+                repairErrorsMenuItem,
+                repairAllErrorsMenuItem
+            )
         }
-        actions.add(repairAllWarningsButton!!)
-        actions.add(repairAllErrorsButton!!)
-        actions.add(spacer)
-        actions.add(
-            Button("データを作成").apply {
-                styleClass.addAll("editor-action-button", "btn-success")
-                isFocusTraversable = false
-                onAction = EventHandler { handleCreateNewItem() }
-            }
-        )
-        actions.add(
-            Button("ディレクトリを作成").apply {
-                styleClass.addAll("editor-action-button", "btn-secondary")
-                isFocusTraversable = false
-                onAction = EventHandler { handleCreateDirectory() }
-            }
-        )
-        container.children.setAll(actions)
-        refreshValidationActionButtons()
+        container.children.setAll(fileMenu, editMenu)
+        refreshActionMenuState()
     }
+
+    private fun actionMenuItem(
+        text: String,
+        shortcut: EditorShortcut,
+        action: () -> Unit
+    ): MenuItem = MenuItem(text).apply {
+        accelerator = shortcut.combination
+        onAction = EventHandler { action() }
+    }
+
+    fun onSynchronizeSelected() {
+        val id = currentSelectedDataId ?: return
+        if (!dataService.isRemote || syncBusy || hasPendingStoreOperation(id)) return
+        synchronizeSelected()
+    }
+
+    fun onSynchronizeAll() {
+        if (!dataService.isRemote || syncBusy || pendingStoreOperations.isNotEmpty()) return
+        synchronizeAll()
+    }
+
+    fun onCreateData() = handleCreateNewItem()
+
+    fun onCreateDirectory() = handleCreateDirectory()
+
+    fun repairSelectedWarnings() {
+        currentSelectedDataId?.let { repairWarnings(listOf(it), confirmBatch = false) }
+    }
+
+    fun repairAllWarnings() = repairWarnings(editingDataMap.keys, confirmBatch = true)
+
+    fun focusSelectedError() {
+        currentSelectedDataId?.let { focusFirstError(listOf(it), confirmBatch = false) }
+    }
+
+    fun focusAllErrors() = focusFirstError(editingDataMap.keys, confirmBatch = true)
 
     /**
      * 指定された一意の識別子（IDやファイル名など）に対応するタブ（アイテム）を選択状態にします。
@@ -414,22 +466,97 @@ abstract class EditorView<T : ManagedData<T, *>>(
      */
     fun onSave(targetDataId: String? = null): Boolean {
         val dataId = targetDataId ?: currentSelectedDataId ?: return false
-        val currentEdit = editingDataMap[dataId] ?: return false
-        val original = originalDataMap[dataId] ?: return false
+        val prepared = prepareSave(dataId) ?: return false
+        if (!confirmSaveChanges(
+                prepared.dataId,
+                prepared.operation,
+                prepared.original,
+                prepared.previewData
+            )
+        ) return false
+        return persistPreparedSave(prepared)
+    }
+
+    private fun prepareSave(dataId: String): PreparedSave<T>? {
+        val currentEdit = editingDataMap[dataId] ?: return null
+        val original = originalDataMap[dataId] ?: return null
         val pendingOperation = pendingStoreOperations[dataId]
         val contentChanged = original != currentEdit
 
-        if (!contentChanged && pendingOperation == null) return false
+        if (!contentChanged && pendingOperation == null) return null
 
         if (pendingOperation is PendingStoreOperation.Delete) {
-            if (!confirmSaveChanges(dataId, pendingOperation, original, currentEdit)) return false
-            return persistDelete(dataId, pendingOperation)
+            return PreparedSave(dataId, pendingOperation, original, currentEdit, null)
         }
 
         val sourceId = (pendingOperation as? PendingStoreOperation.Rename)?.sourceId ?: dataId
-        val saveData = prepareSaveData(dataId, sourceId, currentEdit, original) ?: return false
-        if (!confirmSaveChanges(dataId, pendingOperation, original, saveData)) return false
-        return persistSaveData(dataId, saveData, pendingOperation)
+        val saveData = prepareSaveData(dataId, sourceId, currentEdit, original) ?: return null
+        return PreparedSave(dataId, pendingOperation, original, saveData, saveData)
+    }
+
+    private fun persistPreparedSave(prepared: PreparedSave<T>): Boolean {
+        val deletion = prepared.operation as? PendingStoreOperation.Delete
+        return if (deletion != null) {
+            persistDelete(prepared.dataId, deletion)
+        } else {
+            persistSaveData(prepared.dataId, requireNotNull(prepared.saveData), prepared.operation)
+        }
+    }
+
+    /** 現在メモリ上で変更されているすべてのデータを順番に保存します。 */
+    fun onSaveAll(): Boolean {
+        val targets = editingDataMap.keys.filter(::hasUnsavedChanges)
+        if (targets.isEmpty()) return false
+
+        val failed = mutableListOf<String>()
+        val prepared = targets.mapNotNull { dataId ->
+            prepareSave(dataId) ?: run {
+                failed += dataId
+                null
+            }
+        }
+        if (prepared.isEmpty()) return false
+
+        val details = combinedSaveChangeDetails(prepared.map { entry ->
+            entry.dataId to saveChangeDetails(
+                entry.dataId,
+                entry.operation,
+                entry.original,
+                entry.previewData
+            )
+        }) + if (failed.isEmpty()) {
+            emptyList()
+        } else {
+            listOf("", "【保存準備に失敗したデータ】", *failed.map { "・$it" }.toTypedArray())
+        }
+        val confirmed = CustomDialog.confirmation()
+            .title("すべて保存")
+            .header("以下の変更をまとめてストアへ反映します（${prepared.size} 件）")
+            .content(details)
+            .scrollableContent()
+            .okButton("すべて保存", Color.DODGERBLUE)
+            .owner(main.currentStage)
+            .show()
+        if (!confirmed) return false
+
+        prepared.filterNot(::persistPreparedSave).mapTo(failed, PreparedSave<T>::dataId)
+        val succeededCount = targets.size - failed.size
+        if (failed.isEmpty()) {
+            main.showTimedTopLabel("$succeededCount 件のデータを保存しました", Color.GREENYELLOW)
+            return true
+        }
+
+        main.showTimedTopLabel(
+            "$succeededCount 件を保存し、${failed.size} 件は未保存です",
+            Color.ORANGE
+        )
+        return false
+    }
+
+    private fun hasUnsavedChanges(id: String): Boolean {
+        val editing = editingDataMap[id] ?: return false
+        val original = originalDataMap[id] ?: return false
+        return editing != original || pendingStoreOperations[id] != null
     }
 
     private fun confirmSaveChanges(
@@ -727,10 +854,17 @@ abstract class EditorView<T : ManagedData<T, *>>(
         sidebarButtons.clear()
         selectedButton = null
         currentSelectedDataId = null
-        syncButton = null
-        syncAllButton = null
-        repairAllWarningsButton = null
-        repairAllErrorsButton = null
+        saveMenuItem = null
+        saveAllMenuItem = null
+        syncMenuItem = null
+        syncAllMenuItem = null
+        undoMenuItem = null
+        redoMenuItem = null
+        repairWarningsMenuItem = null
+        repairAllWarningsMenuItem = null
+        repairErrorsMenuItem = null
+        repairAllErrorsMenuItem = null
+        syncBusy = false
 
         return true
     }
@@ -818,7 +952,7 @@ abstract class EditorView<T : ManagedData<T, *>>(
         btn.accessibleText = listOfNotNull(PublicId.normalizeForLoad(id), state.description())
             .joinToString(" / ")
         btn.tooltip = state.description()?.let(AppTooltip::create)
-        refreshValidationActionButtons()
+        refreshActionMenuState()
     }
 
     /** フォーカス状態にかかわらず、現在の編集内容を履歴へ記録します。 */
@@ -914,10 +1048,26 @@ abstract class EditorView<T : ManagedData<T, *>>(
      */
     protected open fun focusValidationError(error: SushiEricValidationError): Boolean = false
 
-    private fun refreshValidationActionButtons() {
-        val errors = editingDataMap.values.flatMap(::validationErrors)
-        repairAllWarningsButton?.isDisable = errors.none { it.isWarning }
-        repairAllErrorsButton?.isDisable = errors.none { it.isError }
+    private fun refreshActionMenuState() {
+        val selectedId = currentSelectedDataId
+        val selectedErrors = selectedId
+            ?.let(editingDataMap::get)
+            ?.let(::validationErrors)
+            .orEmpty()
+        val allErrors = editingDataMap.values.flatMap(::validationErrors)
+
+        saveMenuItem?.isDisable = selectedId == null || !hasUnsavedChanges(selectedId)
+        saveAllMenuItem?.isDisable = editingDataMap.keys.none(::hasUnsavedChanges)
+        undoMenuItem?.isDisable = selectedId == null || !editHistory.canUndo(selectedId)
+        redoMenuItem?.isDisable = selectedId == null || !editHistory.canRedo(selectedId)
+        repairWarningsMenuItem?.isDisable = selectedErrors.none { it.isWarning }
+        repairErrorsMenuItem?.isDisable = selectedErrors.none { it.isError }
+        repairAllWarningsMenuItem?.isDisable = allErrors.none { it.isWarning }
+        repairAllErrorsMenuItem?.isDisable = allErrors.none { it.isError }
+
+        syncMenuItem?.isDisable = !dataService.isRemote || syncBusy || selectedId == null ||
+            selectedId?.let(::hasPendingStoreOperation) == true
+        syncAllMenuItem?.isDisable = !dataService.isRemote || syncBusy || pendingStoreOperations.isNotEmpty()
     }
 
     private fun repairWarnings(ids: Collection<String>, confirmBatch: Boolean) {
@@ -1270,9 +1420,8 @@ abstract class EditorView<T : ManagedData<T, *>>(
     }
 
     private fun setSyncBusy(busy: Boolean) {
-        syncButton?.isDisable = busy || currentSelectedDataId == null ||
-            currentSelectedDataId?.let(::hasPendingStoreOperation) == true
-        syncAllButton?.isDisable = busy || pendingStoreOperations.isNotEmpty()
+        syncBusy = busy
+        refreshActionMenuState()
     }
 
     private fun refreshSyncButtonState() = setSyncBusy(false)
