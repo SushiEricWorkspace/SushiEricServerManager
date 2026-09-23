@@ -4,6 +4,7 @@ import io.github.sushiericworkspace.common.data.core.identity.VanillaItemId
 import io.github.sushiericworkspace.common.value.SushiEricHexColor
 import io.github.sushiericworkspace.common.data.item.model.SushiEricRarity
 import io.github.sushiericworkspace.common.data.item.model.HeadSkinSource
+import io.github.sushiericworkspace.common.stats.player.StatsPartTarget
 import io.github.sushiericworkspace.common.stats.player.StatsType
 import io.github.sushiericworkspace.common.data.item.model.mutable.MutableArmorTrimData
 import io.github.sushiericworkspace.common.data.item.model.ArmorTrimRegistry
@@ -74,7 +75,7 @@ internal fun isMaxStackSizeEditable(itemType: ItemType): Boolean = itemType == O
  * OKボタンとEnterの両方がこの判定を使います。
  */
 internal fun resolveStatToAdd(type: StatsType?, value: Double?): Pair<StatsType, Double>? {
-    if (type == null || value == null || value.isNaN() || value == 0.0) {
+    if (type == null || value == null || value.isNaN()) {
         return null
     }
 
@@ -932,10 +933,10 @@ class ItemEditorFactory(
                         fun formatStatValue(value: Double): String =
                             formatItemStatValue(value)
 
-                        fun nonZeroInitial(type: StatsType): Double =
+                        fun addDialogInitialValue(type: StatsType): Double =
                             initialItemStatValue(type)
 
-                        fun fixZero(type: StatsType, value: Double): Double =
+                        fun normalizeStatValue(type: StatsType, value: Double): Double =
                             normalizeItemStatValue(type, value)
 
                         fun commitSpinnerValue(spinner: Spinner<Double>) {
@@ -943,20 +944,25 @@ class ItemEditorFactory(
                             spinner.valueFactory.value = converter.fromString(spinner.editor.text)
                         }
 
+                        /*
+                         * 加算なし（0）も選べるように、Spinnerの範囲へ0を含める。
+                         * 範囲内への補正はItemStatValueRulesが行う。
+                         */
                         fun createDoubleSpinner(
                             type: StatsType,
                             initialValue: Double
                         ): Spinner<Double> {
                             return Spinner<Double>().apply {
                                 valueFactory = SpinnerValueFactory.DoubleSpinnerValueFactory(
-                                    type.min,
-                                    type.max,
-                                    fixZero(type, initialValue),
+                                    type.min.coerceAtMost(NO_FLAT_ITEM_STAT_VALUE),
+                                    type.max.coerceAtLeast(NO_FLAT_ITEM_STAT_VALUE),
+                                    normalizeStatValue(type, initialValue),
                                     1.0
                                 )
 
                                 isEditable = true
                                 prefWidth = 90.0
+                                tooltip = AppTooltip.create(ITEM_STAT_FLAT_VALUE_TOOLTIP)
 
                                 valueFactory.converter = object : StringConverter<Double>() {
                                     override fun toString(value: Double?): String {
@@ -1047,10 +1053,13 @@ class ItemEditorFactory(
                          * その下に部位のチェックを3列で表示する。
                          * 部位で1つも選んでいない状態は対象を作れないため、部位へ切り替えたときは
                          * アイテムの種類に合う部位を先に選び、最後の1つは外せない。
+                         *
+                         * 対象や値を変えたときは[onChanged]、削除したときは[onRemoved]を呼ぶ。
                          */
                         fun createMultiplierRow(
                             type: StatsType,
                             initialEntry: ItemStatMultiplier,
+                            onChanged: () -> Unit,
                             onRemoved: () -> Unit
                         ): VBox {
                             var entry = initialEntry
@@ -1072,6 +1081,7 @@ class ItemEditorFactory(
                                 if (updated != entry) {
                                     updateMultiplier(type, entry, updated)
                                     entry = updated
+                                    onChanged()
                                 }
                             }
 
@@ -1133,6 +1143,7 @@ class ItemEditorFactory(
                                 if (updated != entry) {
                                     updateMultiplier(type, entry, updated)
                                     entry = updated
+                                    onChanged()
                                 }
                             }.apply {
                                 tooltip = AppTooltip.create(ITEM_STAT_MULTIPLIER_VALUE_TOOLTIP)
@@ -1193,87 +1204,152 @@ class ItemEditorFactory(
                             button.styleClass.add("editor-small-button")
                         }
 
+                        /*
+                         * 表示する行は加算値と倍率のどちらかを持つ種類で、追加した直後の
+                         * 加算なし・倍率なしの行も編集中は残す。
+                         */
+                        val visibleTypes = linkedSetOf<StatsType>().apply {
+                            addAll(
+                                visibleItemStatTypes(
+                                    flatTypes = itemData.stats.keys,
+                                    multiplierTypes = itemData.statMultipliers.keys
+                                )
+                            )
+                        }
+
                         fun rebuildStatsList(container: VBox) {
                             container.children.clear()
 
-                            itemData.stats.entries
-                                .forEach { (type, value) ->
-                                    val spinner = createDoubleSpinner(type, value)
+                            visibleTypes.forEach { type ->
+                                val spinner = createDoubleSpinner(
+                                    type,
+                                    itemData.stats[type] ?: NO_FLAT_ITEM_STAT_VALUE
+                                )
 
-                                    spinner.valueProperty().addListener { _, _, newValue ->
-                                        if (newValue != null && newValue != 0.0) {
-                                            itemData.stats[type] = newValue
-                                            refreshButtonVisual(itemData.id)
+                                val multiplierRows = VBox(4.0).apply {
+                                    styleClass.add("editor-row-vbox")
+                                }
+
+                                /*
+                                 * 「自分」の倍率は加算値へ掛かるため、加算なしでは効果が出ない。
+                                 * 対象を選び直せるよう、該当する場合だけ注意書きを出す。
+                                 */
+                                val selfMultiplierWarning = Label(
+                                    ITEM_STAT_SELF_MULTIPLIER_WITHOUT_FLAT_WARNING
+                                ).apply {
+                                    styleClass.add("error-label")
+                                    isWrapText = true
+                                }
+
+                                fun currentFlatValue(): Double =
+                                    itemData.stats[type] ?: NO_FLAT_ITEM_STAT_VALUE
+
+                                /*
+                                 * 入力中の文字列はSpinnerへ確定するまで値へ反映されないため、
+                                 * 注意書きの判定だけは[flatValue]で先に切り替える。
+                                 */
+                                fun refreshSelfMultiplierWarning(flatValue: Double = currentFlatValue()) {
+                                    val hasSelfMultiplier =
+                                        itemData.statMultipliers[type].orEmpty().any { multiplier ->
+                                            multiplier.target == StatsPartTarget.Self
                                         }
-                                    }
+                                    val visible = !hasFlatItemStatValue(flatValue) && hasSelfMultiplier
 
-                                    val multiplierRows = VBox(4.0).apply {
-                                        styleClass.add("editor-row-vbox")
-                                    }
+                                    selfMultiplierWarning.isVisible = visible
+                                    selfMultiplierWarning.isManaged = visible
+                                }
 
-                                    fun rebuildMultiplierRows() {
-                                        multiplierRows.children.clear()
-
-                                        itemData.statMultipliers[type].orEmpty().forEach { entry ->
-                                            multiplierRows.children.add(
-                                                createMultiplierRow(type, entry) {
-                                                    rebuildMultiplierRows()
-                                                }
-                                            )
-                                        }
-                                    }
-
-                                    rebuildMultiplierRows()
-
-                                    container.children.add(
-                                        VBox(4.0).apply {
-                                            styleClass.add("editor-row-vbox")
-
-                                            children.addAll(
-                                                HBox(8.0).apply {
-                                                    alignment = Pos.CENTER_LEFT
-                                                    styleClass.add("editor-row-hbox")
-
-                                                    children.addAll(
-                                                        Label("${type.display}:").apply {
-                                                            styleClass.add("editor-label")
-                                                            minWidth = 120.0
-                                                        },
-
-                                                        spinner,
-
-                                                        Button("倍率追加").apply {
-                                                            styleClass.add("btn-primary")
-                                                            applySmallButtonSize(this)
-                                                            minWidth = 72.0
-                                                            prefWidth = 72.0
-                                                            maxWidth = 72.0
-
-                                                            setOnAction {
-                                                                multipliersOf(type).add(initialItemStatMultiplier())
-                                                                refreshButtonVisual(itemData.id)
-                                                                rebuildMultiplierRows()
-                                                            }
-                                                        },
-
-                                                        Button("削除").apply {
-                                                            styleClass.add("btn-danger")
-                                                            applySmallButtonSize(this)
-
-                                                            setOnAction {
-                                                                itemData.stats.remove(type)
-                                                                itemData.statMultipliers.remove(type)
-                                                                refreshButtonVisual(itemData.id)
-                                                                rebuildStatsList(container)
-                                                            }
-                                                        }
-                                                    )
-                                                },
-                                                multiplierRows
-                                            )
-                                        }
+                                spinner.editor.textProperty().addListener { _, _, text ->
+                                    refreshSelfMultiplierWarning(
+                                        parseItemStatValue(type, text, currentFlatValue())
                                     )
                                 }
+
+                                spinner.valueProperty().addListener { _, _, newValue ->
+                                    if (newValue == null) {
+                                        return@addListener
+                                    }
+
+                                    if (hasFlatItemStatValue(newValue)) {
+                                        itemData.stats[type] = newValue
+                                    } else {
+                                        itemData.stats.remove(type)
+                                    }
+
+                                    refreshSelfMultiplierWarning()
+                                    refreshButtonVisual(itemData.id)
+                                }
+
+                                fun rebuildMultiplierRows() {
+                                    multiplierRows.children.clear()
+
+                                    itemData.statMultipliers[type].orEmpty().forEach { entry ->
+                                        multiplierRows.children.add(
+                                            createMultiplierRow(
+                                                type = type,
+                                                initialEntry = entry,
+                                                onChanged = { refreshSelfMultiplierWarning() },
+                                                onRemoved = { rebuildMultiplierRows() }
+                                            )
+                                        )
+                                    }
+
+                                    refreshSelfMultiplierWarning()
+                                }
+
+                                rebuildMultiplierRows()
+
+                                container.children.add(
+                                    VBox(4.0).apply {
+                                        styleClass.add("editor-row-vbox")
+
+                                        children.addAll(
+                                            HBox(8.0).apply {
+                                                alignment = Pos.CENTER_LEFT
+                                                styleClass.add("editor-row-hbox")
+
+                                                children.addAll(
+                                                    Label("${type.display}:").apply {
+                                                        styleClass.add("editor-label")
+                                                        minWidth = 120.0
+                                                    },
+
+                                                    spinner,
+
+                                                    Button("倍率追加").apply {
+                                                        styleClass.add("btn-primary")
+                                                        applySmallButtonSize(this)
+                                                        minWidth = 72.0
+                                                        prefWidth = 72.0
+                                                        maxWidth = 72.0
+
+                                                        setOnAction {
+                                                            multipliersOf(type).add(initialItemStatMultiplier())
+                                                            refreshButtonVisual(itemData.id)
+                                                            rebuildMultiplierRows()
+                                                        }
+                                                    },
+
+                                                    Button("削除").apply {
+                                                        styleClass.add("btn-danger")
+                                                        applySmallButtonSize(this)
+
+                                                        setOnAction {
+                                                            itemData.stats.remove(type)
+                                                            itemData.statMultipliers.remove(type)
+                                                            visibleTypes.remove(type)
+                                                            refreshButtonVisual(itemData.id)
+                                                            rebuildStatsList(container)
+                                                        }
+                                                    }
+                                                )
+                                            },
+                                            selfMultiplierWarning,
+                                            multiplierRows
+                                        )
+                                    }
+                                )
+                            }
                         }
 
                         val statsListBox = VBox(6.0).apply {
@@ -1283,7 +1359,7 @@ class ItemEditorFactory(
                         fun showAddStatsDialog() {
                             val typeComboBox = ComboBox<StatsType>().apply {
                                 items.addAll(
-                                    StatsType.entries.filterNot { it in itemData.stats.keys }
+                                    StatsType.entries.filterNot { it in visibleTypes }
                                 )
 
                                 cellFactory = Callback {
@@ -1314,9 +1390,9 @@ class ItemEditorFactory(
                                 if (type == null) return
 
                                 valueSpinner.valueFactory = SpinnerValueFactory.DoubleSpinnerValueFactory(
-                                    type.min,
-                                    type.max,
-                                    nonZeroInitial(type),
+                                    type.min.coerceAtMost(NO_FLAT_ITEM_STAT_VALUE),
+                                    type.max.coerceAtLeast(NO_FLAT_ITEM_STAT_VALUE),
+                                    addDialogInitialValue(type),
                                     1.0
                                 )
 
@@ -1353,7 +1429,13 @@ class ItemEditorFactory(
                                     Label("値:").apply {
                                         styleClass.add("editor-label")
                                     },
-                                    valueSpinner,
+                                    valueSpinner.apply {
+                                        tooltip = AppTooltip.create(ITEM_STAT_FLAT_VALUE_TOOLTIP)
+                                    },
+                                    Label("0 を指定すると加算なしになり、倍率だけのステータスとして追加します").apply {
+                                        styleClass.add("editor-label")
+                                        isWrapText = true
+                                    },
                                     errorLabel
                                 )
                             }
@@ -1382,7 +1464,7 @@ class ItemEditorFactory(
                                         commitSpinnerValue(valueSpinner)
 
                                         resolveStatToAdd(typeComboBox.value, valueSpinner.value)
-                                            ?.let { (type, value) -> type to fixZero(type, value) }
+                                            ?.let { (type, value) -> type to normalizeStatValue(type, value) }
                                     }
                                 }
                             }
@@ -1397,7 +1479,7 @@ class ItemEditorFactory(
                                 commitSpinnerValue(valueSpinner)
 
                                 if (resolveStatToAdd(typeComboBox.value, valueSpinner.value) == null) {
-                                    errorLabel.text = "ステータスと0以外の値を指定してください"
+                                    errorLabel.text = "ステータスと値を指定してください"
                                     errorLabel.isVisible = true
                                     errorLabel.isManaged = true
                                     event.consume()
@@ -1415,7 +1497,11 @@ class ItemEditorFactory(
                             }
 
                             dialog.showAndWait().ifPresent { (type, value) ->
-                                itemData.stats[type] = value
+                                if (hasFlatItemStatValue(value)) {
+                                    itemData.stats[type] = value
+                                }
+
+                                visibleTypes.add(type)
                                 refreshButtonVisual(itemData.id)
                                 rebuildStatsList(statsListBox)
                             }
