@@ -22,6 +22,33 @@ class EditorDataHistoryTest {
     }
 
     @Test
+    fun `入力と追加を1操作ずつ戻せる`() {
+        /*
+         * 入力中のテキストは、ほかの操作が始まる前に確定する。
+         * 確定してから追加を適用すると、入力と追加が別の履歴になる。
+         */
+        val history = EditorDataHistory<String>(copy = { it })
+        history.initialize("data", "名前なし")
+
+        // 表示名を入力（確定前）
+        val afterFirstInput = "名前1"
+        // 追加の直前に入力を確定する
+        history.record("data", afterFirstInput)
+        // 追加を適用した状態を記録する
+        val afterAdd = "名前1+ロア"
+        history.record("data", afterAdd)
+        // 2回目の表示名入力（確定前）
+        val afterSecondInput = "名前2+ロア"
+
+        // 元に戻すときは、確定前の入力を先に確定する
+        history.record("data", afterSecondInput)
+
+        assertEquals(afterAdd, history.undo("data", afterSecondInput))
+        assertEquals(afterFirstInput, history.undo("data", afterAdd))
+        assertEquals("名前なし", history.undo("data", afterFirstInput))
+    }
+
+    @Test
     fun `元に戻した後の新しい変更でやり直し履歴を破棄する`() {
         val history = EditorDataHistory<String>(copy = { it })
         history.initialize("data", "A")
