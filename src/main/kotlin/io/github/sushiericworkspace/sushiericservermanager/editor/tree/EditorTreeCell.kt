@@ -14,6 +14,25 @@ import javafx.scene.input.TransferMode
  * - ドラッグ可否は TreeDragValidator に委譲
  * - 実データの移動は TreeMoveHandler に委譲
  */
+private const val INDENT_GUIDE_STYLE_PREFIX = "tree-indent-"
+
+/** 階層の線を用意しているインデントの深さの上限です。これより深い行は同じ線数で表示します。 */
+private const val MAX_INDENT_GUIDE_DEPTH = 6
+
+/** ルートを除いた表示上の深さを返します。ルート直下の行は`0`です。 */
+internal fun indentGuideDepth(cellLevel: Int, showRoot: Boolean): Int {
+    val rootOffset = if (showRoot) 0 else 1
+
+    return (cellLevel - rootOffset).coerceAtLeast(0)
+}
+
+/** 深さに対応する階層の線のスタイルクラスを返します。線が不要な深さでは`null`です。 */
+internal fun indentGuideStyleClass(depth: Int): String? {
+    if (depth <= 0) return null
+
+    return INDENT_GUIDE_STYLE_PREFIX + depth.coerceAtMost(MAX_INDENT_GUIDE_DEPTH)
+}
+
 open class EditorTreeCell<R : EditorTreeRow>(
     private val graphicFactory: EditorGraphicFactory<R>,
     private val dragValidator: TreeDragValidator<R>,
@@ -94,6 +113,7 @@ open class EditorTreeCell<R : EditorTreeRow>(
         super.updateItem(row, empty)
 
         styleClass.removeAll("folder-cell", "item-cell")
+        styleClass.removeIf { it.startsWith(INDENT_GUIDE_STYLE_PREFIX) }
 
         if (empty || row == null) {
             text = null
@@ -104,6 +124,17 @@ open class EditorTreeCell<R : EditorTreeRow>(
         }
 
         contextMenu = contextMenuFactory?.createContextMenu(row)
+
+        /*
+         * 入れ子は余白だけでは追いにくいため、深さに応じた階層の線をCSSで引く。
+         * TreeViewのインデントは内部で確保されるため、深さごとのスタイルクラスで表す。
+         */
+        indentGuideStyleClass(
+            indentGuideDepth(
+                cellLevel = treeView?.getTreeItemLevel(treeItem) ?: 0,
+                showRoot = treeView?.isShowRoot ?: true
+            )
+        )?.let(styleClass::add)
 
         when (row.kind) {
             EditorTreeRow.Kind.Folder -> {

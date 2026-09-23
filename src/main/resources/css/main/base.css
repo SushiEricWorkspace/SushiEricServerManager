@@ -102,8 +102,12 @@
     -fx-text-fill: -fx-warning-color !important;
 }
 
+/* 入れ子を追えるように、ディレクトリの子要素の左へ階層の線を引く */
 .sidebar-tree-children {
     -fx-padding: 0 0 0 14px;
+    -fx-border-color: transparent transparent transparent -fx-line-emphasis-color;
+    -fx-border-width: 0 0 0 1px;
+    -fx-border-insets: 0 0 0 6px;
 }
 
 .sidebar-directory-button {
