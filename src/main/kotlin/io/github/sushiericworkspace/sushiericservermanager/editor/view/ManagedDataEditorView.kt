@@ -34,6 +34,20 @@ internal fun filterManagedDataIds(ids: List<String>, query: String): List<String
 internal fun isLocalOnlyData(id: String, remoteDataIds: Set<String>): Boolean =
     id !in remoteDataIds
 
+/**
+ * 保存に成功したデータIDを、サーバー上に存在するIDの集合へ加えます。
+ *
+ * サイドバーを作り直すまで一覧を取得し直さないため、保存した時点でローカルのみの表示を
+ * 解除できるようにします。配下のデータが1件でもサーバー上に存在すれば、そのディレクトリも
+ * ローカルのみではなくなります。
+ *
+ * @param remoteDataIds 現在サーバー上に存在すると分かっているID。
+ * @param dataId 保存に成功したデータID。
+ * @return [dataId]を加えたID集合。
+ */
+internal fun withStoredDataId(remoteDataIds: Set<String>, dataId: String): Set<String> =
+    remoteDataIds + dataId
+
 internal fun isLocalOnlyDirectory(
     directory: String,
     affectedIds: Collection<String>,

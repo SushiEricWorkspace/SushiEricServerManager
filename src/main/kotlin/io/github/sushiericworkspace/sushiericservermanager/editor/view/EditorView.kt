@@ -373,6 +373,12 @@ abstract class EditorView<T : ManagedData<T, *>>(
                 editingDataMap[dataId] = saveData.deepCopy()
                 mergeConflicts.remove(dataId)
 
+                /*
+                 * 保存できた時点でサーバー上へファイルが存在するため、
+                 * サイドバーを作り直す前にローカルのみの表示を解除する。
+                 */
+                remoteDataIds = withStoredDataId(remoteDataIds, dataId)
+
                 if (dataId == currentSelectedDataId) {
                     selectTab(dataId)
                 } else {
