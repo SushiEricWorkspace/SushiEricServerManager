@@ -4,6 +4,7 @@ import io.github.sushiericworkspace.common.data.core.identity.VanillaItemId
 import io.github.sushiericworkspace.common.value.SushiEricHexColor
 import io.github.sushiericworkspace.common.data.item.model.SushiEricRarity
 import io.github.sushiericworkspace.common.data.item.model.HeadSkinSource
+import io.github.sushiericworkspace.common.data.item.model.mutable.MutableHeadSkinData
 import io.github.sushiericworkspace.common.stats.player.StatsPartTarget
 import io.github.sushiericworkspace.common.stats.player.StatsType
 import io.github.sushiericworkspace.common.data.item.model.mutable.MutableArmorTrimData
@@ -707,6 +708,57 @@ class ItemEditorFactory(
                                         )
                                     }
 
+                                    /*
+                                     * 頭アイテム以外ではヘッドスキン指定を持たない。
+                                     * 一時的に切り替えただけの入力を失わないよう、同じ画面を開いている間は記憶する。
+                                     */
+                                    var rememberedHeadSkin: MutableHeadSkinData? = null
+
+                                    /*
+                                     * 入力欄をデータへそろえる間は、入力の変更リスナーがデータを書き戻さないようにする。
+                                     * 書き戻すと、そろえ終わる前の空の入力欄でデータを上書きしてしまう。
+                                     */
+                                    var syncingHeadSkinEditor = false
+
+                                    fun syncHeadSkinEditorValue() {
+                                        val current = itemData.itemDetail.mutableHeadSkin
+                                        val value = current?.value.orEmpty()
+
+                                        syncingHeadSkinEditor = true
+
+                                        try {
+                                            headSkinSourceComboBox.value =
+                                                headSkinSourceOptions.first { it.source == current?.source }
+
+                                            if (headSkinValueField.text != value) headSkinValueField.text = value
+                                            if (headSkinMultilineArea.text != value) headSkinMultilineArea.text = value
+                                        } finally {
+                                            syncingHeadSkinEditor = false
+                                        }
+                                    }
+
+                                    fun applyHeadSkinApplicability() {
+                                        val editable = isHeadSkinEditableVanillaId(itemData.itemDetail.vanillaId)
+                                        val current = itemData.itemDetail.mutableHeadSkin
+
+                                        if (!editable) {
+                                            if (current != null) {
+                                                rememberedHeadSkin = current.deepCopy()
+                                                itemData.itemDetail.mutableHeadSkin = null
+                                                syncHeadSkinEditorValue()
+                                            }
+
+                                            return
+                                        }
+
+                                        if (current == null) {
+                                            rememberedHeadSkin?.let { remembered ->
+                                                itemData.itemDetail.mutableHeadSkin = remembered.deepCopy()
+                                                syncHeadSkinEditorValue()
+                                            }
+                                        }
+                                    }
+
                                     fun refreshHeadSkinEditor() {
                                         val editable = isHeadSkinEditableVanillaId(itemData.itemDetail.vanillaId)
                                         headSkinEditor.isVisible = editable
@@ -744,6 +796,8 @@ class ItemEditorFactory(
                                     }
 
                                     headSkinSourceComboBox.valueProperty().addListener { _, _, option ->
+                                        if (syncingHeadSkinEditor) return@addListener
+
                                         val source = option?.source
                                         itemData.itemDetail.mutableHeadSkin = applyHeadSkinEditorValue(
                                             current = itemData.itemDetail.mutableHeadSkin,
@@ -754,6 +808,8 @@ class ItemEditorFactory(
                                         refreshButtonVisual(itemData.id)
                                     }
                                     headSkinValueField.textProperty().addListener { _, _, value ->
+                                        if (syncingHeadSkinEditor) return@addListener
+
                                         if (headSkinMultilineArea.text != value) {
                                             headSkinMultilineArea.text = value
                                         }
@@ -769,6 +825,8 @@ class ItemEditorFactory(
                                         }
                                     }
                                     headSkinMultilineArea.textProperty().addListener { _, _, value ->
+                                        if (syncingHeadSkinEditor) return@addListener
+
                                         if (headSkinValueField.text != value) {
                                             headSkinValueField.text = value
                                         }
@@ -830,6 +888,7 @@ class ItemEditorFactory(
                                         onSelected = { selected ->
                                             itemData.itemDetail.vanillaId = VanillaItemId(selected)
                                             rebuildContentController()
+                                            applyHeadSkinApplicability()
                                             refreshHeadSkinEditor()
                                             refreshButtonVisual(itemData.id)
                                             errorLabel.isVisible = false
