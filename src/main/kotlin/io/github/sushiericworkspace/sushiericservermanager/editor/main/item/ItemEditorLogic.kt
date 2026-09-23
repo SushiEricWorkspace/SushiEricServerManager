@@ -121,6 +121,18 @@ class ItemEditorLogic(
 ) {
     override val validationRepairRegistry = createItemValidationRepairRegistry(headSkinTextureLookup)
 
+    /**
+     * 頭アイテム以外ではヘッドスキンの検証結果を出しません。
+     *
+     * Commonの検証は適用対象を判定しないため、バニラIDを頭以外へ変更した後も
+     * 以前の指定に対するエラーと警告が残るためです。指定自体はバニラIDの変更時に取り除きます。
+     */
+    override fun isHiddenValidationError(
+        data: MutableItemBaseData,
+        error: SushiEricValidationError
+    ): Boolean =
+        isHeadSkinValidationError(error) && !isHeadSkinEditableVanillaId(data.itemDetail.vanillaId)
+
     private companion object {
         /**
          * ホイール1回あたりのツリーのスクロール量の倍率。

@@ -264,8 +264,10 @@ internal class OreEditorLogic(
      * 参照先が存在しないのか、まだ一覧を読み込めていないだけなのかを区別できないためです。
      * 未選択や試行回数など、参照先に依存しない問題はそのまま表示します。
      */
-    override fun isPendingValidationError(error: SushiEricValidationError): Boolean =
-        isPendingDropItemReferenceError(error, itemCatalogState)
+    override fun isHiddenValidationError(
+        data: MutableOreBaseData,
+        error: SushiEricValidationError
+    ): Boolean = isPendingDropItemReferenceError(error, itemCatalogState)
 
     override fun prepareNewData(data: MutableOreBaseData): MutableOreBaseData = data.apply {
         blockId = VanillaIdRegistry.defaultBlock
