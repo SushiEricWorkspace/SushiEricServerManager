@@ -121,6 +121,12 @@ class OfflineUploadServiceTest {
             id: String
         ): StoreResult<T> = delegate.load(descriptor, id)
 
+        override fun readText(relativePath: String): StoreResult<String> =
+            delegate.readText(relativePath)
+
+        override fun writeText(relativePath: String, text: String): StoreResult<Unit> =
+            delegate.writeText(relativePath, text)
+
         override fun <T : ManagedData<T, *>> save(
             descriptor: EditorDataDescriptor<T>,
             id: String,

@@ -59,6 +59,15 @@ enum class EditorShortcut(
             KeyCombination.SHIFT_DOWN
         )
     ),
+    /**
+     * 保存内容を再読み込みします。
+     *
+     * 同期（SHORTCUT+R）とは別の画面で使うため、一般的な再読み込みのキーを割り当てます。
+     */
+    RELOAD(
+        displayName = "再読み込み",
+        combination = KeyCodeCombination(KeyCode.F5)
+    ),
     UNDO(
         displayName = "元に戻す",
         combination = KeyCodeCombination(

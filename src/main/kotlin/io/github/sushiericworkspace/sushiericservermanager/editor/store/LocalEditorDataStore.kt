@@ -37,6 +37,60 @@ class LocalEditorDataStore(
         }
     }
 
+    override fun readText(relativePath: String): StoreResult<String> {
+        val file = resolveRelativeFile(relativePath)
+            ?: return failure(StoreErrorCode.INVALID_ID, relativePath)
+        if (!file.isFile) return failure(StoreErrorCode.FILE_NOT_FOUND, relativePath)
+
+        return try {
+            StoreResult.Success(file.readText(Charsets.UTF_8))
+        } catch (e: SecurityException) {
+            failure(StoreErrorCode.PERMISSION_DENIED, relativePath, cause = e)
+        } catch (e: Exception) {
+            logger.error("ローカルファイルの読み込みに失敗しました: {}", file, e)
+            failure(StoreErrorCode.IO_ERROR, relativePath, cause = e)
+        }
+    }
+
+    override fun writeText(relativePath: String, text: String): StoreResult<Unit> {
+        val target = resolveRelativeFile(relativePath)
+            ?: return failure(StoreErrorCode.INVALID_ID, relativePath)
+        val directory = target.parentFile
+
+        if (!directory.exists() && !directory.mkdirs()) {
+            return failure(StoreErrorCode.PERMISSION_DENIED, relativePath)
+        }
+
+        val temporary = try {
+            Files.createTempFile(directory.toPath(), ".${target.name}-", ".tmp").toFile()
+        } catch (e: SecurityException) {
+            return failure(StoreErrorCode.PERMISSION_DENIED, relativePath, cause = e)
+        } catch (e: Exception) {
+            logger.error("ローカルファイルの一時ファイル作成に失敗しました: {}", target, e)
+            return failure(StoreErrorCode.IO_ERROR, relativePath, cause = e)
+        }
+
+        return try {
+            temporary.writeText(text, Charsets.UTF_8)
+            replaceAtomically(temporary, target)
+            StoreResult.Success(Unit)
+        } catch (e: SecurityException) {
+            failure(StoreErrorCode.PERMISSION_DENIED, relativePath, cause = e)
+        } catch (e: Exception) {
+            logger.error("ローカルファイルの保存に失敗しました: {}", target, e)
+            failure(StoreErrorCode.IO_ERROR, relativePath, cause = e)
+        } finally {
+            temporary.delete()
+        }
+    }
+
+    /** 基準ディレクトリの外を指す相対パスは扱いません。 */
+    private fun resolveRelativeFile(relativePath: String): File? {
+        if (!StorePathValidator.isValidRelativePath(relativePath)) return null
+
+        return rootDirectory.resolve(relativePath)
+    }
+
     override fun <T : ManagedData<T, *>> list(
         descriptor: EditorDataDescriptor<T>
     ): StoreResult<List<StoreResource>> {

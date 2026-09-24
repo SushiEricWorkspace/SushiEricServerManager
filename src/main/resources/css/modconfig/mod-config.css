@@ -1,0 +1,51 @@
+@import "/css/common/widgets.css";
+
+/*
+ * mod-config.css
+ * 役割: Mod共通設定（config.yml）を生テキストで編集する画面の配置と文字を定義する。
+ */
+
+.mod-config-root {
+    -fx-background-color: -fx-bg-deep;
+}
+
+.mod-config-header {
+    -fx-padding: 16px;
+    -fx-spacing: 8px;
+    -fx-border-color: transparent transparent -fx-line-color transparent;
+    -fx-border-width: 0 0 1px 0;
+}
+
+.mod-config-title {
+    -fx-font-size: 20px;
+    -fx-font-weight: bold;
+    -fx-text-fill: -fx-text-color;
+}
+
+.mod-config-path {
+    -fx-font-size: 12px;
+    -fx-text-fill: -fx-text-muted-color;
+}
+
+.mod-config-actions {
+    -fx-spacing: 10px;
+    -fx-padding: 4px 0 0 0;
+    -fx-alignment: center-left;
+}
+
+.mod-config-status {
+    -fx-font-size: 12px;
+    -fx-text-fill: -fx-text-muted-color;
+}
+
+/* YAMLは桁位置が意味を持つため等幅で表示する */
+.mod-config-content {
+    -fx-font-family: "Consolas", "Menlo", "monospace";
+    -fx-font-size: 13px;
+}
+
+.mod-config-note {
+    -fx-font-size: 11px;
+    -fx-text-fill: -fx-text-muted-color;
+    -fx-padding: 10px 16px;
+}
