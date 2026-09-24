@@ -26,6 +26,70 @@ class RemoteEditorDataStore(
     override val isAvailable: Boolean
         get() = ssh.isSftpActive && ssh.currentProfile != null
 
+    override fun readText(relativePath: String): StoreResult<String> {
+        val remotePath = resolveRemotePath(relativePath)
+            ?: return failure(StoreErrorCode.INVALID_ID, relativePath)
+        if (!ssh.isSftpActive) return failure(StoreErrorCode.STORE_UNAVAILABLE, relativePath)
+
+        val temporary = try {
+            createTempFile("sushieric-remote-", ".tmp").toFile()
+        } catch (e: Exception) {
+            logger.error("一時ファイルを作成できませんでした: {}", remotePath, e)
+            return failure(StoreErrorCode.IO_ERROR, relativePath, cause = e)
+        }
+
+        return try {
+            ssh.download(remotePath, temporary.absolutePath)
+            StoreResult.Success(temporary.readText(Charsets.UTF_8))
+        } catch (e: SFTPException) {
+            if (e.statusCode == Response.StatusCode.NO_SUCH_FILE) {
+                failure(StoreErrorCode.FILE_NOT_FOUND, relativePath, cause = e)
+            } else {
+                logger.error("リモートファイルの読み込みに失敗しました: {}", remotePath, e)
+                failure(StoreErrorCode.IO_ERROR, relativePath, cause = e)
+            }
+        } catch (e: Exception) {
+            logger.error("リモートファイルの読み込みに失敗しました: {}", remotePath, e)
+            failure(StoreErrorCode.IO_ERROR, relativePath, cause = e)
+        } finally {
+            temporary.delete()
+        }
+    }
+
+    override fun writeText(relativePath: String, text: String): StoreResult<Unit> {
+        val remotePath = resolveRemotePath(relativePath)
+            ?: return failure(StoreErrorCode.INVALID_ID, relativePath)
+        if (!ssh.isSftpActive) return failure(StoreErrorCode.STORE_UNAVAILABLE, relativePath)
+
+        val temporary = try {
+            createTempFile("sushieric-remote-", ".tmp").toFile()
+        } catch (e: Exception) {
+            logger.error("一時ファイルを作成できませんでした: {}", remotePath, e)
+            return failure(StoreErrorCode.IO_ERROR, relativePath, cause = e)
+        }
+
+        return try {
+            temporary.writeText(text, Charsets.UTF_8)
+            ssh.upload(temporary.absolutePath, remotePath)
+            StoreResult.Success(Unit)
+        } catch (e: Exception) {
+            logger.error("リモートファイルの保存に失敗しました: {}", remotePath, e)
+            failure(StoreErrorCode.IO_ERROR, relativePath, cause = e)
+        } finally {
+            temporary.delete()
+        }
+    }
+
+    /** 基準ディレクトリからの相対パスを、接続先のパスへ変換します。 */
+    private fun resolveRemotePath(relativePath: String): String? {
+        if (!StorePathValidator.isValidRelativePath(relativePath)) return null
+
+        val profile = ssh.currentProfile ?: return null
+
+        return "${profile.path}/${SushiEricDataDirectory.BASE_ROOT}/$relativePath"
+            .replace(Regex("/+"), "/")
+    }
+
     override fun <T : ManagedData<T, *>> list(
         descriptor: EditorDataDescriptor<T>
     ): StoreResult<List<StoreResource>> {

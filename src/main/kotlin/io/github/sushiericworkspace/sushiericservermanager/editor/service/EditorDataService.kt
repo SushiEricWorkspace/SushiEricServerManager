@@ -7,6 +7,7 @@ import io.github.sushiericworkspace.common.data.core.validation.SushiEricValidat
 import io.github.sushiericworkspace.common.data.item.model.mutable.MutableItemBaseData
 import io.github.sushiericworkspace.common.data.item.model.ItemInternalId
 import io.github.sushiericworkspace.common.data.ore.model.mutable.MutableOreBaseData
+import io.github.sushiericworkspace.common.path.SushiEricDataDirectory
 import io.github.sushiericworkspace.sushiericservermanager.communication.RemoteResource
 import io.github.sushiericworkspace.sushiericservermanager.communication.SshManager
 import io.github.sushiericworkspace.sushiericservermanager.config.FilePath
@@ -53,6 +54,14 @@ class EditorDataService(
     val items: DataAccess<MutableItemBaseData> = DataAccess(EditorDataDescriptors.item)
     val ores: DataAccess<MutableOreBaseData> = DataAccess(EditorDataDescriptors.ore)
 
+    /**
+     * Mod共通設定（config.yml）の生テキストです。
+     *
+     * 内容の解析、変換、検証は行いません。設定値の妥当性判断と既定値への
+     * フォールバックはServerMod側が行います。
+     */
+    val modConfig: TextFileAccess = TextFileAccess(SushiEricDataDirectory.Config().getRawPath())
+
     val storeKind: EditorDataStoreKind
         get() = store.kind
 
@@ -71,6 +80,21 @@ class EditorDataService(
         } else {
             Utility.navigateToModeSelect()
         }
+    }
+
+    /**
+     * 保存先に依存せず、1つのテキストファイルを読み書きします。
+     *
+     * @property relativePath 基準ディレクトリからの相対パス（区切りは`/`）。
+     */
+    inner class TextFileAccess internal constructor(
+        val relativePath: String
+    ) {
+        /** ファイルの内容をそのまま読み込みます。 */
+        fun load(): StoreResult<String> = store.readText(relativePath)
+
+        /** 入力された内容をそのまま保存します。 */
+        fun save(text: String): StoreResult<Unit> = store.writeText(relativePath, text)
     }
 
     inner class DataAccess<T : ManagedData<T, *>> internal constructor(

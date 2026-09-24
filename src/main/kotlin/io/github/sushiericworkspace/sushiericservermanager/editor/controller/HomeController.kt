@@ -23,6 +23,7 @@ import io.github.sushiericworkspace.sushiericservermanager.editor.upload.UploadS
 import io.github.sushiericworkspace.sushiericservermanager.editor.upload.OfflineUploadResult
 import io.github.sushiericworkspace.sushiericservermanager.feature.console.ConsoleWindowManager
 import io.github.sushiericworkspace.sushiericservermanager.feature.dashboard.DashboardWindowManager
+import io.github.sushiericworkspace.sushiericservermanager.feature.modconfig.ModConfigWindowManager
 import io.github.sushiericworkspace.sushiericservermanager.feature.servercontrol.ServerControlWindowManager
 import javafx.application.Platform
 import javafx.concurrent.Task
@@ -206,6 +207,7 @@ class HomeController : Initializable {
             stage?.setOnCloseRequest {
                 // 親が閉じられたら、エディタウィンドウをすべて閉じる
                 EditorWindowManager.closeAll()
+                ModConfigWindowManager.close()
                 ConsoleWindowManager.close()
                 DashboardWindowManager.close()
                 ServerControlWindowManager.close()
@@ -404,6 +406,26 @@ class HomeController : Initializable {
     @Suppress("unused")
     fun onOpenServerControl() {
         ServerControlWindowManager.open(rootPane.scene?.window)
+    }
+
+    /** Mod共通設定（config.yml）の編集画面を開きます。 */
+    @FXML
+    @Suppress("unused")
+    fun onOpenModConfig() {
+        if (EditorSession.mode == AppMode.ONLINE && !sshManager.isSftpActive) {
+            CustomDialog.error(ErrorType.CONNECTION_FAILED).show()
+            Utility.navigateToServerSelect()
+            return
+        }
+
+        val service = EditorSession.dataService
+
+        if (service == null) {
+            logger.error("データサービスが見つかりません。")
+            return
+        }
+
+        ModConfigWindowManager.open(rootPane.scene?.window, service)
     }
 
     private fun <T : ManagedData<T, *>, L : EditorView<T>> openManagedDataEditor(

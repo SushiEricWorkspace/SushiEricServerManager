@@ -49,6 +49,9 @@
                                         <Button fx:id="consoleButton" focusTraversable="false" maxWidth="1.7976931348623157E308"
                                                 mnemonicParsing="false" onAction="#onOpenConsole"
                                                 styleClass="button, data-btn" text="Minecraftコンソール" />
+                                        <Button focusTraversable="false" maxWidth="1.7976931348623157E308"
+                                                mnemonicParsing="false" onAction="#onOpenModConfig"
+                                                styleClass="button, data-btn" text="Mod設定" />
                                         <Button fx:id="uploadLocalButton" focusTraversable="false" maxWidth="1.7976931348623157E308"
                                                 mnemonicParsing="false" onAction="#onUploadLocalData"
                                                 styleClass="button, btn-secondary, home-upload-button"

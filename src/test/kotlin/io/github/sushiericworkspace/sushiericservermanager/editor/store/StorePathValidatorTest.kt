@@ -21,4 +21,19 @@ class StorePathValidatorTest {
         assertFalse(StorePathValidator.isValidDirectory("", allowRoot = false))
         assertFalse(StorePathValidator.isValidDirectory("combat..sword"))
     }
+
+    @Test
+    fun `基準ディレクトリ内を指す相対パスだけを許可する`() {
+        assertTrue(StorePathValidator.isValidRelativePath("config.yml"))
+        assertTrue(StorePathValidator.isValidRelativePath("item_data/stats/sword.yml"))
+
+        assertFalse(StorePathValidator.isValidRelativePath(""))
+        assertFalse(StorePathValidator.isValidRelativePath("  "))
+        assertFalse(StorePathValidator.isValidRelativePath("/config.yml"))
+        assertFalse(StorePathValidator.isValidRelativePath("../config.yml"))
+        assertFalse(StorePathValidator.isValidRelativePath("item_data/../../config.yml"))
+        assertFalse(StorePathValidator.isValidRelativePath("./config.yml"))
+        assertFalse(StorePathValidator.isValidRelativePath("C:/config.yml"))
+        assertFalse(StorePathValidator.isValidRelativePath("item_data//config.yml"))
+    }
 }

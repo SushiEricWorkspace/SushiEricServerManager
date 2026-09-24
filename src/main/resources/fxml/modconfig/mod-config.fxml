@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<?import javafx.scene.control.Button?>
+<?import javafx.scene.control.Label?>
+<?import javafx.scene.control.TextArea?>
+<?import javafx.scene.layout.BorderPane?>
+<?import javafx.scene.layout.HBox?>
+<?import javafx.scene.layout.Region?>
+<?import javafx.scene.layout.VBox?>
+
+<BorderPane fx:id="rootPane" prefHeight="640.0" prefWidth="760.0"
+            styleClass="mod-config-root"
+            xmlns="http://javafx.com/javafx/21.0.1" xmlns:fx="http://javafx.com/fxml/1"
+            fx:controller="io.github.sushiericworkspace.sushiericservermanager.feature.modconfig.ModConfigController">
+    <top>
+        <VBox styleClass="mod-config-header">
+            <children>
+                <Label styleClass="mod-config-title" text="Mod設定" />
+                <Label fx:id="pathLabel" styleClass="mod-config-path" />
+                <HBox styleClass="mod-config-actions">
+                    <children>
+                        <Button fx:id="saveButton" onAction="#handleSave"
+                                styleClass="button, btn-primary" text="保存" />
+                        <Button fx:id="reloadButton" onAction="#handleReload"
+                                styleClass="button, btn-secondary" text="再読み込み" />
+                        <Region HBox.hgrow="ALWAYS" />
+                        <Label fx:id="statusLabel" styleClass="mod-config-status" />
+                    </children>
+                </HBox>
+            </children>
+        </VBox>
+    </top>
+    <center>
+        <TextArea fx:id="contentArea" wrapText="false" styleClass="mod-config-content" />
+    </center>
+    <bottom>
+        <Label styleClass="mod-config-note" wrapText="true"
+               text="入力した内容をそのまま保存します。ServerManagerはYAMLの構文や設定値を確認しません。値の妥当性の判断と既定値への切り替えはServerMod側で行います。" />
+    </bottom>
+</BorderPane>

@@ -13,6 +13,29 @@ class InMemoryEditorDataStore(
     override val kind: EditorDataStoreKind = EditorDataStoreKind.IN_MEMORY
     override val isAvailable: Boolean = true
 
+    private val texts = mutableMapOf<String, String>()
+
+    override fun readText(relativePath: String): StoreResult<String> {
+        if (!StorePathValidator.isValidRelativePath(relativePath)) {
+            return StoreResult.Failure(StoreError(StoreErrorCode.INVALID_ID, relativePath))
+        }
+
+        val text = texts[relativePath]
+            ?: return StoreResult.Failure(StoreError(StoreErrorCode.FILE_NOT_FOUND, relativePath))
+
+        return StoreResult.Success(text)
+    }
+
+    override fun writeText(relativePath: String, text: String): StoreResult<Unit> {
+        if (!StorePathValidator.isValidRelativePath(relativePath)) {
+            return StoreResult.Failure(StoreError(StoreErrorCode.INVALID_ID, relativePath))
+        }
+
+        texts[relativePath] = text
+
+        return StoreResult.Success(Unit)
+    }
+
     override fun <T : ManagedData<T, *>> list(
         descriptor: EditorDataDescriptor<T>
     ): StoreResult<List<StoreResource>> {

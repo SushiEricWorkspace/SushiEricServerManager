@@ -18,6 +18,9 @@ enum class AppScreen(val fxml: String?, val css: String) {
     DASHBOARD("/fxml/dashboard/dashboard.fxml", "/css/dashboard/dashboard.css"),
     /** サーバープロセスの操作 */
     SERVER_CONTROL("/fxml/servercontrol/server-control.fxml", "/css/servercontrol/server-control.css"),
+
+    /** Mod共通設定（config.yml）の編集画面。 */
+    MOD_CONFIG("/fxml/modconfig/mod-config.fxml", "/css/modconfig/mod-config.css"),
     /** ウィジェットのみ */
     WIDGETS_ONLY(null, "/css/common/widgets.css"),
 

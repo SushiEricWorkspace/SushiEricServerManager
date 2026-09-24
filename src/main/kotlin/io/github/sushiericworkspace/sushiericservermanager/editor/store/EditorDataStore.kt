@@ -57,4 +57,23 @@ interface EditorDataStore {
         id: String,
         targetDirectory: String
     ): StoreResult<String>
+
+    /**
+     * 基準ディレクトリからの相対パスにあるファイルを、テキストとして読み込みます。
+     *
+     * 解析や変換は行わず、UTF-8の文字列として返します。
+     *
+     * @param relativePath 基準ディレクトリからの相対パス（区切りは`/`）。
+     */
+    fun readText(relativePath: String): StoreResult<String>
+
+    /**
+     * 基準ディレクトリからの相対パスへ、テキストをそのまま保存します。
+     *
+     * 整形や変換は行わず、UTF-8で書き込みます。親ディレクトリがなければ作成します。
+     *
+     * @param relativePath 基準ディレクトリからの相対パス（区切りは`/`）。
+     * @param text 保存する内容。
+     */
+    fun writeText(relativePath: String, text: String): StoreResult<Unit>
 }
