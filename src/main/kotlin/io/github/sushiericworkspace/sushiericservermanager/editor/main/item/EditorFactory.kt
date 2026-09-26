@@ -54,6 +54,7 @@ import javafx.scene.control.SpinnerValueFactory
 import javafx.scene.control.TextArea
 import javafx.scene.control.TextField
 import javafx.scene.control.TextFormatter
+import javafx.scene.control.Tooltip
 import javafx.application.Platform
 import javafx.scene.layout.GridPane
 import javafx.scene.layout.HBox
@@ -68,6 +69,16 @@ import net.kyori.adventure.text.format.TextDecoration
 import org.controlsfx.control.ToggleSwitch
 
 internal fun isMaxStackSizeEditable(itemType: ItemType): Boolean = itemType == OTHER
+
+private const val CROSSBOW_RECOIL_PER_PROJECTILE_TOOLTIP =
+    "発射方向の反対へ押し戻す、矢1本あたりの反動量です。\n" +
+        "合計反動量は、この値に実際に発射した矢の本数を掛けて計算します。\n" +
+        "0にすると反動が発生しません。"
+
+private const val CROSSBOW_MAX_RECOIL_TOOLTIP =
+    "1回の発射で適用される合計反動量の上限です。\n" +
+        "1本あたりの反動量と実際に発射した矢の本数から計算した値が\n" +
+        "この値を超える場合、この値までに制限します。0にすると反動が発生しません。"
 
 /**
  * ステータス追加ダイアログで確定できる組み合わせかを判定します。
@@ -138,11 +149,20 @@ class ItemEditorFactory(
         NamedTextColor.YELLOW to "yellow"
     )
 
-    private fun editorRow(label: String, control: Node): HBox {
+    private fun editorRow(
+        label: String,
+        control: Node,
+        tooltipText: String? = null
+    ): HBox {
+        tooltipText?.let { text ->
+            Tooltip.install(control, AppTooltip.create(text))
+        }
+
         return HBox(
             Label(label).apply {
                 minWidth = Region.USE_PREF_SIZE
                 styleClass.add("editor-label")
+                tooltip = tooltipText?.let(AppTooltip::create)
             },
             control
         ).apply {
@@ -178,18 +198,21 @@ class ItemEditorFactory(
         max: Double,
         step: Double,
         decimalPlaces: Int,
+        tooltipText: String? = null,
         onChanged: (Double) -> Unit
     ): HBox {
         return editorRow(
-            label,
-            EditorSpinnerFactory.doubleSpinner(
-                initialValue = initialValue,
-                min = min,
-                max = max,
-                step = step,
-                decimalPlaces = decimalPlaces,
-                onChanged = onChanged
-            )
+            label = label,
+            control =
+                EditorSpinnerFactory.doubleSpinner(
+                    initialValue = initialValue,
+                    min = min,
+                    max = max,
+                    step = step,
+                    decimalPlaces = decimalPlaces,
+                    onChanged = onChanged
+                ),
+            tooltipText = tooltipText
         )
     }
 
@@ -329,6 +352,30 @@ class ItemEditorFactory(
             },
             doubleSpinnerRow("拡散率:", content.diffusionRate, 0.0, 1.0, 0.1, 1) { value ->
                 content.diffusionRate = value
+                refreshButtonVisual(itemData.id)
+            },
+            doubleSpinnerRow(
+                "1本あたりの反動量:",
+                content.recoilPerProjectile,
+                0.0,
+                Double.MAX_VALUE,
+                0.01,
+                2,
+                tooltipText = CROSSBOW_RECOIL_PER_PROJECTILE_TOOLTIP
+            ) { value ->
+                content.recoilPerProjectile = value
+                refreshButtonVisual(itemData.id)
+            },
+            doubleSpinnerRow(
+                "合計反動量の上限:",
+                content.maxRecoil,
+                0.0,
+                Double.MAX_VALUE,
+                0.01,
+                2,
+                tooltipText = CROSSBOW_MAX_RECOIL_TOOLTIP
+            ) { value ->
+                content.maxRecoil = value
                 refreshButtonVisual(itemData.id)
             }
         )
