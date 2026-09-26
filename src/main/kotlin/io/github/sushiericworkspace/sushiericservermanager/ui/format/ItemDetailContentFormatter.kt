@@ -55,7 +55,9 @@ object ItemDetailContentFormatter {
             is CrossbowData -> {
                 "クロスボウ chargeSecond=${content.chargeSecond}, " +
                     "arrowEfficiency=${content.arrowEfficiency}, arrowCount=${content.arrowCount}, " +
-                    "diffusionRate=${content.diffusionRate}"
+                    "diffusionRate=${content.diffusionRate}, " +
+                    "recoilPerProjectile=${content.recoilPerProjectile}, " +
+                    "maxRecoil=${content.maxRecoil}"
             }
 
             is OtherWeaponData -> "その他の武器"
