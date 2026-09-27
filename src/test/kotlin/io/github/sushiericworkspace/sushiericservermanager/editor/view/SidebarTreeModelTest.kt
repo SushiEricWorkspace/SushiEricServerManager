@@ -92,4 +92,10 @@ class SidebarTreeModelTest {
         assertEquals(false, isSameSidebarDirectory("combat.sword.break_sword", "combat"))
         assertEquals(true, isSameSidebarDirectory("break_sword", ""))
     }
+
+    @Test
+    fun `ディレクトリの開閉状態に対応する記号を表示する`() {
+        assertEquals("▾", sidebarDisclosureSymbol(expanded = true))
+        assertEquals("▸", sidebarDisclosureSymbol(expanded = false))
+    }
 }
