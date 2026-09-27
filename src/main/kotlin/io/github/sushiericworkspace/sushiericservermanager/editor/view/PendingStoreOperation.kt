@@ -21,6 +21,25 @@ internal sealed interface PendingStoreOperation {
     ) : PendingStoreOperation
 }
 
+/** ID変更を既存の保留操作へ合成し、元IDへ戻った自己リネームは取り除きます。 */
+internal fun composePendingRename(
+    previous: PendingStoreOperation?,
+    oldId: String,
+    newId: String
+): PendingStoreOperation? {
+    val operation = when (previous) {
+        is PendingStoreOperation.Create -> PendingStoreOperation.Create(newId)
+        is PendingStoreOperation.Rename -> PendingStoreOperation.Rename(previous.sourceId, newId)
+        is PendingStoreOperation.Delete -> PendingStoreOperation.Delete(newId, previous.sourceId)
+        null -> PendingStoreOperation.Rename(oldId, newId)
+    }
+    return operation.takeIf(PendingStoreOperation::isEffective)
+}
+
+/** ストアへ反映する実体がある保留操作か判定します。 */
+internal fun PendingStoreOperation.isEffective(): Boolean =
+    this !is PendingStoreOperation.Rename || sourceId != currentId
+
 internal fun saveChangeSummary(
     dataId: String,
     operation: PendingStoreOperation?,
@@ -57,5 +76,7 @@ internal fun PendingStoreOperation.toRecord(): PendingStoreOperationRecord = whe
 internal fun PendingStoreOperationRecord.toPendingOperation(): PendingStoreOperation? = when (kind) {
     PendingStoreOperationKind.CREATE -> PendingStoreOperation.Create(currentId)
     PendingStoreOperationKind.DELETE -> sourceId?.let { PendingStoreOperation.Delete(currentId, it) }
-    PendingStoreOperationKind.RENAME -> sourceId?.let { PendingStoreOperation.Rename(it, currentId) }
+    PendingStoreOperationKind.RENAME -> sourceId
+        ?.let { PendingStoreOperation.Rename(it, currentId) }
+        ?.takeIf(PendingStoreOperation::isEffective)
 }
