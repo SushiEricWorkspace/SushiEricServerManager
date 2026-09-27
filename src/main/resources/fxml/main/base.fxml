@@ -8,7 +8,7 @@
 <?import javafx.scene.layout.Region?>
 <?import javafx.scene.layout.VBox?>
 
-<BorderPane fx:id="rootPane" prefHeight="720.0" prefWidth="1360.0" xmlns="http://javafx.com/javafx/21.0.1" xmlns:fx="http://javafx.com/fxml/1" fx:controller="io.github.sushiericworkspace.sushiericservermanager.editor.controller.MainController">
+<BorderPane fx:id="rootPane" prefHeight="720.0" prefWidth="1560.0" xmlns="http://javafx.com/javafx/21.0.1" xmlns:fx="http://javafx.com/fxml/1" fx:controller="io.github.sushiericworkspace.sushiericservermanager.editor.controller.MainController">
 
    <top>
       <HBox fx:id="topBar" alignment="CENTER_LEFT" minHeight="24.0" prefHeight="24.0" spacing="12.0">
@@ -19,7 +19,7 @@
    </top>
 
    <left>
-      <ScrollPane fx:id="sidebarScroll" fitToWidth="true" hbarPolicy="NEVER" minWidth="210.0" prefWidth="250.0">
+      <ScrollPane fx:id="sidebarScroll" fitToWidth="true" hbarPolicy="NEVER" minWidth="410.0" prefWidth="450.0">
          <VBox fx:id="sidebarContainer" spacing="0.0">
             <padding>
                <Insets bottom="10.0" left="10.0" right="10.0" top="10.0" />

@@ -4,11 +4,15 @@ import javafx.event.EventHandler
 import javafx.geometry.Pos
 import javafx.scene.Node
 import javafx.scene.control.Button
+import javafx.scene.control.ContentDisplay
 import javafx.scene.control.ContextMenu
+import javafx.scene.control.Label
+import javafx.scene.control.OverrunStyle
 import javafx.scene.input.ClipboardContent
 import javafx.scene.input.DataFormat
 import javafx.scene.input.TransferMode
 import javafx.scene.input.MouseButton
+import javafx.scene.layout.Region
 import javafx.scene.layout.VBox
 
 /** エディターが選択できるサイドバー表示方式です。 */
@@ -55,10 +59,18 @@ internal class TreeSidebarRenderer(
             val initiallyExpanded = expandedState[node.fullPath] ?: true
             children.isManaged = initiallyExpanded
             children.isVisible = initiallyExpanded
-            val directoryButton = Button(if (initiallyExpanded) "▾  ${node.name}" else "▸  ${node.name}").apply {
+            val disclosure = Label(sidebarDisclosureSymbol(initiallyExpanded)).apply {
+                minWidth = Region.USE_PREF_SIZE
+                styleClass.add("sidebar-directory-disclosure")
+            }
+            val directoryButton = Button(node.name).apply {
                 maxWidth = Double.MAX_VALUE
                 alignment = Pos.CENTER_LEFT
+                contentDisplay = ContentDisplay.LEFT
+                graphic = disclosure
+                graphicTextGap = 4.0
                 isFocusTraversable = false
+                textOverrun = OverrunStyle.ELLIPSIS
                 styleClass.add("sidebar-directory-button")
                 contextMenu = createDirectoryMenu(node.fullPath)
                 onAction = EventHandler {
@@ -66,7 +78,7 @@ internal class TreeSidebarRenderer(
                     children.isVisible = children.isManaged
                     expandedState[node.fullPath] = children.isManaged
                     onExpandedStateChanged()
-                    text = if (children.isManaged) "▾  ${node.name}" else "▸  ${node.name}"
+                    disclosure.text = sidebarDisclosureSymbol(children.isManaged)
                 }
             }
             enableDrop(directoryButton, node.fullPath)
@@ -93,3 +105,5 @@ internal class TreeSidebarRenderer(
         const val DISPLAY_NAME_KEY = "sidebarDisplayName"
     }
 }
+
+internal fun sidebarDisclosureSymbol(expanded: Boolean): String = if (expanded) "▾" else "▸"

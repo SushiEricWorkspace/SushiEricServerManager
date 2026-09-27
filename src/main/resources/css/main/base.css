@@ -116,6 +116,10 @@
     -fx-text-fill: -fx-text-muted-color !important;
 }
 
+.sidebar-directory-disclosure {
+    -fx-text-fill: -fx-text-muted-color;
+}
+
 .sidebar-data-name {
     -fx-text-fill: -fx-text-color;
 }
