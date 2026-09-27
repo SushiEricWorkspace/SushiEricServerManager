@@ -174,20 +174,27 @@ abstract class EditorView<T : ManagedData<T, *>>(
      */
     protected fun stageDataRename(oldId: String, newId: String) {
         val previous = pendingStoreOperations.remove(oldId)
-        val operation = when (previous) {
-            is PendingStoreOperation.Create -> PendingStoreOperation.Create(newId)
-            is PendingStoreOperation.Rename -> PendingStoreOperation.Rename(previous.sourceId, newId)
-            is PendingStoreOperation.Delete -> PendingStoreOperation.Delete(newId, previous.sourceId)
-            null -> PendingStoreOperation.Rename(oldId, newId)
-        }
+        val operation = composePendingRename(previous, oldId, newId)
         renameEditingCache(editingDataMap, oldId, newId)
         renameEditingCache(originalDataMap, oldId, newId)
         mergeConflicts.remove(oldId)?.let { mergeConflicts[newId] = it }
         editHistory.rename(oldId, newId)
-        pendingStoreOperations[newId] = operation
+        operation?.let { pendingStoreOperations[newId] = it }
         dataAccess.deleteLocalBackup(oldId)
         persistPendingStoreState()
+        if (operation == null) persistContentChangeBackup(newId)
         refreshSyncButtonState()
+    }
+
+    private fun persistContentChangeBackup(id: String) {
+        val editing = editingDataMap[id] ?: return
+        val original = originalDataMap[id] ?: return
+        if (editing == original) {
+            dataAccess.deleteLocalBackup(id)
+            return
+        }
+        dataAccess.saveToLocalBackup(id, "editing", editing)
+        dataAccess.saveToLocalBackup(id, "original", original)
     }
 
     /**
@@ -1329,6 +1336,7 @@ abstract class EditorView<T : ManagedData<T, *>>(
     }
 
     private fun persistPendingStoreState() {
+        pendingStoreOperations.entries.removeIf { !it.value.isEffective() }
         pendingStoreOperations.keys.forEach { id ->
             val editing = editingDataMap[id] ?: return@forEach
             val original = originalDataMap[id] ?: return@forEach

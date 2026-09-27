@@ -4,10 +4,51 @@ import io.github.sushiericworkspace.common.data.item.model.mutable.MutableItemBa
 import io.github.sushiericworkspace.common.data.ore.model.mutable.MutableOreBaseData
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 import io.github.sushiericworkspace.sushiericservermanager.editor.service.PendingStoreOperationKind
+import io.github.sushiericworkspace.sushiericservermanager.editor.service.PendingStoreOperationRecord
 
 class PendingStoreOperationTest {
+    @Test
+    fun `移動先から元IDへ戻すとリネーム保留を取り除く`() {
+        val moved = composePendingRename(null, "weapons.sword", "archive.sword")
+
+        val restored = composePendingRename(moved, "archive.sword", "weapons.sword")
+
+        assertEquals(PendingStoreOperation.Rename("weapons.sword", "archive.sword"), moved)
+        assertNull(restored)
+    }
+
+    @Test
+    fun `新規作成と削除の合成規則は元IDへ移動しても維持する`() {
+        assertEquals(
+            PendingStoreOperation.Create("draft.item"),
+            composePendingRename(PendingStoreOperation.Create("temporary.item"), "temporary.item", "draft.item")
+        )
+        assertEquals(
+            PendingStoreOperation.Delete("original.item", "stored.item"),
+            composePendingRename(
+                PendingStoreOperation.Delete("temporary.item", "stored.item"),
+                "temporary.item",
+                "original.item"
+            )
+        )
+    }
+
+    @Test
+    fun `永続化された自己リネームを復元しない`() {
+        val record = PendingStoreOperationRecord(
+            kind = PendingStoreOperationKind.RENAME,
+            currentId = "weapons.sword",
+            sourceId = "weapons.sword"
+        )
+
+        assertNull(record.toPendingOperation())
+        assertFalse(PendingStoreOperation.Rename("weapons.sword", "weapons.sword").isEffective())
+    }
+
     @Test
     fun `追加と内容変更を保存確認へ表示する`() {
         assertEquals(
