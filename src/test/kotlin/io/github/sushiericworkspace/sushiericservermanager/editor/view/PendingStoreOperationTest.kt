@@ -2,6 +2,7 @@ package io.github.sushiericworkspace.sushiericservermanager.editor.view
 
 import io.github.sushiericworkspace.common.data.item.model.mutable.MutableItemBaseData
 import io.github.sushiericworkspace.common.data.ore.model.mutable.MutableOreBaseData
+import io.github.sushiericworkspace.common.stats.player.SkillType
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -113,7 +114,12 @@ class PendingStoreOperationTest {
 
     @Test
     fun `鉱石の保存確認へ追加データの値を表示する`() {
-        val ore = MutableOreBaseData(id = "new_ore", hardness = 8.0, requiredTier = 3)
+        val ore = MutableOreBaseData(
+            id = "new_ore",
+            hardness = 8.0,
+            requiredTier = 3,
+            skillExperienceMap = mutableMapOf(SkillType.MINING to 40.0)
+        )
 
         val details = saveChangeDetails(
             "new_ore",
@@ -126,6 +132,8 @@ class PendingStoreOperationTest {
         assertTrue("・硬度" in details)
         assertTrue("  値: 8.0" in details)
         assertTrue("・要求Tier" in details)
+        assertTrue("・スキル経験値 / 採掘" in details)
+        assertTrue("  値: 40.0" in details)
     }
 
     @Test

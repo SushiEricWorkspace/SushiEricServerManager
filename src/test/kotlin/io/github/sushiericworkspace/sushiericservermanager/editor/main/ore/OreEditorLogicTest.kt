@@ -4,6 +4,7 @@ import io.github.sushiericworkspace.common.data.core.identity.VanillaBlockId
 import io.github.sushiericworkspace.common.data.drop.model.mutable.MutableDropItemData
 import io.github.sushiericworkspace.common.data.item.model.ItemInternalId
 import io.github.sushiericworkspace.common.data.ore.model.mutable.MutableOreBaseData
+import io.github.sushiericworkspace.common.stats.player.SkillType
 import io.github.sushiericworkspace.sushiericservermanager.editor.validation.ValidationRepairResult
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -66,6 +67,37 @@ class OreEditorLogicTest {
         assertNull(parseHardnessInput(""))
         assertNull(parseHardnessInput("NaN"))
         assertNull(parseHardnessInput("Infinity"))
+    }
+
+    @Test
+    fun `スキル経験値の入力は元のMapを変更せずに反映する`() {
+        val original = mutableMapOf(SkillType.COMBAT to 10.0)
+
+        val updated = assertNotNull(
+            updatedSkillExperienceMap(original, SkillType.MINING, "25.5")
+        )
+
+        assertEquals(mapOf(SkillType.COMBAT to 10.0), original)
+        assertEquals(25.5, updated[SkillType.MINING])
+    }
+
+    @Test
+    fun `空欄のスキル経験値は未設定として削除する`() {
+        val updated = assertNotNull(
+            updatedSkillExperienceMap(
+                mapOf(SkillType.COMBAT to 10.0, SkillType.MINING to 20.0),
+                SkillType.COMBAT,
+                ""
+            )
+        )
+
+        assertEquals(mapOf(SkillType.MINING to 20.0), updated)
+    }
+
+    @Test
+    fun `数値でないスキル経験値は反映しない`() {
+        assertNull(updatedSkillExperienceMap(emptyMap(), SkillType.COMBAT, "-"))
+        assertNull(updatedSkillExperienceMap(emptyMap(), SkillType.COMBAT, "NaN"))
     }
 
     @Test

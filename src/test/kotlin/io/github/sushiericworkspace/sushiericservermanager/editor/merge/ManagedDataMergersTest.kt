@@ -8,6 +8,7 @@ import io.github.sushiericworkspace.common.data.item.model.mutable.detail.Mutabl
 import io.github.sushiericworkspace.common.data.ore.model.mutable.MutableOreBaseData
 import io.github.sushiericworkspace.common.stats.player.StatsPartTarget
 import io.github.sushiericworkspace.common.stats.player.StatsType
+import io.github.sushiericworkspace.common.stats.player.SkillType
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertIs
@@ -214,6 +215,54 @@ class ManagedDataMergersTest {
             2,
             result.resolveWithLocal(setOf(DataFields.requiredTier)).requiredTier
         )
+    }
+
+    @Test
+    fun `鉱石の異なるスキル経験値は自動マージする`() {
+        val base = MutableOreBaseData(id = "ore").apply {
+            skillExperienceMap = mutableMapOf(
+                SkillType.COMBAT to 10.0,
+                SkillType.MINING to 20.0
+            )
+        }
+        val local = base.deepCopy().apply {
+            skillExperienceMap = skillExperienceMap.toMutableMap().apply {
+                this[SkillType.COMBAT] = 15.0
+            }
+        }
+        val remote = base.deepCopy().apply {
+            skillExperienceMap = skillExperienceMap.toMutableMap().apply {
+                this[SkillType.MINING] = 25.0
+            }
+        }
+
+        val result = OreDataMerger.merge(base, local, remote)
+
+        assertTrue(result.conflicts.isEmpty())
+        assertEquals(15.0, result.merged.skillExperienceMap[SkillType.COMBAT])
+        assertEquals(25.0, result.merged.skillExperienceMap[SkillType.MINING])
+        assertEquals(20.0, base.skillExperienceMap[SkillType.MINING])
+        assertEquals(25.0, remote.skillExperienceMap[SkillType.MINING])
+    }
+
+    @Test
+    fun `鉱石の同じスキル経験値の変更を競合として解決できる`() {
+        val base = MutableOreBaseData(id = "ore").apply {
+            skillExperienceMap = mutableMapOf(SkillType.MINING to 10.0)
+        }
+        val local = base.deepCopy().apply {
+            skillExperienceMap = mutableMapOf(SkillType.MINING to 20.0)
+        }
+        val remote = base.deepCopy().apply {
+            skillExperienceMap = mutableMapOf(SkillType.MINING to 30.0)
+        }
+
+        val result = OreDataMerger.merge(base, local, remote)
+
+        val path = DataFields.skillExperience.key(SkillType.MINING, SkillType.MINING.display)
+        assertEquals(listOf(path), result.conflicts.map { it.path })
+        assertEquals(30.0, result.merged.skillExperienceMap[SkillType.MINING])
+        assertEquals(20.0, result.resolveWithLocal(setOf(path)).skillExperienceMap[SkillType.MINING])
     }
 
     @Test

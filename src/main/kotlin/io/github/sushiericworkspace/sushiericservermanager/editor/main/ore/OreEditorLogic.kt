@@ -7,6 +7,7 @@ import io.github.sushiericworkspace.common.data.item.model.mutable.MutableItemBa
 import io.github.sushiericworkspace.common.data.ore.model.OreBaseDataView
 import io.github.sushiericworkspace.common.data.ore.model.mutable.MutableOreBaseData
 import io.github.sushiericworkspace.common.registry.VanillaIdRegistry
+import io.github.sushiericworkspace.common.stats.player.SkillType
 import io.github.sushiericworkspace.sushiericservermanager.editor.component.DropItemEditorDialog
 import io.github.sushiericworkspace.sushiericservermanager.editor.component.EditorSpinnerFactory
 import io.github.sushiericworkspace.sushiericservermanager.editor.component.SearchableComboBox
@@ -36,6 +37,29 @@ import javafx.scene.layout.VBox
 
 internal fun parseHardnessInput(text: String): Double? =
     text.toDoubleOrNull()?.takeIf(Double::isFinite)
+
+/**
+ * スキル経験値の入力を反映した新しいMapを返します。
+ *
+ * 空欄は未設定として対象スキルを削除し、数値として解釈できない入力では`null`を返します。
+ * 元のMapは変更せず、編集履歴や変更前データと可変参照を共有しないようにします。
+ */
+internal fun updatedSkillExperienceMap(
+    current: Map<SkillType, Double>,
+    skill: SkillType,
+    text: String
+): MutableMap<SkillType, Double>? {
+    val normalized = text.trim()
+    val updated = current.toMutableMap()
+    if (normalized.isEmpty()) {
+        updated.remove(skill)
+        return updated
+    }
+
+    val value = normalized.toDoubleOrNull()?.takeIf(Double::isFinite) ?: return null
+    updated[skill] = value
+    return updated
+}
 
 /**
  * ドロップ参照に使うアイテム一覧の読込状態です。
@@ -123,6 +147,7 @@ internal class OreEditorLogic(
     private var refreshCurrentValidation: (() -> Unit)? = null
     private var dropItemEditorButton: Button? = null
     private val validationFocusTargets = mutableMapOf<String, Node>()
+    private val skillExperienceFields = mutableMapOf<SkillType, TextField>()
 
     override fun setupSidebar(container: VBox, selectId: String?) {
         val shouldLoad = !itemCatalogRequested || itemCatalogState == ItemCatalogState.FAILED
@@ -201,11 +226,27 @@ internal class OreEditorLogic(
             selectData.requiredTier = value
             refreshValidation()
         }
+        skillExperienceFields.clear()
+        val skillExperienceGrid = GridPane().apply {
+            hgap = 12.0
+            vgap = 8.0
+            SkillType.entries.forEachIndexed { index, skill ->
+                val field = createSkillExperienceField(selectData, skill) {
+                    refreshValidation()
+                }
+                skillExperienceFields[skill] = field
+                add(Label("${skill.display} (${skill.id}):"), 0, index)
+                add(field, 1, index)
+            }
+        }
         validationFocusTargets.clear()
         validationFocusTargets["blockId"] = blockIdSelector.children.first()
         validationFocusTargets["hardness"] = hardnessField
         validationFocusTargets["requiredTier"] = requiredTierSpinner
         validationFocusTargets["dropItems"] = dropItemButton
+        skillExperienceFields.values.firstOrNull()?.let { field ->
+            validationFocusTargets[OreBaseDataView::skillExperienceMap.name] = field
+        }
         dropItemButton.onAction = EventHandler {
             val owner = main.currentStage ?: return@EventHandler
             itemCatalogState = ItemCatalogState.LOADING
@@ -236,6 +277,8 @@ internal class OreEditorLogic(
             add(requiredTierSpinner, 1, 3)
             add(Label("ドロップアイテム:"), 0, 4)
             add(dropItemButton, 1, 4)
+            add(Label("スキル経験値:"), 0, 5)
+            add(skillExperienceGrid, 1, 5)
         }
 
         val content = VBox(16.0, inputGrid, validationBox).apply {
@@ -250,7 +293,12 @@ internal class OreEditorLogic(
     }
 
     override fun focusValidationError(error: SushiEricValidationError): Boolean {
-        val target = validationFocusTargets[error.property.name] ?: return false
+        val target = if (error.property.name == OreBaseDataView::skillExperienceMap.name) {
+            (error.key as? SkillType)?.let(skillExperienceFields::get)
+                ?: validationFocusTargets[error.property.name]
+        } else {
+            validationFocusTargets[error.property.name]
+        } ?: return false
         target.requestFocus()
         return true
     }
@@ -340,6 +388,41 @@ internal class OreEditorLogic(
                     commitValue()
                     event.consume()
                 }
+            }
+        }
+    }
+
+    private fun createSkillExperienceField(
+        ore: MutableOreBaseData,
+        skill: SkillType,
+        onChanged: () -> Unit
+    ): TextField = TextField(ore.skillExperienceMap[skill]?.toString().orEmpty()).apply {
+        promptText = "未設定"
+        prefWidth = 180.0
+        maxWidth = 180.0
+        textFormatter = TextFormatter<String> { change ->
+            if (change.controlNewText.matches(Regex("-?\\d*(\\.\\d*)?"))) change else null
+        }
+
+        fun restoreInvalidInput() {
+            if (text.isNotBlank() && updatedSkillExperienceMap(ore.skillExperienceMap, skill, text) == null) {
+                text = ore.skillExperienceMap[skill]?.toString().orEmpty()
+            }
+        }
+
+        textProperty().addListener { _, _, value ->
+            updatedSkillExperienceMap(ore.skillExperienceMap, skill, value)?.let { updated ->
+                ore.skillExperienceMap = updated
+                onChanged()
+            }
+        }
+        focusedProperty().addListener { _, _, focused ->
+            if (!focused) restoreInvalidInput()
+        }
+        setOnKeyPressed { event ->
+            if (event.code == KeyCode.ENTER) {
+                restoreInvalidInput()
+                event.consume()
             }
         }
     }

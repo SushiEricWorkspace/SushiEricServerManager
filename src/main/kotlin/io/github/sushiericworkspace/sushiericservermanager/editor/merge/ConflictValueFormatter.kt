@@ -10,6 +10,7 @@ import io.github.sushiericworkspace.common.data.item.model.detail.ItemDetailCont
 import io.github.sushiericworkspace.common.data.item.model.mutable.MutableLoreSection
 import io.github.sushiericworkspace.common.data.item.model.mutable.MutableHeadSkinData
 import io.github.sushiericworkspace.common.data.item.model.mutable.detail.MutableItemDetailContent
+import io.github.sushiericworkspace.common.stats.player.SkillType
 import io.github.sushiericworkspace.sushiericservermanager.ui.format.ItemDetailContentFormatter
 import io.github.sushiericworkspace.sushiericservermanager.ui.format.ItemStatMultiplierFormatter
 import net.kyori.adventure.text.serializer.plain.PlainTextComponentSerializer
@@ -63,6 +64,7 @@ object ConflictValueFormatter {
             is VanillaItemId -> value.value
             is VanillaBlockId -> value.value
             is ItemInternalId -> value.value
+            is SkillType -> value.display
 
             is Collection<*> -> {
                 if (value.isEmpty()) EMPTY else value.joinToString(" | ") { format(it) }

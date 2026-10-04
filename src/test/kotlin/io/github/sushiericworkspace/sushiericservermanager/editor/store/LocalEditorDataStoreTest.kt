@@ -9,6 +9,7 @@ import io.github.sushiericworkspace.common.data.item.model.mutable.MutablePlainT
 import io.github.sushiericworkspace.common.data.item.model.HeadSkinSource
 import io.github.sushiericworkspace.common.data.item.model.mutable.MutableHeadSkinData
 import io.github.sushiericworkspace.common.data.ore.model.mutable.MutableOreBaseData
+import io.github.sushiericworkspace.common.stats.player.SkillType
 import kotlin.io.path.createTempDirectory
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -190,6 +191,41 @@ class LocalEditorDataStoreTest {
             assertEquals(
                 StoreErrorCode.VALIDATION_FAILED,
                 assertIs<StoreResult.Failure>(result).error.code
+            )
+        } finally {
+            root.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun `鉱石のスキル経験値を保存して再読込し負数を拒否する`() {
+        val root = createTempDirectory("offline-store-ore-skill-experience").toFile()
+        try {
+            val store = LocalEditorDataStore(root)
+            val descriptor = EditorDataDescriptors.ore
+            val ore = MutableOreBaseData(
+                id = "skill_ore",
+                blockId = VanillaBlockId("iron_ore"),
+                skillExperienceMap = mutableMapOf(
+                    SkillType.COMBAT to 10.0,
+                    SkillType.MINING to 25.5
+                )
+            )
+
+            assertIs<StoreResult.Success<Unit>>(store.save(descriptor, ore.id, ore))
+            val file = root.resolve("ore_data/ores/skill_ore.yml")
+            val reloaded = assertIs<StoreResult.Success<MutableOreBaseData>>(
+                store.load(descriptor, ore.id)
+            ).value
+
+            assertEquals(ore.skillExperienceMap, reloaded.skillExperienceMap)
+            assertTrue(file.readText().contains("skill-experience:"))
+
+            reloaded.skillExperienceMap = mutableMapOf(SkillType.MINING to -1.0)
+            val invalid = store.save(descriptor, reloaded.id, reloaded)
+            assertEquals(
+                StoreErrorCode.VALIDATION_FAILED,
+                assertIs<StoreResult.Failure>(invalid).error.code
             )
         } finally {
             root.deleteRecursively()
