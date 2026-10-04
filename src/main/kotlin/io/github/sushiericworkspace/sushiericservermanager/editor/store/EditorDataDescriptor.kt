@@ -8,10 +8,34 @@ import io.github.sushiericworkspace.common.data.item.model.ItemInternalId
 import io.github.sushiericworkspace.common.data.item.model.mutable.MutableItemBaseData
 import io.github.sushiericworkspace.common.data.ore.OreManager
 import io.github.sushiericworkspace.common.data.ore.model.mutable.MutableOreBaseData
+import io.github.sushiericworkspace.common.data.ore.model.OreBaseDataView
 import io.github.sushiericworkspace.sushiericservermanager.editor.merge.DataMerger
 import io.github.sushiericworkspace.sushiericservermanager.editor.merge.ItemDataMerger
 import io.github.sushiericworkspace.sushiericservermanager.editor.merge.OreDataMerger
 import java.io.File
+
+/** Commonの検証結果を優先し、未提供の版ではスキル経験値の範囲検証だけを補います。 */
+internal fun validateOreDataForEditor(
+    data: MutableOreBaseData,
+    itemIds: Set<ItemInternalId>
+): List<SushiEricValidationError> {
+    val commonErrors = data.validate(itemIds)
+    if (commonErrors.any { it.property.name == OreBaseDataView::skillExperienceMap.name }) {
+        return commonErrors
+    }
+
+    return commonErrors + data.skillExperienceMap.mapNotNull { (skill, value) ->
+        if (value < 0.0 || !value.isFinite()) {
+            SushiEricValidationError(
+                property = data::skillExperienceMap,
+                message = "${skill.display}のスキル経験値は0.0以上の有限値を設定してください。",
+                key = skill
+            )
+        } else {
+            null
+        }
+    }
+}
 
 class EditorDataDescriptor<T : ManagedData<T, *>>(
     val dataType: SushiEricDataType<T>,
@@ -55,7 +79,7 @@ object EditorDataDescriptors {
         dataType = SushiEricDataType.Ore,
         load = OreManager::loadMutable,
         save = { file, data, _ -> OreManager.saveMutable(file, data) },
-        validate = MutableOreBaseData::validate,
+        validate = ::validateOreDataForEditor,
         merger = OreDataMerger,
         duplicateForNewEntry = MutableOreBaseData::duplicateAsNew
     )

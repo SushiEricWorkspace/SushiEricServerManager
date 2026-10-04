@@ -93,7 +93,7 @@ object OreDataMerger : DataMerger<MutableOreBaseData> {
         local: MutableOreBaseData,
         remote: MutableOreBaseData
     ): ThreeWayMergeResult<MutableOreBaseData> {
-        val accumulator = MergeAccumulator(remote.deepCopy(), MutableOreBaseData::deepCopy)
+        val accumulator = MergeAccumulator(copyOreData(remote), ::copyOreData)
 
         accumulator.mergeValue(DataFields.blockId, base.blockId, local.blockId, remote.blockId) { data, value ->
             data.blockId = value
@@ -115,6 +115,14 @@ object OreDataMerger : DataMerger<MutableOreBaseData> {
             copyValue = { it.copy() },
             targetList = { it.mutableDropItems }
         )
+        accumulator.mergeMap(
+            path = DataFields.skillExperience,
+            base = base.skillExperienceMap,
+            local = local.skillExperienceMap,
+            remote = remote.skillExperienceMap,
+            keyDisplay = { it.display },
+            targetMap = { it.skillExperienceMap }
+        )
         accumulator.mergeList(
             path = DataFields.comments,
             base = base.editorMeta.comment,
@@ -125,4 +133,9 @@ object OreDataMerger : DataMerger<MutableOreBaseData> {
 
         return accumulator.result()
     }
+
+    private fun copyOreData(data: MutableOreBaseData): MutableOreBaseData =
+        data.deepCopy().apply {
+            skillExperienceMap = skillExperienceMap.toMutableMap()
+        }
 }

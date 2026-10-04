@@ -61,6 +61,7 @@ object DataFields {
     val hardness = DataFieldPath.property("hardness", "硬度")
     val requiredTier = DataFieldPath.property("required-tier", "要求Tier")
     val dropItems = DataFieldPath.property("drop-items", "ドロップアイテム")
+    val skillExperience = DataFieldPath.property("skill-experience", "スキル経験値")
     val entityData = DataFieldPath.property("entity-data", "エンティティデータ")
     val equipment = DataFieldPath.property("equipment", "装備")
 }

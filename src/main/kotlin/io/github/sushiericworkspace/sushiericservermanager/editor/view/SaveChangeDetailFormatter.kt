@@ -85,6 +85,7 @@ private fun oreChanges(
     addValue("硬度", original.hardness, current.hardness, created)
     addValue("要求Tier", original.requiredTier, current.requiredTier, created)
     addList("ドロップアイテム", original.mutableDropItems, current.mutableDropItems, created)
+    addMap("スキル経験値", original.skillExperienceMap, current.skillExperienceMap, created)
     addList("エディターコメント", original.editorMeta.comment, current.editorMeta.comment, created)
 }
 

@@ -1,5 +1,9 @@
 package io.github.sushiericworkspace.sushiericservermanager.editor.store
 
+import io.github.sushiericworkspace.common.data.core.identity.VanillaBlockId
+import io.github.sushiericworkspace.common.data.ore.model.OreBaseDataView
+import io.github.sushiericworkspace.common.data.ore.model.mutable.MutableOreBaseData
+import io.github.sushiericworkspace.common.stats.player.SkillType
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
@@ -28,5 +32,22 @@ class EditorDataDescriptorTest {
             listOf(EditorDataDescriptors.item, EditorDataDescriptors.ore),
             EditorDataDescriptors.all
         )
+    }
+
+    @Test
+    fun `鉱石の負のスキル経験値を検証エラーにする`() {
+        val data = MutableOreBaseData(
+            id = "ore",
+            blockId = VanillaBlockId("minecraft:stone"),
+            skillExperienceMap = mutableMapOf(SkillType.MINING to -1.0)
+        )
+
+        val errors = EditorDataDescriptors.ore.validate(data, emptySet())
+
+        assertTrue(errors.any {
+            it.property.name == OreBaseDataView::skillExperienceMap.name &&
+                it.key == SkillType.MINING &&
+                it.isError
+        })
     }
 }
