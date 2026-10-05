@@ -84,6 +84,20 @@ class LocalEditorDataStore(
         }
     }
 
+    override fun listPath(relativePath: String): StoreResult<List<StorePathEntry>> {
+        val directory = if (relativePath.isEmpty()) rootDirectory else resolveRelativeFile(relativePath)
+            ?: return failure(StoreErrorCode.INVALID_ID, relativePath)
+        if (!directory.exists()) return StoreResult.Success(emptyList())
+        if (!directory.isDirectory) return failure(StoreErrorCode.INVALID_ID, relativePath)
+        return try {
+            val files = directory.listFiles()
+                ?: return failure(StoreErrorCode.IO_ERROR, relativePath)
+            StoreResult.Success(files.map { StorePathEntry(it.name, it.isDirectory) }.sortedBy { it.name })
+        } catch (e: SecurityException) {
+            failure(StoreErrorCode.PERMISSION_DENIED, relativePath, cause = e)
+        }
+    }
+
     /** 基準ディレクトリの外を指す相対パスは扱いません。 */
     private fun resolveRelativeFile(relativePath: String): File? {
         if (!StorePathValidator.isValidRelativePath(relativePath)) return null

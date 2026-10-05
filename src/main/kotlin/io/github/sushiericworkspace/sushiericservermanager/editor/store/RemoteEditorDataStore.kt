@@ -29,6 +29,16 @@ class RemoteEditorDataStore(
     override fun readText(relativePath: String): StoreResult<String> {
         val remotePath = resolveRemotePath(relativePath)
             ?: return failure(StoreErrorCode.INVALID_ID, relativePath)
+        return readRemoteText(remotePath, relativePath)
+    }
+
+    override fun readServerText(relativePath: String): StoreResult<String> {
+        if (!StorePathValidator.isValidRelativePath(relativePath)) return failure(StoreErrorCode.INVALID_ID, relativePath)
+        val profile = ssh.currentProfile ?: return failure(StoreErrorCode.PROFILE_NOT_SELECTED, relativePath)
+        return readRemoteText("${profile.path}/$relativePath", relativePath)
+    }
+
+    private fun readRemoteText(remotePath: String, relativePath: String): StoreResult<String> {
         if (!ssh.isSftpActive) return failure(StoreErrorCode.STORE_UNAVAILABLE, relativePath)
 
         val temporary = try {
@@ -77,6 +87,25 @@ class RemoteEditorDataStore(
             failure(StoreErrorCode.IO_ERROR, relativePath, cause = e)
         } finally {
             temporary.delete()
+        }
+    }
+
+    override fun listPath(relativePath: String): StoreResult<List<StorePathEntry>> {
+        val path = resolveRemotePath(relativePath)
+            ?: return failure(StoreErrorCode.INVALID_ID, relativePath)
+        if (!ssh.isSftpActive) return failure(StoreErrorCode.STORE_UNAVAILABLE, relativePath)
+        return try {
+            StoreResult.Success(
+                ssh.listFilesOrThrow(path).filterNot { it.name == "." || it.name == ".." }
+                    .map { StorePathEntry(it.name, it.attributes.type == FileMode.Type.DIRECTORY) }
+                    .sortedBy { it.name }
+            )
+        } catch (e: SFTPException) {
+            if (e.statusCode == Response.StatusCode.NO_SUCH_FILE) StoreResult.Success(emptyList())
+            else failure(StoreErrorCode.IO_ERROR, relativePath, cause = e)
+        } catch (e: Exception) {
+            logger.error("リモートパス一覧取得に失敗しました: {}", path, e)
+            failure(StoreErrorCode.IO_ERROR, relativePath, cause = e)
         }
     }
 

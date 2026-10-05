@@ -25,6 +25,7 @@ import io.github.sushiericworkspace.sushiericservermanager.feature.console.Conso
 import io.github.sushiericworkspace.sushiericservermanager.feature.dashboard.DashboardWindowManager
 import io.github.sushiericworkspace.sushiericservermanager.feature.modconfig.ModConfigWindowManager
 import io.github.sushiericworkspace.sushiericservermanager.feature.servercontrol.ServerControlWindowManager
+import io.github.sushiericworkspace.sushiericservermanager.feature.moneyhistory.MoneyHistoryWindowManager
 import javafx.application.Platform
 import javafx.concurrent.Task
 import javafx.scene.control.Button
@@ -211,6 +212,7 @@ class HomeController : Initializable {
                 ConsoleWindowManager.close()
                 DashboardWindowManager.close()
                 ServerControlWindowManager.close()
+                MoneyHistoryWindowManager.close()
                 // SSH接続も忘れずに切断
                 EditorSession.disconnect()
             }
@@ -426,6 +428,14 @@ class HomeController : Initializable {
         }
 
         ModConfigWindowManager.open(rootPane.scene?.window, service)
+    }
+
+    /** 入出金履歴ビューを開きます。 */
+    @FXML
+    @Suppress("unused")
+    fun onOpenMoneyHistory() {
+        val service = EditorSession.dataService ?: return
+        MoneyHistoryWindowManager.open(rootPane.scene?.window, service.store)
     }
 
     private fun <T : ManagedData<T, *>, L : EditorView<T>> openManagedDataEditor(

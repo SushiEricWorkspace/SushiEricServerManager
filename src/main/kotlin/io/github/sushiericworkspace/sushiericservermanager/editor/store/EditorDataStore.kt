@@ -68,6 +68,12 @@ interface EditorDataStore {
     fun readText(relativePath: String): StoreResult<String>
 
     /**
+     * サーバー実行ディレクトリからの相対パスをUTF-8で読み込みます。
+     * ローカルストアでは、オフラインデータの基準ディレクトリに置いたコピーを読み込みます。
+     */
+    fun readServerText(relativePath: String): StoreResult<String> = readText(relativePath)
+
+    /**
      * 基準ディレクトリからの相対パスへ、テキストをそのまま保存します。
      *
      * 整形や変換は行わず、UTF-8で書き込みます。親ディレクトリがなければ作成します。
@@ -76,4 +82,8 @@ interface EditorDataStore {
      * @param text 保存する内容。
      */
     fun writeText(relativePath: String, text: String): StoreResult<Unit>
+
+    /** 相対パス直下の項目を列挙します。存在しないディレクトリは空一覧として返します。 */
+    fun listPath(relativePath: String): StoreResult<List<StorePathEntry>> =
+        StoreResult.Failure(StoreError(StoreErrorCode.UNSUPPORTED_FORMAT, relativePath))
 }

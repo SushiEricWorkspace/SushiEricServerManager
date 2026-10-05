@@ -1,0 +1,62 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<?import javafx.scene.control.*?>
+<?import javafx.scene.layout.*?>
+<BorderPane xmlns="http://javafx.com/javafx/21.0.1" xmlns:fx="http://javafx.com/fxml/1"
+            fx:controller="io.github.sushiericworkspace.sushiericservermanager.feature.moneyhistory.MoneyHistoryController"
+            prefWidth="1100" prefHeight="640" styleClass="money-history-root">
+    <center>
+        <TabPane tabClosingPolicy="UNAVAILABLE">
+            <tabs>
+                <Tab text="入出金">
+                    <content>
+                        <VBox spacing="10" styleClass="money-history-content">
+                            <HBox spacing="8" alignment="CENTER_LEFT">
+                                <Label text="プレイヤー" minWidth="95" styleClass="history-filter-label" />
+                                <VBox fx:id="playerSelectorPane" minWidth="220" prefWidth="340" maxWidth="Infinity" HBox.hgrow="ALWAYS" />
+                                <ToggleButton fx:id="playerDisplayToggle" minWidth="110" prefWidth="110" onAction="#togglePlayerDisplay" />
+                                <Button text="更新" minWidth="75" prefWidth="75" onAction="#reloadSelected" />
+                            </HBox>
+                            <VBox spacing="8">
+                                <HBox spacing="8" alignment="CENTER_LEFT">
+                                    <Label text="開始" minWidth="60" styleClass="history-filter-label" />
+                                    <DatePicker fx:id="fromDate" promptText="YYYY/MM/DD" minWidth="180" prefWidth="180" maxWidth="180" />
+                                    <TextField fx:id="fromTime" promptText="HH:mm:ss" minWidth="105" prefWidth="105" maxWidth="105" />
+                                    <Button text="時刻を選択" onAction="#selectFromTime" />
+                                    <Button text="現在時刻" onAction="#setFromNow" />
+                                    <Button text="今日" onAction="#setFromToday" />
+                                    <Button text="リセット" onAction="#resetFrom" />
+                                </HBox>
+                                <HBox spacing="8" alignment="CENTER_LEFT">
+                                    <Label text="終了" minWidth="60" styleClass="history-filter-label" />
+                                    <DatePicker fx:id="toDate" promptText="YYYY/MM/DD" minWidth="180" prefWidth="180" maxWidth="180" />
+                                    <TextField fx:id="toTime" promptText="HH:mm:ss" minWidth="105" prefWidth="105" maxWidth="105" />
+                                    <Button text="時刻を選択" onAction="#selectToTime" />
+                                    <Button text="現在時刻" onAction="#setToNow" />
+                                    <Button text="今日" onAction="#setToToday" />
+                                    <Button text="リセット" onAction="#resetTo" />
+                                </HBox>
+                                <HBox spacing="8" alignment="CENTER_LEFT">
+                                    <Label text="種別" minWidth="60" styleClass="history-filter-label" />
+                                    <MenuButton fx:id="typeMenu" text="すべて" minWidth="140" prefWidth="150" maxWidth="150" />
+                                    <Button text="条件をリセット" onAction="#resetFilters" />
+                                </HBox>
+                            </VBox>
+                            <Label fx:id="statusLabel" text="プレイヤーを読み込み中..." />
+                            <TableView fx:id="historyTable" VBox.vgrow="ALWAYS">
+                                <columns>
+                                    <TableColumn fx:id="timeColumn" text="日時" prefWidth="145" />
+                                    <TableColumn fx:id="typeColumn" text="種別" prefWidth="90" />
+                                    <TableColumn fx:id="amountColumn" text="金額" prefWidth="90" />
+                                    <TableColumn fx:id="balanceColumn" text="処理後残高" prefWidth="105" />
+                                    <TableColumn fx:id="counterpartyColumn" text="相手" prefWidth="175" />
+                                    <TableColumn fx:id="executorColumn" text="実行者" prefWidth="175" />
+                                    <TableColumn fx:id="reasonColumn" text="理由" prefWidth="180" />
+                                </columns>
+                            </TableView>
+                        </VBox>
+                    </content>
+                </Tab>
+            </tabs>
+        </TabPane>
+    </center>
+</BorderPane>

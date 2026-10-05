@@ -56,6 +56,11 @@ sealed interface ServerManagementRequest : ServerManagementMessage {
         val nonce: String? = null
     ) : ServerManagementRequest
 
+    /** 指定プレイヤーの入出金履歴をサーバー側へ保存する要求です。 */
+    @Serializable
+    @SerialName("money_history_save")
+    data class MoneyHistorySave(val playerUuid: String? = null, val nonce: String? = null) : ServerManagementRequest
+
     /**
      * コマンドの実行要求です。
      *
@@ -197,6 +202,17 @@ sealed interface ServerManagementResponse : ServerManagementMessage {
     data class MonitorUpdate(
         val server: MinecraftServerStatus,
         val jvm: JvmStatus
+    ) : ServerManagementResponse
+
+    /** 入出金履歴の保存結果です。成功応答後にSFTP上の履歴を読み込みます。 */
+    @Serializable
+    @SerialName("money_history_save_result")
+    data class MoneyHistorySaveResult(
+        val success: Boolean,
+        val savedCount: Int = 0,
+        val pendingCount: Int = 0,
+        val detail: String? = null,
+        val nonce: String? = null
     ) : ServerManagementResponse
 }
 
