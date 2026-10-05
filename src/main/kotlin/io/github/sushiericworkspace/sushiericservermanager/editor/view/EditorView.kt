@@ -77,8 +77,15 @@ abstract class EditorView<T : ManagedData<T, *>>(
         val dataId: String,
         val operation: PendingStoreOperation?,
         val original: D,
+        val localData: D,
+        val automaticallyMergedData: D?,
         val previewData: D,
         val saveData: D?
+    )
+
+    private data class SaveDataPreview<D>(
+        val data: D,
+        val automaticallyMergedData: D?
     )
 
     /** サイドバー表示方式。必要なエディターは従来の平坦表示へ切り替えられます。 */
@@ -482,13 +489,7 @@ abstract class EditorView<T : ManagedData<T, *>>(
     fun onSave(targetDataId: String? = null): Boolean {
         val dataId = targetDataId ?: currentSelectedDataId ?: return false
         val prepared = prepareSave(dataId) ?: return false
-        if (!confirmSaveChanges(
-                prepared.dataId,
-                prepared.operation,
-                prepared.original,
-                prepared.previewData
-            )
-        ) return false
+        if (!confirmSaveChanges(prepared)) return false
         return persistPreparedSave(prepared)
     }
 
@@ -501,12 +502,20 @@ abstract class EditorView<T : ManagedData<T, *>>(
         if (!contentChanged && pendingOperation == null) return null
 
         if (pendingOperation is PendingStoreOperation.Delete) {
-            return PreparedSave(dataId, pendingOperation, original, currentEdit, null)
+            return PreparedSave(dataId, pendingOperation, original, currentEdit, null, currentEdit, null)
         }
 
         val sourceId = (pendingOperation as? PendingStoreOperation.Rename)?.sourceId ?: dataId
         val saveData = prepareSaveData(dataId, sourceId, currentEdit, original) ?: return null
-        return PreparedSave(dataId, pendingOperation, original, saveData, saveData)
+        return PreparedSave(
+            dataId,
+            pendingOperation,
+            original,
+            currentEdit,
+            saveData.automaticallyMergedData,
+            saveData.data,
+            saveData.data
+        )
     }
 
     private fun persistPreparedSave(prepared: PreparedSave<T>): Boolean {
@@ -534,10 +543,12 @@ abstract class EditorView<T : ManagedData<T, *>>(
 
         val details = combinedSaveChangeDetails(prepared.map { entry ->
             entry.dataId to saveChangeDetails(
-                entry.dataId,
-                entry.operation,
-                entry.original,
-                entry.previewData
+                dataId = entry.dataId,
+                operation = entry.operation,
+                original = entry.original,
+                current = entry.localData,
+                automaticallyMerged = entry.automaticallyMergedData,
+                finalData = entry.previewData.takeIf { it != entry.automaticallyMergedData }
             )
         }) + if (failed.isEmpty()) {
             emptyList()
@@ -574,13 +585,15 @@ abstract class EditorView<T : ManagedData<T, *>>(
         return editing != original || pendingStoreOperations[id] != null
     }
 
-    private fun confirmSaveChanges(
-        dataId: String,
-        operation: PendingStoreOperation?,
-        original: T,
-        saveData: T
-    ): Boolean {
-        val details = saveChangeDetails(dataId, operation, original, saveData)
+    private fun confirmSaveChanges(prepared: PreparedSave<T>): Boolean {
+        val details = saveChangeDetails(
+            dataId = prepared.dataId,
+            operation = prepared.operation,
+            original = prepared.original,
+            current = prepared.localData,
+            automaticallyMerged = prepared.automaticallyMergedData,
+            finalData = prepared.previewData.takeIf { it != prepared.automaticallyMergedData }
+        )
         if (details.isEmpty()) return false
         return CustomDialog.confirmation()
             .title("変更内容を保存")
@@ -592,8 +605,13 @@ abstract class EditorView<T : ManagedData<T, *>>(
             .show()
     }
 
-    private fun prepareSaveData(dataId: String, sourceId: String, currentEdit: T, original: T): T? {
-        if (!dataService.isRemote) return currentEdit.deepCopy()
+    private fun prepareSaveData(
+        dataId: String,
+        sourceId: String,
+        currentEdit: T,
+        original: T
+    ): SaveDataPreview<T>? {
+        if (!dataService.isRemote) return SaveDataPreview(currentEdit.deepCopy(), null)
         val (serverData, accessResult) = dataAccess.load(sourceId)
 
         return when (accessResult) {
@@ -614,7 +632,7 @@ abstract class EditorView<T : ManagedData<T, *>>(
 
             LoadResult.FILE_NOT_FOUND -> {
                 logger.info("サーバー上にファイルが存在しないため、新規ファイルとして保存します: $dataId")
-                currentEdit.deepCopy()
+                SaveDataPreview(currentEdit.deepCopy(), null)
             }
 
             LoadResult.INVALID_YAML -> {
@@ -629,7 +647,7 @@ abstract class EditorView<T : ManagedData<T, *>>(
                     logger.info("サーバーデータのYAML破損のため、ユーザーが保存を中止しました。")
                     null
                 } else {
-                    currentEdit.deepCopy()
+                    SaveDataPreview(currentEdit.deepCopy(), null)
                 }
             }
 
@@ -639,7 +657,12 @@ abstract class EditorView<T : ManagedData<T, *>>(
                 } else {
                     val merge = dataAccess.merge(original, currentEdit, serverData)
                     mergeConflicts[dataId] = merge.conflicts
-                    if (merge.conflicts.isEmpty()) {
+                    val automaticallyMerged = if (merge.conflicts.isEmpty()) {
+                        merge.merged
+                    } else {
+                        merge.resolveWithLocal(merge.conflicts.mapTo(linkedSetOf()) { it.path })
+                    }
+                    val finalData = if (merge.conflicts.isEmpty()) {
                         merge.merged
                     } else {
                         val localPaths = MergeConflictDialog.show(
@@ -649,6 +672,7 @@ abstract class EditorView<T : ManagedData<T, *>>(
                         ) ?: return null
                         merge.resolveWithLocal(localPaths)
                     }
+                    SaveDataPreview(finalData, automaticallyMerged)
                 }
             }
         }
