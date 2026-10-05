@@ -36,6 +36,19 @@ class InMemoryEditorDataStore(
         return StoreResult.Success(Unit)
     }
 
+    override fun listPath(relativePath: String): StoreResult<List<StorePathEntry>> {
+        if (relativePath.isNotEmpty() && !StorePathValidator.isValidRelativePath(relativePath)) {
+            return invalidId(relativePath)
+        }
+        val prefix = if (relativePath.isEmpty()) "" else "$relativePath/"
+        val descendants = texts.keys.asSequence().filter { it.startsWith(prefix) }.map { it.removePrefix(prefix) }
+        val results = descendants.mapNotNull { remainder ->
+            val name = remainder.substringBefore('/')
+            if (name.isEmpty()) null else StorePathEntry(name, remainder.contains('/'))
+        }.distinctBy(StorePathEntry::name).sortedBy(StorePathEntry::name).toList()
+        return StoreResult.Success(results)
+    }
+
     override fun <T : ManagedData<T, *>> list(
         descriptor: EditorDataDescriptor<T>
     ): StoreResult<List<StoreResource>> {

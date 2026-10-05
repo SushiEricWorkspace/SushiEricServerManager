@@ -36,6 +36,9 @@ data class StoreResource(
     val name: String = PublicId.nameOf(id)
 )
 
+/** 任意の相対パス直下にあるファイルまたはディレクトリです。 */
+data class StorePathEntry(val name: String, val isDirectory: Boolean)
+
 enum class EditorDataStoreKind {
     REMOTE,
     LOCAL,

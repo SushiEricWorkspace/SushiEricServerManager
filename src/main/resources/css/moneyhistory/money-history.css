@@ -1,0 +1,160 @@
+@import "/css/common/widgets.css";
+
+.money-history-root {
+    -fx-background-color: -fx-bg-deep;
+    -fx-padding: 0;
+}
+
+.money-history-content {
+    -fx-padding: 12px;
+}
+
+.money-history-root .history-filter-label {
+    -fx-font-size: 16px;
+}
+
+.money-history-root .tab-pane,
+.money-history-root .tab-content-area,
+.money-history-root .tab-pane .tab-header-area .tab-header-background {
+    -fx-background-color: -fx-bg-deep;
+}
+
+.money-history-root .tab-pane .tab-header-area {
+    -fx-padding: 0;
+}
+
+.money-history-root .tab-pane .tab-header-area .tab-header-background {
+    -fx-border-color: -fx-line-color;
+    -fx-border-width: 1px 0 1px 0;
+}
+
+.money-history-root .tab-pane .tab {
+    -fx-background-color: -fx-bg-elevated;
+    -fx-background-radius: 0;
+    -fx-border-color: -fx-line-color;
+    -fx-border-width: 0 1px 0 0;
+    -fx-border-radius: 0;
+    -fx-padding: 6px 12px;
+}
+
+.money-history-root .tab-pane .tab .tab-label {
+    -fx-text-fill: -fx-text-muted-color;
+}
+
+.money-history-root .tab-pane .tab:selected {
+    -fx-background-color: -fx-bg-deep;
+    -fx-border-color: -fx-line-color;
+}
+
+.money-history-root .tab-pane .tab:selected .tab-label {
+    -fx-text-fill: -fx-text-color;
+}
+
+.money-history-root .table-view {
+    -fx-background-color: -fx-bg-deep;
+    -fx-control-inner-background: -fx-bg-shallow;
+    -fx-control-inner-background-alt: -fx-bg-elevated;
+    -fx-table-cell-border-color: -fx-line-color;
+    -fx-table-header-border-color: -fx-line-color;
+    -fx-padding: 0;
+}
+
+.money-history-root .table-view .column-header-background,
+.money-history-root .table-view .column-header,
+.money-history-root .table-view .filler {
+    -fx-background-color: -fx-bg-elevated;
+}
+
+.money-history-root .table-view .column-header {
+    -fx-border-color: transparent -fx-line-color -fx-line-color transparent;
+    -fx-border-width: 0 1px 1px 0;
+}
+
+.money-history-root .table-view .column-header .label {
+    -fx-text-fill: -fx-text-color;
+    -fx-padding: 7px 5px;
+}
+
+.money-history-root .table-row-cell {
+    -fx-background-color: -fx-bg-shallow;
+    -fx-border-color: transparent transparent -fx-line-color transparent;
+}
+
+.money-history-root .table-row-cell:odd {
+    -fx-background-color: -fx-bg-elevated;
+}
+
+.money-history-root .table-row-cell:selected {
+    -fx-background-color: -fx-selected-color;
+}
+
+.money-history-root .table-cell {
+    -fx-text-fill: -fx-text-color;
+    -fx-border-color: transparent -fx-line-color transparent transparent;
+    -fx-padding: 6px;
+}
+
+.money-history-root .table-view .placeholder .label {
+    -fx-text-fill: -fx-text-muted-color;
+}
+
+.money-history-root .date-picker > .arrow-button {
+    -fx-background-color: -fx-bg-deep;
+    -fx-background-radius: 0;
+}
+
+.money-history-root .toggle-button,
+.money-history-root .menu-button {
+    -fx-background-color: -fx-bg-elevated;
+    -fx-text-fill: -fx-text-color;
+    -fx-border-color: -fx-line-color;
+    -fx-border-radius: 0;
+    -fx-background-radius: 0;
+}
+
+.money-history-root .menu-button > .label {
+    -fx-text-fill: -fx-text-color;
+}
+
+.money-history-root .menu-button > .arrow-button > .arrow {
+    -fx-background-color: -fx-text-color;
+}
+
+.money-history-root .toggle-button:selected {
+    -fx-background-color: -fx-selected-color;
+    -fx-border-color: -fx-line-emphasis-color;
+}
+
+.money-history-root .date-picker > .arrow-button > .arrow {
+    -fx-background-color: -fx-text-color;
+}
+
+.date-picker-popup,
+.date-picker-popup > .month-year-pane,
+.date-picker-popup > * > .calendar-grid {
+    -fx-background-color: -fx-bg-elevated;
+}
+
+.date-picker-popup .label,
+.date-picker-popup .day-cell {
+    -fx-text-fill: -fx-text-color;
+}
+
+.date-picker-popup .day-cell {
+    -fx-background-color: -fx-bg-elevated;
+    -fx-border-color: transparent;
+}
+
+.date-picker-popup .day-cell:hover {
+    -fx-background-color: -fx-hover-color;
+}
+
+.date-picker-popup .day-cell:selected {
+    -fx-background-color: -fx-selected-color;
+}
+
+.date-picker-popup .day-name-cell,
+.date-picker-popup .week-number-cell {
+    -fx-background-color: -fx-bg-elevated;
+    -fx-text-fill: -fx-text-muted-color;
+}
