@@ -10,23 +10,43 @@ internal fun saveChangeDetails(
     dataId: String,
     operation: PendingStoreOperation?,
     original: ManagedData<*, *>,
-    current: ManagedData<*, *>
+    current: ManagedData<*, *>,
+    automaticallyMerged: ManagedData<*, *>? = null,
+    finalData: ManagedData<*, *>? = null
 ): List<String> = buildList {
     add("【ストア操作】")
-    addAll(saveChangeSummary(dataId, operation, original != current).map { "・$it" })
+    val contentChanged = original != current ||
+        (automaticallyMerged != null && current != automaticallyMerged) ||
+        (finalData != null && automaticallyMerged != null && finalData != automaticallyMerged)
+    addAll(saveChangeSummary(dataId, operation, contentChanged).map { "・$it" })
 
     if (operation is PendingStoreOperation.Delete) return@buildList
 
-    val changes = when {
-        original is MutableItemBaseData && current is MutableItemBaseData ->
-            itemChanges(original, current, operation is PendingStoreOperation.Create)
-        original is MutableOreBaseData && current is MutableOreBaseData ->
-            oreChanges(original, current, operation is PendingStoreOperation.Create)
-        original != current -> listOf(Change("データ全体", original, current))
-        else -> emptyList()
-    }
+    val changes = changesBetween(original, current, operation is PendingStoreOperation.Create)
     add("")
     add("【内容の変更】")
+    appendChanges(changes)
+
+    if (automaticallyMerged != null) {
+        val mergedChanges = changesBetween(current, automaticallyMerged, created = false)
+        if (mergedChanges.isNotEmpty()) {
+            add("")
+            add("【自動マージ内容】")
+            appendChanges(mergedChanges)
+        }
+    }
+
+    if (finalData != null && automaticallyMerged != null) {
+        val resolutionChanges = changesBetween(automaticallyMerged, finalData, created = false)
+        if (resolutionChanges.isNotEmpty()) {
+            add("")
+            add("【競合の解決内容】")
+            appendChanges(resolutionChanges)
+        }
+    }
+}
+
+private fun MutableList<String>.appendChanges(changes: List<Change>) {
     if (changes.isEmpty()) {
         add("・なし")
     } else {
@@ -40,6 +60,19 @@ internal fun saveChangeDetails(
             }
         }
     }
+}
+
+private fun changesBetween(
+    before: ManagedData<*, *>,
+    after: ManagedData<*, *>,
+    created: Boolean
+): List<Change> = when {
+    before is MutableItemBaseData && after is MutableItemBaseData ->
+        itemChanges(before, after, created)
+    before is MutableOreBaseData && after is MutableOreBaseData ->
+        oreChanges(before, after, created)
+    before != after -> listOf(Change("データ全体", before, after, created))
+    else -> emptyList()
 }
 
 /** 複数データの保存内容を、データIDごとの見出し付きで1つの確認表示へまとめます。 */
