@@ -39,6 +39,21 @@ internal fun parseHardnessInput(text: String): Double? =
     text.toDoubleOrNull()?.takeIf(Double::isFinite)
 
 /**
+ * 魔力量の入力を`Double`として解釈します。
+ *
+ * 空欄は既定値の0として扱い、数値として解釈できない入力や有限でない値では`null`を返します。
+ * 負数は解釈できる値として返し、範囲の検証はCommonの検証結果として表示します。
+ */
+internal fun parseManaAmountInput(text: String): Double? {
+    val normalized = text.trim()
+    if (normalized.isEmpty()) {
+        return 0.0
+    }
+
+    return normalized.toDoubleOrNull()?.takeIf(Double::isFinite)
+}
+
+/**
  * スキル経験値の入力を反映した新しいMapを返します。
  *
  * 空欄は未設定として対象スキルを削除し、数値として解釈できない入力では`null`を返します。
@@ -226,6 +241,9 @@ internal class OreEditorLogic(
             selectData.requiredTier = value
             refreshValidation()
         }
+        val manaAmountField = createManaAmountField(selectData) {
+            refreshValidation()
+        }
         skillExperienceFields.clear()
         val skillExperienceGrid = GridPane().apply {
             hgap = 12.0
@@ -244,6 +262,7 @@ internal class OreEditorLogic(
         validationFocusTargets["hardness"] = hardnessField
         validationFocusTargets["requiredTier"] = requiredTierSpinner
         validationFocusTargets["dropItems"] = dropItemButton
+        validationFocusTargets[OreBaseDataView::manaAmount.name] = manaAmountField
         skillExperienceFields.values.firstOrNull()?.let { field ->
             validationFocusTargets[OreBaseDataView::skillExperienceMap.name] = field
         }
@@ -279,6 +298,8 @@ internal class OreEditorLogic(
             add(dropItemButton, 1, 4)
             add(Label("スキル経験値:"), 0, 5)
             add(skillExperienceGrid, 1, 5)
+            add(Label("魔力量:"), 0, 6)
+            add(manaAmountField, 1, 6)
         }
 
         val content = VBox(16.0, inputGrid, validationBox).apply {
@@ -388,6 +409,38 @@ internal class OreEditorLogic(
                     commitValue()
                     event.consume()
                 }
+            }
+        }
+    }
+
+    private fun createManaAmountField(
+        ore: MutableOreBaseData,
+        onChanged: () -> Unit
+    ): TextField = TextField(ore.manaAmount.toString()).apply {
+        prefWidth = 180.0
+        maxWidth = 180.0
+        textFormatter = TextFormatter<String> { change ->
+            if (change.controlNewText.matches(Regex("-?\\d*(\\.\\d*)?"))) change else null
+        }
+
+        fun commitValue() {
+            val parsed = parseManaAmountInput(text)
+            if (parsed == null) {
+                text = ore.manaAmount.toString()
+                return
+            }
+            ore.manaAmount = parsed
+            text = parsed.toString()
+            onChanged()
+        }
+
+        focusedProperty().addListener { _, _, focused ->
+            if (!focused) commitValue()
+        }
+        setOnKeyPressed { event ->
+            if (event.code == KeyCode.ENTER) {
+                commitValue()
+                event.consume()
             }
         }
     }
