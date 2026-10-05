@@ -70,6 +70,23 @@ class OreEditorLogicTest {
     }
 
     @Test
+    fun `魔力量は空欄を0として有限なDoubleだけ解釈する`() {
+        assertEquals(25.5, parseManaAmountInput("25.5"))
+        assertEquals(0.0, parseManaAmountInput("0"))
+        assertEquals(0.0, parseManaAmountInput(""))
+        assertEquals(0.0, parseManaAmountInput("   "))
+        assertEquals(12.0, parseManaAmountInput(" 12 "))
+        assertNull(parseManaAmountInput("-"))
+        assertNull(parseManaAmountInput("NaN"))
+        assertNull(parseManaAmountInput("Infinity"))
+    }
+
+    @Test
+    fun `負の魔力量は解釈できる値として返し検証に任せる`() {
+        assertEquals(-3.5, parseManaAmountInput("-3.5"))
+    }
+
+    @Test
     fun `スキル経験値の入力は元のMapを変更せずに反映する`() {
         val original = mutableMapOf(SkillType.COMBAT to 10.0)
 

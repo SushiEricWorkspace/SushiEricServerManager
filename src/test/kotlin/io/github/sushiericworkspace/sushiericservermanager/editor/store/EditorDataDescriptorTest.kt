@@ -35,6 +35,34 @@ class EditorDataDescriptorTest {
     }
 
     @Test
+    fun `鉱石の負の魔力量を検証エラーにする`() {
+        val data = MutableOreBaseData(
+            id = "ore",
+            blockId = VanillaBlockId("minecraft:stone"),
+            manaAmount = -0.5
+        )
+
+        val errors = EditorDataDescriptors.ore.validate(data, emptySet())
+
+        assertTrue(errors.any {
+            it.property.name == OreBaseDataView::manaAmount.name && it.isError
+        })
+    }
+
+    @Test
+    fun `鉱石の魔力量は0を許可する`() {
+        val data = MutableOreBaseData(
+            id = "ore",
+            blockId = VanillaBlockId("minecraft:stone"),
+            manaAmount = 0.0
+        )
+
+        val errors = EditorDataDescriptors.ore.validate(data, emptySet())
+
+        assertTrue(errors.none { it.property.name == OreBaseDataView::manaAmount.name })
+    }
+
+    @Test
     fun `鉱石の負のスキル経験値を検証エラーにする`() {
         val data = MutableOreBaseData(
             id = "ore",

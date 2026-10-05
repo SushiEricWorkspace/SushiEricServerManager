@@ -123,6 +123,12 @@ object OreDataMerger : DataMerger<MutableOreBaseData> {
             keyDisplay = { it.display },
             targetMap = { it.skillExperienceMap }
         )
+        accumulator.mergeValue(
+            DataFields.manaAmount,
+            base.manaAmount,
+            local.manaAmount,
+            remote.manaAmount
+        ) { data, value -> data.manaAmount = value }
         accumulator.mergeList(
             path = DataFields.comments,
             base = base.editorMeta.comment,
