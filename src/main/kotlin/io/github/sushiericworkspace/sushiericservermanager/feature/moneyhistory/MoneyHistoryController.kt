@@ -27,10 +27,6 @@ import javafx.scene.layout.VBox
 import javafx.beans.property.SimpleStringProperty
 import javafx.concurrent.WorkerStateEvent
 import org.slf4j.LoggerFactory
-import org.yaml.snakeyaml.LoaderOptions
-import org.yaml.snakeyaml.Yaml
-import org.yaml.snakeyaml.constructor.SafeConstructor
-import java.time.Instant
 import java.time.LocalDateTime
 import java.time.LocalDate
 import java.time.ZoneId
@@ -334,35 +330,10 @@ class MoneyHistoryController {
         return formatHistoryActor(name, uuid) ?: "-"
     }
 
-    private fun parseRecords(text: String, playerUuid: String, fileName: String): List<MoneyHistoryRow> {
-        val yaml = Yaml(SafeConstructor(LoaderOptions()))
-        val document = yaml.load<Any?>(text) as? Map<*, *> ?: return emptyList()
-        val entries = document["entries"] as? List<*> ?: return emptyList()
-        return entries.mapNotNull { raw ->
-            val entry = raw as? Map<*, *> ?: return@mapNotNull null
-            try {
-                val uuid = entry["player-uuid"]?.toString() ?: playerUuid
-                require(uuid == playerUuid)
-                val timestamp = Instant.parse(entry["timestamp"].toString())
-                MoneyHistoryRow(
-                    timestamp = timestamp,
-                    timeText = TIME_FORMAT.format(timestamp.atZone(ZoneId.systemDefault())),
-                    playerName = entry["player-name"]?.toString() ?: playerUuid,
-                    type = MoneyHistoryType.valueOf(entry["type"].toString()),
-                    amount = entry["amount"].toString().toLong(),
-                    balanceAfter = entry["balance-after"].toString().toLong(),
-                    counterparty = entry["other-player"]?.toString(),
-                    executor = (entry["executor"] as? Map<*, *>)?.let { actor ->
-                        formatHistoryActor(actor["name"]?.toString(), actor["uuid"]?.toString())
-                    },
-                    reason = entry["reason"]?.toString()
-                )
-            } catch (e: Exception) {
-                logger.warn("入出金履歴を読み飛ばしました: file={} error={}", fileName, e.message)
-                null
-            }
-        }
-    }
+    private fun parseRecords(text: String, playerUuid: String, fileName: String): List<MoneyHistoryRow> =
+        parseMoneyHistory(text, playerUuid, { reason ->
+            logger.warn("入出金履歴を読み飛ばしました: file={} error={}", fileName, reason)
+        })
 
     private fun applyFilters() {
         if (changingFilters) return
@@ -408,25 +379,8 @@ class MoneyHistoryController {
         achievementHistoryController.dispose()
     }
 
-    private companion object { val TIME_FORMAT: DateTimeFormatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss") }
 }
 
 private data class HistoryPlayer(val uuid: String, val displayName: String, val initialRows: List<MoneyHistoryRow>) {
     override fun toString(): String = "$displayName ($uuid)"
-}
-
-private data class MoneyHistoryRow(
-    val timestamp: Instant,
-    val timeText: String,
-    val playerName: String,
-    val type: MoneyHistoryType,
-    val amount: Long,
-    val balanceAfter: Long,
-    val counterparty: String?,
-    val executor: String?,
-    val reason: String?
-)
-
-private enum class MoneyHistoryType(val displayName: String) {
-    PAY_SENT("送金"), PAY_RECEIVED("受取"), ADMIN_SET("管理者設定"), ADMIN_ADD("管理者加算"), ADMIN_REMOVE("管理者減算")
 }
