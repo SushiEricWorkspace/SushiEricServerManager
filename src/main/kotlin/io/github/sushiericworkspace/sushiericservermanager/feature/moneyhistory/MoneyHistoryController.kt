@@ -8,18 +8,13 @@ import io.github.sushiericworkspace.sushiericservermanager.editor.component.Sear
 import io.github.sushiericworkspace.sushiericservermanager.editor.store.EditorDataStore
 import io.github.sushiericworkspace.sushiericservermanager.editor.store.StorePathEntry
 import io.github.sushiericworkspace.sushiericservermanager.editor.store.StoreResult
-import io.github.sushiericworkspace.sushiericservermanager.editor.store.StoreErrorCode
-import kotlinx.serialization.json.Json
-import kotlinx.serialization.json.jsonArray
-import kotlinx.serialization.json.jsonObject
-import kotlinx.serialization.json.jsonPrimitive
-import kotlinx.serialization.json.contentOrNull
 import javafx.concurrent.Task
 import javafx.fxml.FXML
 import javafx.scene.control.ComboBox
 import javafx.scene.control.DatePicker
 import javafx.scene.control.Label
 import javafx.scene.control.ListCell
+import javafx.scene.control.Tab
 import javafx.scene.control.TableColumn
 import javafx.scene.control.TableView
 import javafx.scene.control.ToggleButton
@@ -44,10 +39,12 @@ import java.util.UUID
 import java.util.concurrent.CompletableFuture
 import java.util.concurrent.TimeUnit
 
-/** 保存済み入出金履歴を読み取り専用で表示し、期間と種別で絞り込みます。 */
+/** 保存済みの入出金履歴と実績の達成履歴を表示する画面です。入出金タブの読み込みと絞り込み、実績タブの初期化を担当します。 */
 class MoneyHistoryController {
     private val logger = LoggerFactory.getLogger(javaClass)
 
+    @FXML private lateinit var achievementTab: Tab
+    @FXML private lateinit var achievementHistoryController: AchievementHistoryController
     @FXML private lateinit var playerSelectorPane: VBox
     private lateinit var playerBox: ComboBox<HistoryPlayer>
     @FXML private lateinit var fromDate: DatePicker
@@ -92,6 +89,9 @@ class MoneyHistoryController {
             field.tooltip = AppTooltip.create("時刻はHH:mmまたはHH:mm:ssで指定します。空欄の場合はその日全体が対象です。")
         }
         loadPlayers()
+        achievementTab.selectedProperty().addListener { _, _, selected ->
+            if (selected) achievementHistoryController.initialize(store, managementClient)
+        }
     }
 
     private fun configurePlayerCells() {
@@ -131,7 +131,7 @@ class MoneyHistoryController {
 
     private fun loadPlayers() {
         runTask("money-history-players", "プレイヤーと履歴を読み込み中...") {
-            val knownNames = readKnownPlayerNames()
+            val knownNames = readKnownPlayerNames(store, logger)
             knownPlayerNames.putAll(knownNames)
             val dirs = requireSuccess(store.listPath("player_data"))
             dirs.filter(StorePathEntry::isDirectory)
@@ -165,31 +165,6 @@ class MoneyHistoryController {
                 if (players.isEmpty()) statusLabel.text = "プレイヤーデータがありません。"
                 else loadPlayer(players.first())
             }
-        }
-    }
-
-    private fun readKnownPlayerNames(): Map<String, String> {
-        val text = when (val result = store.readServerText("usercache.json")) {
-            is StoreResult.Success -> result.value
-            is StoreResult.Failure -> {
-                if (result.error.code != StoreErrorCode.FILE_NOT_FOUND) {
-                    logger.warn("プレイヤー名キャッシュを読み込めません: {}", result.error.code)
-                }
-                return emptyMap()
-            }
-        }
-        return runCatching {
-            Json.parseToJsonElement(text).jsonArray.mapNotNull { element ->
-                runCatching {
-                    val entry = element.jsonObject
-                    val uuid = UUID.fromString(entry["uuid"]?.jsonPrimitive?.contentOrNull).toString()
-                    entry["name"]?.jsonPrimitive?.contentOrNull?.takeIf(String::isNotBlank)
-                        ?.let { name -> uuid to name }
-                }.getOrNull()
-            }.toMap()
-        }.getOrElse {
-            logger.warn("プレイヤー名キャッシュの解析に失敗しました。", it)
-            emptyMap()
         }
     }
 
@@ -428,7 +403,10 @@ class MoneyHistoryController {
     }
 
     /** 画面終了時に保有する一時状態を解放します。 */
-    fun dispose() { allRows = emptyList() }
+    fun dispose() {
+        allRows = emptyList()
+        achievementHistoryController.dispose()
+    }
 
     private companion object { val TIME_FORMAT: DateTimeFormatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss") }
 }

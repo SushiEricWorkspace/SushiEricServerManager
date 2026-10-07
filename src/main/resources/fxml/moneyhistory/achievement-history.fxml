@@ -1,0 +1,46 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<?import javafx.scene.control.*?>
+<?import javafx.scene.layout.*?>
+<VBox xmlns="http://javafx.com/javafx/21.0.1" xmlns:fx="http://javafx.com/fxml/1"
+      fx:controller="io.github.sushiericworkspace.sushiericservermanager.feature.moneyhistory.AchievementHistoryController"
+      spacing="10" styleClass="money-history-content">
+    <HBox spacing="8" alignment="CENTER_LEFT">
+        <Label text="プレイヤー" minWidth="95" styleClass="history-filter-label" />
+        <VBox fx:id="playerSelectorPane" minWidth="220" prefWidth="340" maxWidth="Infinity" HBox.hgrow="ALWAYS" />
+        <ToggleButton fx:id="playerDisplayToggle" minWidth="110" prefWidth="110" onAction="#togglePlayerDisplay" />
+        <Button text="更新" minWidth="75" prefWidth="75" onAction="#reloadSelected" />
+    </HBox>
+    <VBox spacing="8">
+        <HBox spacing="8" alignment="CENTER_LEFT">
+            <Label text="開始" minWidth="60" styleClass="history-filter-label" />
+            <DatePicker fx:id="fromDate" promptText="YYYY/MM/DD" minWidth="180" prefWidth="180" maxWidth="180" />
+            <TextField fx:id="fromTime" promptText="HH:mm:ss" minWidth="105" prefWidth="105" maxWidth="105" />
+            <Button text="時刻を選択" onAction="#selectFromTime" />
+            <Button text="現在時刻" onAction="#setFromNow" />
+            <Button text="今日" onAction="#setFromToday" />
+            <Button text="リセット" onAction="#resetFrom" />
+        </HBox>
+        <HBox spacing="8" alignment="CENTER_LEFT">
+            <Label text="終了" minWidth="60" styleClass="history-filter-label" />
+            <DatePicker fx:id="toDate" promptText="YYYY/MM/DD" minWidth="180" prefWidth="180" maxWidth="180" />
+            <TextField fx:id="toTime" promptText="HH:mm:ss" minWidth="105" prefWidth="105" maxWidth="105" />
+            <Button text="時刻を選択" onAction="#selectToTime" />
+            <Button text="現在時刻" onAction="#setToNow" />
+            <Button text="今日" onAction="#setToToday" />
+            <Button text="リセット" onAction="#resetTo" />
+        </HBox>
+        <HBox spacing="8" alignment="CENTER_LEFT">
+            <Label text="分類" minWidth="60" styleClass="history-filter-label" />
+            <MenuButton fx:id="categoryMenu" text="すべて" minWidth="140" prefWidth="150" maxWidth="150" />
+            <Button text="条件をリセット" onAction="#resetFilters" />
+        </HBox>
+    </VBox>
+    <Label fx:id="statusLabel" text="プレイヤーを読み込み中..." />
+    <TableView fx:id="historyTable" VBox.vgrow="ALWAYS">
+        <columns>
+            <TableColumn fx:id="timeColumn" text="達成時刻" prefWidth="170" />
+            <TableColumn fx:id="nameColumn" text="実績名" prefWidth="320" />
+            <TableColumn fx:id="categoryColumn" text="分類" prefWidth="120" />
+        </columns>
+    </TableView>
+</VBox>

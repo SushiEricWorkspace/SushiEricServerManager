@@ -9,7 +9,7 @@ import javafx.scene.Parent
 import javafx.stage.Stage
 import javafx.stage.Window
 
-/** 入出金履歴ウィンドウの生成とライフサイクルを管理します。 */
+/** 履歴閲覧ウィンドウ（入出金・実績）の生成とライフサイクルを管理します。 */
 object MoneyHistoryWindowManager {
     private var activeStage: Stage? = null
 
@@ -21,7 +21,7 @@ object MoneyHistoryWindowManager {
         val controller = loader.getController<MoneyHistoryController>()
         controller.initialize(store, EditorSession.managementClient)
         val stage = Stage().apply {
-            title = "SushiEricServerManager - 入出金履歴"
+            title = "SushiEricServerManager - 履歴"
             scene = Utility.createScene(AppScreen.MONEY_HISTORY, customRoot = root)
             minWidth = 900.0
             minHeight = 560.0
