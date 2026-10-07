@@ -61,6 +61,11 @@ sealed interface ServerManagementRequest : ServerManagementMessage {
     @SerialName("money_history_save")
     data class MoneyHistorySave(val playerUuid: String? = null, val nonce: String? = null) : ServerManagementRequest
 
+    /** 指定プレイヤーの実績データをサーバー側へ保存する要求です。uuid省略時は全員が対象です。 */
+    @Serializable
+    @SerialName("achievement_save")
+    data class AchievementSave(val playerUuid: String? = null, val nonce: String? = null) : ServerManagementRequest
+
     /**
      * コマンドの実行要求です。
      *
@@ -208,6 +213,17 @@ sealed interface ServerManagementResponse : ServerManagementMessage {
     @Serializable
     @SerialName("money_history_save_result")
     data class MoneyHistorySaveResult(
+        val success: Boolean,
+        val savedCount: Int = 0,
+        val pendingCount: Int = 0,
+        val detail: String? = null,
+        val nonce: String? = null
+    ) : ServerManagementResponse
+
+    /** 実績データの保存結果です。成功応答後にSFTP上のachievements.ymlを読み込みます。 */
+    @Serializable
+    @SerialName("achievement_save_result")
+    data class AchievementSaveResult(
         val success: Boolean,
         val savedCount: Int = 0,
         val pendingCount: Int = 0,

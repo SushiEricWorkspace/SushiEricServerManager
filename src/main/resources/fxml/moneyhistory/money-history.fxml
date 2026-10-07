@@ -56,6 +56,11 @@
                         </VBox>
                     </content>
                 </Tab>
+                <Tab fx:id="achievementTab" text="実績">
+                    <content>
+                        <fx:include fx:id="achievementHistory" source="achievement-history.fxml" />
+                    </content>
+                </Tab>
             </tabs>
         </TabPane>
     </center>

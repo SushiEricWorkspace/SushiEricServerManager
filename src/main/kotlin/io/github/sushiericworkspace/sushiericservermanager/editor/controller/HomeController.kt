@@ -54,6 +54,7 @@ class HomeController : Initializable {
     @FXML private lateinit var monitorLabel: Label
     @FXML private lateinit var uploadLocalButton: Button
     @FXML private lateinit var consoleButton: Button
+    @FXML private lateinit var historyButton: Button
     @FXML private lateinit var dashboardButton: Button
     @FXML private lateinit var serverControlButton: Button
     @FXML private lateinit var modeSelectButton: Button
@@ -194,6 +195,8 @@ class HomeController : Initializable {
         uploadLocalButton.isVisible = mode == AppMode.ONLINE
         consoleButton.isManaged = mode == AppMode.ONLINE
         consoleButton.isVisible = mode == AppMode.ONLINE
+        historyButton.isManaged = mode == AppMode.ONLINE
+        historyButton.isVisible = mode == AppMode.ONLINE
         dashboardButton.isManaged = mode == AppMode.ONLINE
         dashboardButton.isVisible = mode == AppMode.ONLINE
         serverControlButton.isManaged = mode == AppMode.ONLINE
@@ -430,7 +433,7 @@ class HomeController : Initializable {
         ModConfigWindowManager.open(rootPane.scene?.window, service)
     }
 
-    /** 入出金履歴ビューを開きます。 */
+    /** 入出金と実績の履歴閲覧ビューを開きます。 */
     @FXML
     @Suppress("unused")
     fun onOpenMoneyHistory() {
