@@ -548,7 +548,8 @@ abstract class EditorView<T : ManagedData<T, *>>(
                 original = entry.original,
                 current = entry.localData,
                 automaticallyMerged = entry.automaticallyMergedData,
-                finalData = entry.previewData.takeIf { it != entry.automaticallyMergedData }
+                finalData = entry.previewData.takeIf { it != entry.automaticallyMergedData },
+                itemDisplayText = ::itemDisplayText
             )
         }) + if (failed.isEmpty()) {
             emptyList()
@@ -592,7 +593,8 @@ abstract class EditorView<T : ManagedData<T, *>>(
             original = prepared.original,
             current = prepared.localData,
             automaticallyMerged = prepared.automaticallyMergedData,
-            finalData = prepared.previewData.takeIf { it != prepared.automaticallyMergedData }
+            finalData = prepared.previewData.takeIf { it != prepared.automaticallyMergedData },
+            itemDisplayText = ::itemDisplayText
         )
         if (details.isEmpty()) return false
         return CustomDialog.confirmation()
@@ -1325,6 +1327,9 @@ abstract class EditorView<T : ManagedData<T, *>>(
         }
     }
 
+    /** 保存確認へ表示するアイテム識別子を返します。公開IDを解決できる画面では上書きします。 */
+    protected open fun itemDisplayText(id: ItemInternalId): String = id.value
+
     /** 現在の検証で参照可能なアイテム内部IDを返します。 */
     protected open fun availableItemInternalIds(): Set<ItemInternalId> =
         editingDataMap.values
@@ -1583,6 +1588,7 @@ abstract class EditorView<T : ManagedData<T, *>>(
                 input.isBlank() -> ValidationResult.Error("名前を入力してください")
                 containsInvalidChar -> ValidationResult.Error(PublicId.DESCRIPTION)
                 isDuplicate -> ValidationResult.Error("重複した名称です")
+                !dataAccess.descriptor.isValidId(fullId) -> ValidationResult.Error("商品IDにはタブ名と商品名を含めてください（例: weapons.sword）")
                 else -> ValidationResult.Success
             }
         }

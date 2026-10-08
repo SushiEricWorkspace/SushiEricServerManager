@@ -225,6 +225,10 @@ internal abstract class ManagedDataEditorView<T : ManagedData<T, *>>(
     private fun moveData(id: String, directory: String): Boolean {
         val newId = PublicId.join(directory.split('.').filter(String::isNotEmpty), PublicId.nameOf(id))
         if (newId == id) return false
+        if (!dataAccess.descriptor.isValidId(newId)) {
+            showDirectoryError("商品はタブ配下へ配置してください")
+            return false
+        }
         if (newId in sidebarDataIds) {
             showDirectoryError("移動先に同名のデータがあります")
             return false

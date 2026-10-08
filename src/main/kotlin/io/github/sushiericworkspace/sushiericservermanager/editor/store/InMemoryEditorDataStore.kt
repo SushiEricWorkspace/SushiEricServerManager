@@ -74,7 +74,7 @@ class InMemoryEditorDataStore(
         descriptor: EditorDataDescriptor<T>,
         id: String
     ): StoreResult<T> {
-        if (!StorePathValidator.isValidId(id)) return invalidId(id)
+        if (!StorePathValidator.isValidId(id) || !descriptor.isValidId(id)) return invalidId(id)
         val data = entries[key(descriptor, id)]
             ?: return StoreResult.Failure(StoreError(StoreErrorCode.FILE_NOT_FOUND, id))
         @Suppress("UNCHECKED_CAST")
@@ -86,7 +86,7 @@ class InMemoryEditorDataStore(
         id: String,
         data: T
     ): StoreResult<Unit> {
-        if (!StorePathValidator.isValidId(id)) return invalidId(id)
+        if (!StorePathValidator.isValidId(id) || !descriptor.isValidId(id)) return invalidId(id)
         entries[key(descriptor, id)] = descriptor.deepCopy(data)
         registerParentDirectories(descriptor, id)
         return StoreResult.Success(Unit)
@@ -127,6 +127,7 @@ class InMemoryEditorDataStore(
         oldId: String,
         newId: String
     ): StoreResult<String> {
+        if (!descriptor.isValidId(oldId) || !descriptor.isValidId(newId)) return invalidId(newId)
         val oldKey = key(descriptor, oldId)
         val newKey = key(descriptor, newId)
         if (entries.containsKey(newKey)) {

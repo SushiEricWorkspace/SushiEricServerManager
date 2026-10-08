@@ -53,6 +53,7 @@ class EditorDataService(
 
     val items: DataAccess<MutableItemBaseData> = DataAccess(EditorDataDescriptors.item)
     val ores: DataAccess<MutableOreBaseData> = DataAccess(EditorDataDescriptors.ore)
+    val shops = DataAccess(EditorDataDescriptors.shop)
 
     /**
      * Mod共通設定（config.yml）の生テキストです。
@@ -192,7 +193,7 @@ class EditorDataService(
             }
 
             return try {
-                descriptor.save(temporary, data, null)
+                descriptor.saveBackup(temporary, data)
                 replaceAtomically(temporary, target)
                 true
             } catch (e: Exception) {
@@ -218,8 +219,8 @@ class EditorDataService(
             if (!editing.isFile || !original.isFile) return null
 
             return try {
-                val editingData = descriptor.load(editing, editing.parentFile) ?: return null
-                val originalData = descriptor.load(original, original.parentFile) ?: return null
+                val editingData = descriptor.loadBackup(editing, editing.parentFile) ?: return null
+                val originalData = descriptor.loadBackup(original, original.parentFile) ?: return null
                 editingData to originalData
             } catch (e: Exception) {
                 logger.error("自動保存ペアの読み込みに失敗しました: {}", fileName, e)
@@ -357,7 +358,7 @@ class EditorDataService(
             listOf("editing", "original").forEach { subDirectory ->
                 val oldFile = resolveBackupFile(dataType.categoryDirName, subDirectory, oldName)
                 if (!oldFile.isFile) return@forEach
-                val data = descriptor.load(oldFile, oldFile.parentFile)
+                val data = descriptor.loadBackup(oldFile, oldFile.parentFile)
                 if (data == null) {
                     logger.warn("名称変更対象の自動保存を読み込めませんでした: {}", oldFile)
                     return@forEach
