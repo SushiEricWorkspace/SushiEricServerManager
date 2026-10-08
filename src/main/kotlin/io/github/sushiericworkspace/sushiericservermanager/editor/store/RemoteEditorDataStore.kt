@@ -134,7 +134,7 @@ class RemoteEditorDataStore(
                 if (type == FileMode.Type.REGULAR && name.endsWith(".yml", ignoreCase = true)) {
                     val leaf = name.substringBeforeLast('.')
                     val id = PublicId.join(segments, leaf)
-                    if (StorePathValidator.isValidId(id)) {
+                    if (StorePathValidator.isValidId(id) && descriptor.isValidId(id)) {
                         resources += StoreResource(id, name, path)
                     }
                 }
@@ -158,7 +158,7 @@ class RemoteEditorDataStore(
         descriptor: EditorDataDescriptor<T>,
         id: String
     ): StoreResult<T> {
-        if (!StorePathValidator.isValidId(id)) {
+        if (!StorePathValidator.isValidId(id) || !descriptor.isValidId(id)) {
             return failure(StoreErrorCode.INVALID_ID, id)
         }
         val profile = ssh.currentProfile
@@ -194,7 +194,7 @@ class RemoteEditorDataStore(
         id: String,
         data: T
     ): StoreResult<Unit> {
-        if (!StorePathValidator.isValidId(id)) {
+        if (!StorePathValidator.isValidId(id) || !descriptor.isValidId(id)) {
             return failure(StoreErrorCode.INVALID_ID, id)
         }
         val profile = ssh.currentProfile
@@ -266,6 +266,7 @@ class RemoteEditorDataStore(
             ?: return failure(StoreErrorCode.PROFILE_NOT_SELECTED, oldId)
         if (!ssh.isSftpActive) return failure(StoreErrorCode.STORE_UNAVAILABLE, oldId)
 
+        if (!descriptor.isValidId(oldId) || !descriptor.isValidId(newId)) return failure(StoreErrorCode.INVALID_ID, newId)
         val oldPath = Utility.getFullRemotePath(profile, descriptor.dataType.pathOf(oldId))
         val newPath = Utility.getFullRemotePath(profile, descriptor.dataType.pathOf(newId))
         return try {
@@ -377,7 +378,7 @@ class RemoteEditorDataStore(
         descriptor: EditorDataDescriptor<T>,
         id: String
     ): StoreResult<Unit> {
-        if (!StorePathValidator.isValidId(id)) {
+        if (!StorePathValidator.isValidId(id) || !descriptor.isValidId(id)) {
             return failure(StoreErrorCode.INVALID_ID, id)
         }
         val profile = ssh.currentProfile

@@ -13,6 +13,11 @@ import io.github.sushiericworkspace.sushiericservermanager.editor.merge.DataMerg
 import io.github.sushiericworkspace.sushiericservermanager.editor.merge.ItemDataMerger
 import io.github.sushiericworkspace.sushiericservermanager.editor.merge.OreDataMerger
 import java.io.File
+import io.github.sushiericworkspace.common.data.core.identity.PublicId
+import io.github.sushiericworkspace.common.data.core.validation.SushiEricValidationSeverity
+import io.github.sushiericworkspace.common.data.shop.ShopManager
+import io.github.sushiericworkspace.common.data.shop.model.mutable.MutableShopProductData
+import io.github.sushiericworkspace.sushiericservermanager.editor.merge.ShopDataMerger
 
 /** Commonの検証結果を優先し、未提供の版ではスキル経験値の範囲検証だけを補います。 */
 internal fun validateOreDataForEditor(
@@ -43,7 +48,10 @@ class EditorDataDescriptor<T : ManagedData<T, *>>(
     val save: (File, T, Set<ItemInternalId>?) -> Unit,
     val validate: (T, Set<ItemInternalId>) -> List<SushiEricValidationError>,
     val merger: DataMerger<T>,
-    private val duplicateForNewEntry: (T) -> T = { it.deepCopy() }
+    private val duplicateForNewEntry: (T) -> T = { it.deepCopy() },
+    val isValidId: (String) -> Boolean = PublicId::isValidFull,
+    val loadBackup: (File, File) -> T? = load,
+    val saveBackup: (File, T) -> Unit = { file, data -> save(file, data, null) }
 ) {
     val displayName: String
         get() = dataType.displayName
@@ -84,13 +92,33 @@ object EditorDataDescriptors {
         duplicateForNewEntry = MutableOreBaseData::duplicateAsNew
     )
 
-    val all: List<EditorDataDescriptor<out ManagedData<*, *>>> = listOf(item, ore)
+    val shop = EditorDataDescriptor(
+        dataType = SushiEricDataType.Shop,
+        load = { file, directory -> ShopManager.loadMutableProduct(file, directory, emptySet()) },
+        save = { file, data, itemIds -> ShopManager.saveMutableProduct(file, data, itemIds.orEmpty()) },
+        validate = ::validateShopDataForEditor,
+        merger = ShopDataMerger,
+        isValidId = { PublicId.isValidFull(it) && PublicId.directoryOf(it).isNotEmpty() },
+        loadBackup = { file, _ -> ShopManager.loadEditorBackup(file, emptySet()) },
+        saveBackup = ShopManager::saveEditorBackup
+    )
+
+    val all: List<EditorDataDescriptor<out ManagedData<*, *>>> = listOf(item, ore, shop)
 
     @Suppress("UNCHECKED_CAST")
     fun <T : ManagedData<T, *>> of(dataType: SushiEricDataType<T>): EditorDataDescriptor<T> {
         return when (dataType) {
             SushiEricDataType.Item -> item
             SushiEricDataType.Ore -> ore
+            SushiEricDataType.Shop -> shop
         } as EditorDataDescriptor<T>
     }
 }
+
+/** Commonの基本検証と価格警告を使用し、未解決の参照だけは編集を続けられる警告にします。 */
+internal fun validateShopDataForEditor(data: MutableShopProductData, itemIds: Set<ItemInternalId>): List<SushiEricValidationError> =
+    data.validate(itemIds).map { error ->
+        if (error.property.name == "itemInternalId" && data.itemInternalId != null) {
+            error.copy(severity = SushiEricValidationSeverity.WARNING)
+        } else error
+    } + data.validator(itemIds).priceWarnings()

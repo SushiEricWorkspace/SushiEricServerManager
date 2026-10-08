@@ -1,6 +1,8 @@
 package io.github.sushiericworkspace.sushiericservermanager.editor.view
 
 import io.github.sushiericworkspace.common.data.core.ManagedData
+import io.github.sushiericworkspace.common.data.shop.model.mutable.MutableShopProductData
+import io.github.sushiericworkspace.common.data.item.model.ItemInternalId
 import io.github.sushiericworkspace.common.data.item.model.mutable.MutableItemBaseData
 import io.github.sushiericworkspace.common.data.ore.model.mutable.MutableOreBaseData
 import io.github.sushiericworkspace.sushiericservermanager.editor.merge.ConflictValueFormatter
@@ -12,7 +14,8 @@ internal fun saveChangeDetails(
     original: ManagedData<*, *>,
     current: ManagedData<*, *>,
     automaticallyMerged: ManagedData<*, *>? = null,
-    finalData: ManagedData<*, *>? = null
+    finalData: ManagedData<*, *>? = null,
+    itemDisplayText: (ItemInternalId) -> String = { it.value }
 ): List<String> = buildList {
     add("【ストア操作】")
     val contentChanged = original != current ||
@@ -22,13 +25,13 @@ internal fun saveChangeDetails(
 
     if (operation is PendingStoreOperation.Delete) return@buildList
 
-    val changes = changesBetween(original, current, operation is PendingStoreOperation.Create)
+    val changes = changesBetween(original, current, operation is PendingStoreOperation.Create, itemDisplayText)
     add("")
     add("【内容の変更】")
     appendChanges(changes)
 
     if (automaticallyMerged != null) {
-        val mergedChanges = changesBetween(current, automaticallyMerged, created = false)
+        val mergedChanges = changesBetween(current, automaticallyMerged, created = false, itemDisplayText)
         if (mergedChanges.isNotEmpty()) {
             add("")
             add("【自動マージ内容】")
@@ -37,7 +40,7 @@ internal fun saveChangeDetails(
     }
 
     if (finalData != null && automaticallyMerged != null) {
-        val resolutionChanges = changesBetween(automaticallyMerged, finalData, created = false)
+        val resolutionChanges = changesBetween(automaticallyMerged, finalData, created = false, itemDisplayText)
         if (resolutionChanges.isNotEmpty()) {
             add("")
             add("【競合の解決内容】")
@@ -65,8 +68,19 @@ private fun MutableList<String>.appendChanges(changes: List<Change>) {
 private fun changesBetween(
     before: ManagedData<*, *>,
     after: ManagedData<*, *>,
-    created: Boolean
+    created: Boolean,
+    itemDisplayText: (ItemInternalId) -> String
 ): List<Change> = when {
+    before is MutableShopProductData && after is MutableShopProductData -> buildList {
+        if (created || before.itemInternalId != after.itemInternalId) {
+            add(Change("対象アイテム", before.itemInternalId?.let(itemDisplayText) ?: "未選択", after.itemInternalId?.let(itemDisplayText) ?: "未選択", created))
+        }
+        addValue("購入価格", before.purchasePrice ?: "売買不可", after.purchasePrice ?: "売買不可", created)
+        addValue("販売価格", before.salePrice ?: "売買不可", after.salePrice ?: "売買不可", created)
+        addValue("在庫", before.stock ?: "無限", after.stock ?: "無限", created)
+        addValue("販売時の在庫追加", if (before.increaseStockOnSale) "する" else "しない", if (after.increaseStockOnSale) "する" else "しない", created)
+        addValue("表示順", before.displayOrder, after.displayOrder, created)
+    }
     before is MutableItemBaseData && after is MutableItemBaseData ->
         itemChanges(before, after, created)
     before is MutableOreBaseData && after is MutableOreBaseData ->

@@ -120,7 +120,7 @@ class LocalEditorDataStore(
                         .invariantSeparatorsPath
                         .substringBeforeLast('.')
                         .replace('/', '.')
-                    if (!StorePathValidator.isValidId(id)) return@mapNotNull null
+                    if (!StorePathValidator.isValidId(id) || !descriptor.isValidId(id)) return@mapNotNull null
                     StoreResource(
                         id = id,
                         fileName = it.name,
@@ -337,7 +337,7 @@ class LocalEditorDataStore(
         descriptor: EditorDataDescriptor<T>,
         id: String
     ): File? {
-        if (!StorePathValidator.isValidId(id)) return null
+        if (!StorePathValidator.isValidId(id) || !descriptor.isValidId(id)) return null
         val directory = descriptorDirectory(descriptor).canonicalFile
         val file = descriptor.dataType.pathOf(id).resolve(rootDirectory).canonicalFile
         return file.takeIf { it.toPath().startsWith(directory.toPath()) }

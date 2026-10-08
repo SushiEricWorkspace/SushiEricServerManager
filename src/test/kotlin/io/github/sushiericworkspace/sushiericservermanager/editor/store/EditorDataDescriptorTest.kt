@@ -27,9 +27,9 @@ class EditorDataDescriptorTest {
     }
 
     @Test
-    fun `管理対象はItemとOreだけである`() {
+    fun `管理対象にはItemとOreとShopが含まれる`() {
         assertEquals(
-            listOf(EditorDataDescriptors.item, EditorDataDescriptors.ore),
+            listOf(EditorDataDescriptors.item, EditorDataDescriptors.ore, EditorDataDescriptors.shop),
             EditorDataDescriptors.all
         )
     }

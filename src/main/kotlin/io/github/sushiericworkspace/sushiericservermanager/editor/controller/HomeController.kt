@@ -26,6 +26,7 @@ import io.github.sushiericworkspace.sushiericservermanager.feature.dashboard.Das
 import io.github.sushiericworkspace.sushiericservermanager.feature.modconfig.ModConfigWindowManager
 import io.github.sushiericworkspace.sushiericservermanager.feature.servercontrol.ServerControlWindowManager
 import io.github.sushiericworkspace.sushiericservermanager.feature.moneyhistory.MoneyHistoryWindowManager
+import io.github.sushiericworkspace.sushiericservermanager.editor.main.shop.ShopEditorLogic
 import javafx.application.Platform
 import javafx.concurrent.Task
 import javafx.scene.control.Button
@@ -389,6 +390,17 @@ class HomeController : Initializable {
                     dataService = service
                 )
             }
+        )
+    }
+
+    /** ショップ商品を共通の管理データエディターで開きます。 */
+    @FXML @Suppress("unused")
+    fun onOpenShopEditor() {
+        openManagedDataEditor(
+            key = "SHOP_EDITOR",
+            title = "ショップエディター",
+            dataAccessProvider = { it.shops },
+            logicFactory = { controller, service -> ShopEditorLogic(controller, service) }
         )
     }
 
