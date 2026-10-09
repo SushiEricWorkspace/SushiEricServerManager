@@ -57,10 +57,6 @@
                                         <Button fx:id="historyButton" focusTraversable="false" maxWidth="1.7976931348623157E308"
                                                 mnemonicParsing="false" onAction="#onOpenMoneyHistory"
                                                 styleClass="button, data-btn" text="履歴閲覧" />
-                                        <Button fx:id="uploadLocalButton" focusTraversable="false" maxWidth="1.7976931348623157E308"
-                                                mnemonicParsing="false" onAction="#onUploadLocalData"
-                                                styleClass="button, btn-secondary, home-upload-button"
-                                                text="ローカルデータをアップロード" />
                                     </children>
                                 </VBox>
                             </children>

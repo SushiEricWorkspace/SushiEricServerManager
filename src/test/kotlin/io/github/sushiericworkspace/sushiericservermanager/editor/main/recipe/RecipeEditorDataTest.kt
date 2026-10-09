@@ -184,11 +184,16 @@ class RecipeEditorDataTest {
         assertNotNull(RecipeManager.loadMutable(root.resolve("recipe_data/weapons/test.yml"), root.resolve("recipe_data")))
         val remote = InMemoryEditorDataStore()
         val service = OfflineUploadService(root, remote)
-        val scan = assertIs<UploadScanResult.Success>(service.scan())
-        val candidate = scan.candidates.single { it.key.category == UploadDataCategory.RECIPE }
-        val uploaded = service.upload(setOf(candidate.key), emptySet())
+        val scan = assertIs<UploadScanResult.Success>(service.scan(UploadDataCategory.RECIPE))
+        val candidate = scan.entries.single()
+        assertEquals(UploadDataCategory.RECIPE, candidate.key.category)
+        assertEquals(UploadDataCategory.RECIPE, UploadDataCategory.of(io.github.sushiericworkspace.common.data.core.SushiEricDataType.Recipe))
+        val uploaded = service.upload(setOf(candidate.key), emptySet(), "destination")
         assertTrue(uploaded.failed.isEmpty())
         assertEquals(listOf(candidate.key), uploaded.succeeded)
+        val saved = assertIs<StoreResult.Success<MutableRecipeData>>(remote.load(EditorDataDescriptors.recipe, "destination.test"))
+        assertEquals("destination.test", saved.value.id)
+        assertEquals(data.ingredients, saved.value.ingredients)
     }
 
     private fun withWorkspace(test: (File) -> Unit) {

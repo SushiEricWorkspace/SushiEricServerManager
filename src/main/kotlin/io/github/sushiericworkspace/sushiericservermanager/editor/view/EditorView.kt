@@ -14,6 +14,9 @@ import io.github.sushiericworkspace.sushiericservermanager.editor.result.dataser
 import io.github.sushiericworkspace.sushiericservermanager.editor.result.dataservice.DeleteResult
 import io.github.sushiericworkspace.sushiericservermanager.editor.result.dataservice.RenameResult
 import io.github.sushiericworkspace.sushiericservermanager.editor.service.EditorDataService
+import io.github.sushiericworkspace.sushiericservermanager.editor.session.EditorSession
+import io.github.sushiericworkspace.sushiericservermanager.editor.upload.LocalDataUploader
+import io.github.sushiericworkspace.sushiericservermanager.editor.upload.UploadDataCategory
 import io.github.sushiericworkspace.sushiericservermanager.editor.service.EditorSyncService
 import io.github.sushiericworkspace.sushiericservermanager.editor.merge.DataConflict
 import io.github.sushiericworkspace.sushiericservermanager.editor.history.EditorDataHistory
@@ -137,7 +140,16 @@ abstract class EditorView<T : ManagedData<T, *>>(
     private var repairAllWarningsMenuItem: MenuItem? = null
     private var repairErrorsMenuItem: MenuItem? = null
     private var repairAllErrorsMenuItem: MenuItem? = null
+    private var uploadMenuItem: MenuItem? = null
     private var syncBusy = false
+
+    /**
+     * このエディターからアップロードできるローカルデータの種別です。
+     *
+     * サーバーに接続していて、アップロードに対応するデータ種別のときだけ値があります。
+     */
+    private val uploadCategory: UploadDataCategory? =
+        UploadDataCategory.of(dataAccess.dataType).takeIf { dataService.isRemote }
     private var sidebarPreloadGeneration = 0
 
     /** データ種別固有の警告修正アクションです。 */
@@ -329,6 +341,13 @@ abstract class EditorView<T : ManagedData<T, *>>(
         fileItems += actionMenuItem("新規ディレクトリ作成", EditorShortcut.CREATE_DIRECTORY) {
             handleCreateDirectory()
         }
+        uploadCategory?.let { category ->
+            fileItems += SeparatorMenuItem()
+            uploadMenuItem = MenuItem("ローカルデータをアップロード…").apply {
+                onAction = EventHandler { onUploadLocalData(category) }
+            }
+            fileItems += uploadMenuItem!!
+        }
 
         undoMenuItem = actionMenuItem("元に戻す", EditorShortcut.UNDO) { onUndo() }
         redoMenuItem = actionMenuItem("やり直す", EditorShortcut.REDO) { onRedo() }
@@ -376,6 +395,19 @@ abstract class EditorView<T : ManagedData<T, *>>(
     ): MenuItem = MenuItem(text).apply {
         accelerator = shortcut.combination
         onAction = EventHandler { action() }
+    }
+
+    /** ローカルデータを、宛先ディレクトリを指定してサーバーへアップロードします。 */
+    private fun onUploadLocalData(category: UploadDataCategory) {
+        val profileName = EditorSession.sshManager.currentProfile?.name ?: return
+        LocalDataUploader.start(
+            owner = main.currentStage,
+            remoteStore = dataService.store,
+            profileName = profileName,
+            category = category,
+            onBusyChanged = { busy -> uploadMenuItem?.isDisable = busy },
+            onUploaded = { setupSidebar(main.sidebarContainer, currentSelectedDataId) }
+        )
     }
 
     fun onSynchronizeSelected() {
