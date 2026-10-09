@@ -2,7 +2,10 @@ package io.github.sushiericworkspace.sushiericservermanager.app
 
 import io.github.sushiericworkspace.sushiericservermanager.ui.dialog.CustomDialog
 import io.github.sushiericworkspace.sushiericservermanager.ui.dialog.UpdateDialog
+import io.github.sushiericworkspace.sushiericservermanager.config.FilePath
 import io.github.sushiericworkspace.sushiericservermanager.update.UpdateCheckResult
+import io.github.sushiericworkspace.sushiericservermanager.update.UpdateResultStore
+import io.github.sushiericworkspace.sushiericservermanager.update.pruneOldUpdates
 import javafx.application.Application
 import javafx.application.Platform
 import javafx.stage.Stage
@@ -34,6 +37,7 @@ class MainApp : Application() {
         }
 
         ApplicationFlow.showUpdate = ::showUpdateDialog
+        reportPreviousUpdate()
         ApplicationFlow.showModeSelection(stage)
     }
 
@@ -42,8 +46,37 @@ class MainApp : Application() {
         SingleAppLock.release()
     }
 
-    private fun showUpdateDialog(update: UpdateCheckResult.Update) {
+    private fun showUpdateDialog(update: UpdateCheckResult.Update): UpdateDialog.Outcome =
         UpdateDialog.show(update, openUrl = hostServices::showDocument)
+
+    /**
+     * 前回の更新の結果があれば表示し、不要になったダウンロード済みの成果物を削除する。
+     *
+     * 更新で再起動した直後の起動で、Updaterが書いた結果を利用者へ知らせるために呼ぶ。
+     */
+    private fun reportPreviousUpdate() {
+        val store = UpdateResultStore(FilePath.UPDATE_RESULT.toFile())
+        val result = store.read()
+        store.delete()
+        pruneOldUpdates(FilePath.UPDATES_DIR.toFile())
+        result ?: return
+
+        if (result.success) {
+            CustomDialog.information()
+                .title("アップデート")
+                .header("${result.version}へ更新しました")
+                .content("Managerを更新しました。設定やデータは引き継がれています。")
+                .show()
+        } else {
+            CustomDialog.error()
+                .title("アップデートエラー")
+                .header("${result.version}への更新に失敗しました")
+                .content(
+                    "${result.message ?: "原因不明のエラーです。"}\n\n" +
+                        "現在のバージョンのまま起動しました。時間をおいて、もう一度更新してください。"
+                )
+                .show()
+        }
     }
 }
 

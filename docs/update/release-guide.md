@@ -60,3 +60,8 @@ jpackageの版で先頭に1を足すのは、macOSのjpackageが先頭の数字�
 
 - `https://github.com/SushiEricWorkspace/SushiEricServerManager/releases/latest/download/update.json`が取得できる。
 - `update.json`の2つのURLが、Releaseの成果物に対応している。
+
+## インストーラーの手動実行の注意
+
+WindowsのインストーラーをUpdaterを使わずに手動で実行して上書きすると、インストール先と同じフォルダにあるManagerの設定とデータ（`config.json`、`profiles.json`、`ssh`、`offline`、`autosave`など）が削除される。詳しくは[更新ガイド](update-guide.md#データの保護)を参照する。
+検証などで手動実行する前には、`%LOCALAPPDATA%\SushiEricServerManager`のデータをバックアップする。Updaterによる更新では、データは自動で退避・復元される。

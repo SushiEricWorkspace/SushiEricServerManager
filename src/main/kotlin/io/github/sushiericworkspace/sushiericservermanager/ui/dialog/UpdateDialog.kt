@@ -6,6 +6,8 @@ import io.github.sushiericworkspace.sushiericservermanager.update.AppVersion
 import io.github.sushiericworkspace.sushiericservermanager.update.ChecksumMismatchException
 import io.github.sushiericworkspace.sushiericservermanager.update.UpdateCheckResult
 import io.github.sushiericworkspace.sushiericservermanager.update.UpdateDownloader
+import io.github.sushiericworkspace.sushiericservermanager.update.Updater
+import io.github.sushiericworkspace.sushiericservermanager.update.Updaters
 import javafx.application.Platform
 import javafx.concurrent.Task
 import javafx.concurrent.WorkerStateEvent
@@ -30,19 +32,34 @@ import java.util.concurrent.CancellationException
 /**
  * 更新が見つかったことを知らせ、自動で更新できる場合は成果物のダウンロードと検証を進捗つきで行います。
  *
- * ダイアログを閉じたら、呼び出し側が通常の起動を続けます。
- * 現時点では、検証した成果物の置換と再起動は行いません。
+ * 検証が終わったあと、Updaterを使える環境では「再起動して更新」を表示します。押すとUpdaterを起動し、
+ * 呼び出し側にアプリの終了を求めます（[Outcome.EXIT]）。使えない環境では、そのまま起動を続けます。
  * JavaFX Application Threadから呼び出してください。
  */
 object UpdateDialog {
     private val logger = LoggerFactory.getLogger(UpdateDialog::class.java)
 
+    /** ダイアログを閉じたあとに、呼び出し側が行うことです。 */
+    enum class Outcome {
+        /** 通常の起動を続ける。 */
+        CONTINUE,
+
+        /** Updaterを起動したため、アプリを終了する。 */
+        EXIT
+    }
+
     /**
      * 更新のダイアログを表示し、閉じられるまで待ちます。
      *
      * @param openUrl ダウンロードページをブラウザーで開く関数。
+     * @param updater 置換と再起動を行うUpdater。nullの場合は「再起動して更新」を表示しません。
      */
-    fun show(update: UpdateCheckResult.Update, openUrl: (String) -> Unit) {
+    fun show(
+        update: UpdateCheckResult.Update,
+        openUrl: (String) -> Unit,
+        updater: Updater? = Updaters.forCurrentOs()
+    ): Outcome {
+        var outcome = Outcome.CONTINUE
         val stage = Stage().apply {
             title = "アップデート確認"
             initModality(Modality.APPLICATION_MODAL)
@@ -91,7 +108,9 @@ object UpdateDialog {
                 status.text = "更新をダウンロードして、SHA-256を検証します。"
                 primary.text = "ダウンロード"
                 primary.setOnAction {
-                    startDownload(stage, update, status, progress, primary, secondary)
+                    startDownload(stage, update, updater, status, progress, primary, secondary) {
+                        outcome = Outcome.EXIT
+                    }
                 }
             }
         }
@@ -100,15 +119,18 @@ object UpdateDialog {
             UpdateDialog::class.java.getResource(AppScreen.WIDGETS_ONLY.css)?.toExternalForm()?.let(stylesheets::add)
         }
         stage.showAndWait()
+        return outcome
     }
 
     private fun startDownload(
         stage: Stage,
         update: UpdateCheckResult.Automatic,
+        updater: Updater?,
         status: Label,
         progress: ProgressBar,
         primary: Button,
-        secondary: Button
+        secondary: Button,
+        onRestart: () -> Unit
     ) {
         val downloader = UpdateDownloader(FilePath.UPDATES_DIR.toFile())
         var cancelled = false
@@ -145,11 +167,35 @@ object UpdateDialog {
         }
 
         task.addEventHandler(WorkerStateEvent.WORKER_STATE_SUCCEEDED) {
+            val installer = task.value
+            if (updater == null) {
+                finish(
+                    "ダウンロードとSHA-256の検証が完了しました。\n保存先: $installer\n" +
+                        "この環境では更新を自動で適用できないため、今回はそのまま起動します。",
+                    1.0
+                )
+                return@addEventHandler
+            }
             finish(
-                "ダウンロードとSHA-256の検証が完了しました。\n保存先: ${task.value}\n" +
-                    "更新の適用は、今後の更新で対応します。今回はそのまま起動します。",
+                "ダウンロードとSHA-256の検証が完了しました。\n" +
+                    "「再起動して更新」を押すと、Managerを終了して更新し、再起動します。設定やデータは引き継がれます。",
                 1.0
             )
+            primary.text = "再起動して更新"
+            primary.isDisable = false
+            primary.isVisible = true
+            primary.isManaged = true
+            primary.setOnAction {
+                try {
+                    updater.start(installer, update.version)
+                    onRestart()
+                    stage.close()
+                } catch (e: Exception) {
+                    logger.error("Updaterを起動できませんでした。", e)
+                    status.text = "更新を開始できませんでした: ${e.message ?: "原因不明"}"
+                    primary.isDisable = true
+                }
+            }
         }
         task.addEventHandler(WorkerStateEvent.WORKER_STATE_FAILED) {
             val error = task.exception
