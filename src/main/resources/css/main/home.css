@@ -56,10 +56,6 @@
     -fx-min-height: 42px;
 }
 
-.home-upload-button {
-    -fx-min-height: 40px;
-}
-
 .data-btn-unavailable {
     -fx-text-fill: -fx-text-disabled-color;
     -fx-border-color: derive(-fx-line-color, -12%);
