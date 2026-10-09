@@ -76,6 +76,41 @@ javafx {
     modules("javafx.controls", "javafx.fxml")
 }
 
+/**
+ * appVersionから、実行時に参照するAppVersion.CURRENTを生成する。
+ *
+ * 出力はbuild配下で、ソースには含めない。コンパイルの前に必ず実行される。
+ */
+val generateAppVersion = tasks.register("generateAppVersion") {
+    group = "build"
+    description = "gradle.propertiesのappVersionからAppVersion.CURRENTを生成します"
+
+    val version = releaseVersion
+    val outputDir = layout.buildDirectory.dir("generated/source/appVersion")
+    inputs.property("appVersion", version)
+    outputs.dir(outputDir)
+
+    doLast {
+        val file = outputDir.get().asFile
+            .resolve("io/github/sushiericworkspace/sushiericservermanager/update/AppVersion.kt")
+        file.parentFile.mkdirs()
+        file.writeText(
+            """
+            package io.github.sushiericworkspace.sushiericservermanager.update
+
+            /** gradle.propertiesのappVersionから生成した、実行中のアプリの版です。手で編集しないでください。 */
+            object AppVersion {
+                const val CURRENT = "$version"
+            }
+            """.trimIndent() + "\n"
+        )
+    }
+}
+
+kotlin.sourceSets.named("main") {
+    kotlin.srcDir(generateAppVersion)
+}
+
 application {
     mainClass.set("io.github.sushiericworkspace.sushiericservermanager.app.Launcher")
 }
@@ -86,12 +121,19 @@ tasks.test {
 
 val appName = "SushiEricServerManager"
 
-// GitHub Releases、update.json、AppVersion.CURRENTと合わせるアプリ側のバージョン。
-val releaseVersion = "0.2.2"
+// アプリの版。gradle.propertiesのappVersionが唯一の定義で、
+// AppVersion.CURRENT、成果物名、jpackageの版はこの値から作る。
+val releaseVersion = providers.gradleProperty("appVersion").orNull?.trim().orEmpty()
+if (!Regex("""\d+\.\d+\.\d+""").matches(releaseVersion)) {
+    throw GradleException("gradle.propertiesのappVersionはX.Y.Z形式で指定してください: '$releaseVersion'")
+}
 
-// jpackageに渡すパッケージ用バージョン。
-// macOSのjpackageでは、最初の数字を0にできないため1以上にする。
-val packageVersion = "1.2.2"
+// jpackageに渡すパッケージ用バージョン。releaseVersionの先頭の数字に1を足す。
+// macOSのjpackageでは、最初の数字を0にできないため1以上にする必要がある。
+// 常に1を足すことで、appVersionが1.0.0以降になっても、パッケージ版が減らず更新として扱われる。
+val packageVersion = releaseVersion.split('.').let { (major, minor, patch) ->
+    "${major.toInt() + 1}.$minor.$patch"
+}
 
 val mainJarName = "SushiEricServerManager-1.0-SNAPSHOT.jar"
 val mainClassName = "io.github.sushiericworkspace.sushiericservermanager.app.Launcher"
@@ -126,6 +168,62 @@ val macDmgBaseName = "$appName-$packageVersion.dmg"
 
 // GitHub Releasesなどに置くためのリリース用dmg名。
 val macDmgReleaseName = "$appName-$releaseVersion-macOS-Installer.dmg"
+
+/**
+ * 0.2.2のManagerが読む移行用のupdate.jsonを生成する。
+ *
+ * 新しい更新の仕組みを含む最初のReleaseにだけ添付する。0.2.2は、update.jsonを取得できないと
+ * 起動を中止するためである。手順はdocs/update/release-guide.mdを参照する。
+ *
+ * 出力: build/release-installer/update.json
+ *
+ * 変更内容は-PupdateNotes="1つ目|2つ目"のように、|区切りで指定できる。
+ */
+tasks.register("generateTransitionalUpdateJson") {
+    group = "release"
+    description = "0.2.2向けの移行用update.jsonを生成します"
+
+    val version = releaseVersion
+    val windowsName = windowsInstallerReleaseName
+    val macName = macDmgReleaseName
+    val notes = providers.gradleProperty("updateNotes")
+    val output = layout.buildDirectory.file("release-installer/update.json")
+    inputs.property("appVersion", version)
+    inputs.property("updateNotes", notes.orElse(""))
+    outputs.file(output)
+
+    doLast {
+        fun quote(text: String): String = buildString {
+            append('"')
+            text.forEach { character ->
+                when (character) {
+                    '"' -> append("\\\"")
+                    '\\' -> append("\\\\")
+                    '\n' -> append("\\n")
+                    '\r' -> append("\\r")
+                    '\t' -> append("\\t")
+                    else -> append(character)
+                }
+            }
+            append('"')
+        }
+
+        val baseUrl = "https://github.com/SushiEricWorkspace/SushiEricServerManager/releases/download/v$version"
+        val noteList = notes.orNull.orEmpty().split('|').map(String::trim).filter(String::isNotEmpty)
+        val json = buildString {
+            appendLine("{")
+            appendLine("  \"version\": ${quote(version)},")
+            appendLine("  \"windowsDownloadUrl\": ${quote("$baseUrl/$windowsName")},")
+            appendLine("  \"macDownloadUrl\": ${quote("$baseUrl/$macName")},")
+            appendLine("  \"notes\": [${noteList.joinToString(", ") { quote(it) }}]")
+            appendLine("}")
+        }
+        output.get().asFile.apply {
+            parentFile.mkdirs()
+            writeText(json)
+        }
+    }
+}
 
 /**
  * 現在のアプリ名のapp-image出力だけを削除する。
@@ -245,7 +343,7 @@ tasks.register<Exec>("packageWindowsInstaller") {
  * build/installer/SushiEricServerManager-1.0.0.exe
  *
  * 出力:
- * build/release-installer/SushiEricServerManager-0.1.0-Installer.exe
+ * build/release-installer/SushiEricServerManager-<appVersion>-Windows-Installer.exe
  */
 tasks.register<Copy>("renameWindowsInstaller") {
     group = "release"
@@ -343,7 +441,7 @@ tasks.register<Exec>("packageMacDmg") {
  * build/installer/SushiEricServerManager-1.0.0.dmg
  *
  * 出力:
- * build/release-installer/SushiEricServerManager-0.1.0-macOS.dmg
+ * build/release-installer/SushiEricServerManager-<appVersion>-macOS-Installer.dmg
  */
 tasks.register<Copy>("renameMacDmg") {
     group = "release"

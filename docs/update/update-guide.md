@@ -78,6 +78,7 @@ Updaterは、ManagerがOSごとのスクリプトを一時ディレクトリに�
 - `AppVersion.CURRENT`は、この値からビルド時に生成する。
 - jpackageに渡す版（macOSでは先頭を1以上にする必要がある）は、`appVersion`から導出する。
 - 成果物名は[成果物の名前](#成果物の名前)に従う。
+- 版の上げ方と成果物の作り方は[リリースガイド](release-guide.md)を参照する。
 
 ## サーバー側の防壁
 
@@ -126,6 +127,7 @@ Managerは、SFTPで接続したあと、書き込みを行う前に`manager-com
 
 - 新しい更新の仕組みを含む最初のReleaseには、`update.json`も1回だけ添付する。内容は、そのReleaseの成果物へのURLである。
 - 以降のReleaseでは、`update.json`を添付しない。
+- 生成と添付の手順は、[リリースガイド](release-guide.md#移行用のupdatejson)を参照する。
 
 ## 実装の分割
 
