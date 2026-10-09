@@ -23,7 +23,7 @@
                                 <Label fx:id="monitorLabel" maxWidth="1.7976931348623157E308" styleClass="home-mode-label" wrapText="true" />
                             </children>
                         </VBox>
-                        <GridPane hgap="16.0" styleClass="home-sections">
+                        <GridPane fx:id="homeSections" hgap="16.0" styleClass="home-sections">
                             <columnConstraints>
                                 <ColumnConstraints hgrow="ALWAYS" minWidth="180.0" percentWidth="50.0" />
                                 <ColumnConstraints hgrow="ALWAYS" minWidth="180.0" percentWidth="50.0" />
@@ -38,7 +38,7 @@
                                         <Button disable="true" focusTraversable="false" maxWidth="1.7976931348623157E308" mnemonicParsing="false" styleClass="button, data-btn, data-btn-unavailable" text="作物（未実装）" />
                                     </children>
                                 </VBox>
-                                <VBox maxWidth="1.7976931348623157E308" styleClass="home-section" GridPane.columnIndex="1">
+                                <VBox fx:id="onlineToolsPane" maxWidth="1.7976931348623157E308" styleClass="home-section" GridPane.columnIndex="1">
                                     <children>
                                         <Label maxWidth="1.7976931348623157E308" styleClass="home-section-title" text="管理ツール" />
                                         <Button fx:id="dashboardButton" focusTraversable="false" maxWidth="1.7976931348623157E308"
@@ -50,7 +50,7 @@
                                         <Button fx:id="consoleButton" focusTraversable="false" maxWidth="1.7976931348623157E308"
                                                 mnemonicParsing="false" onAction="#onOpenConsole"
                                                 styleClass="button, data-btn" text="Minecraftコンソール" />
-                                        <Button focusTraversable="false" maxWidth="1.7976931348623157E308"
+                                        <Button fx:id="modConfigButton" focusTraversable="false" maxWidth="1.7976931348623157E308"
                                                 mnemonicParsing="false" onAction="#onOpenModConfig"
                                                 styleClass="button, data-btn" text="Mod設定" />
                                         <Button fx:id="historyButton" focusTraversable="false" maxWidth="1.7976931348623157E308"
