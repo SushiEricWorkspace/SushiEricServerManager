@@ -14,6 +14,7 @@ enum class FilePath {
     AUTOSAVE_DIR,
     OFFLINE_DIR,
     UPDATES_DIR,
+    UPDATE_RESULT,
     LOCK,
     SSH_DIR,
     KNOWN_HOSTS;
@@ -26,6 +27,7 @@ enum class FilePath {
             AUTOSAVE_DIR -> buildPath("autosave")
             OFFLINE_DIR -> buildPath("offline")
             UPDATES_DIR -> buildPath("updates")
+            UPDATE_RESULT -> buildPath("update-result.json")
             LOCK -> buildPath("lock")
             SSH_DIR -> buildPath("ssh")
             KNOWN_HOSTS -> buildPath("ssh${File.separator}known_hosts")
@@ -42,6 +44,9 @@ enum class FilePath {
         const val DIRECTORY_NAME: String = "SushiEricServerManager"
 
         private var migrated = false
+
+        /** 設定とデータを保存するディレクトリを返す。 */
+        fun dataDirectory(): File = baseDirectory()
 
         /**
          * 設定ディレクトリを返す。
