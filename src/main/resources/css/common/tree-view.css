@@ -186,3 +186,15 @@
 .editor-tree-view .combo-box .arrow {
     -fx-background-color: -fx-text-color !important;
 }
+
+/* アイテム選択モーダルでは選択行を灰色で明示する。 */
+.editor-tree-view.item-selection-tree-view {
+    -fx-background-color: -fx-bg-deep !important;
+    -fx-control-inner-background: -fx-bg-deep !important;
+}
+
+.editor-tree-view.item-selection-tree-view .tree-cell:filled:selected,
+.editor-tree-view.item-selection-tree-view .tree-cell:filled:selected:focused {
+    -fx-background-color: -fx-selected-color !important;
+    -fx-text-fill: -fx-text-color !important;
+}

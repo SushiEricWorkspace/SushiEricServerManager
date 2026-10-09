@@ -27,6 +27,7 @@ import io.github.sushiericworkspace.sushiericservermanager.feature.modconfig.Mod
 import io.github.sushiericworkspace.sushiericservermanager.feature.servercontrol.ServerControlWindowManager
 import io.github.sushiericworkspace.sushiericservermanager.feature.moneyhistory.MoneyHistoryWindowManager
 import io.github.sushiericworkspace.sushiericservermanager.editor.main.shop.ShopEditorLogic
+import io.github.sushiericworkspace.sushiericservermanager.editor.main.recipe.RecipeEditorLogic
 import javafx.application.Platform
 import javafx.concurrent.Task
 import javafx.scene.control.Button
@@ -414,6 +415,17 @@ class HomeController : Initializable {
             title = "ショップエディター",
             dataAccessProvider = { it.shops },
             logicFactory = { controller, service -> ShopEditorLogic(controller, service) }
+        )
+    }
+
+    /** レシピの階層・材料・解放条件を共通エディターで編集します。 */
+    @FXML @Suppress("unused")
+    fun onOpenRecipeEditor() {
+        openManagedDataEditor(
+            key = "RECIPE_EDITOR",
+            title = "レシピエディター",
+            dataAccessProvider = { it.recipes },
+            logicFactory = { controller, service -> RecipeEditorLogic(controller, service) }
         )
     }
 

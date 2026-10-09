@@ -205,8 +205,12 @@ class RemoteEditorDataStore(
         val tempFile = createTempFile("remote_save_", ".yml").toFile()
 
         return try {
-            val itemIds = loadItemIds()
-            val validationResults = data.refreshCompleted(descriptor.validate(data, itemIds))
+            val itemIds = if (descriptor.validateInStore == null) loadItemIds() else emptySet()
+            val validation = descriptor.validateInStore?.invoke(data, this)
+            if (validation is StoreResult.Failure) return validation
+            val validationResults = data.refreshCompleted(
+                (validation as? StoreResult.Success)?.value ?: descriptor.validate(data, itemIds)
+            )
             val errors = validationResults.filter { it.isError }
             if (errors.isNotEmpty()) {
                 return failure(

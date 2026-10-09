@@ -5,6 +5,7 @@ import io.github.sushiericworkspace.common.data.shop.model.mutable.MutableShopPr
 import io.github.sushiericworkspace.common.data.item.model.ItemInternalId
 import io.github.sushiericworkspace.common.data.item.model.mutable.MutableItemBaseData
 import io.github.sushiericworkspace.common.data.ore.model.mutable.MutableOreBaseData
+import io.github.sushiericworkspace.common.data.recipe.model.mutable.MutableRecipeData
 import io.github.sushiericworkspace.sushiericservermanager.editor.merge.ConflictValueFormatter
 
 /** 保存確認に表示する、操作と項目単位の変更内容を組み立てます。 */
@@ -28,14 +29,14 @@ internal fun saveChangeDetails(
     val changes = changesBetween(original, current, operation is PendingStoreOperation.Create, itemDisplayText)
     add("")
     add("【内容の変更】")
-    appendChanges(changes)
+    appendChanges(changes, itemDisplayText)
 
     if (automaticallyMerged != null) {
         val mergedChanges = changesBetween(current, automaticallyMerged, created = false, itemDisplayText)
         if (mergedChanges.isNotEmpty()) {
             add("")
             add("【自動マージ内容】")
-            appendChanges(mergedChanges)
+            appendChanges(mergedChanges, itemDisplayText)
         }
     }
 
@@ -44,22 +45,22 @@ internal fun saveChangeDetails(
         if (resolutionChanges.isNotEmpty()) {
             add("")
             add("【競合の解決内容】")
-            appendChanges(resolutionChanges)
+            appendChanges(resolutionChanges, itemDisplayText)
         }
     }
 }
 
-private fun MutableList<String>.appendChanges(changes: List<Change>) {
+private fun MutableList<String>.appendChanges(changes: List<Change>, itemDisplayText: (ItemInternalId) -> String) {
     if (changes.isEmpty()) {
         add("・なし")
     } else {
         changes.forEach { change ->
             add("・${change.label}")
             if (change.created) {
-                add("  値: ${formatValue(change.after)}")
+                add("  値: ${formatValue(change.after, itemDisplayText)}")
             } else {
-                add("  変更前: ${formatValue(change.before)}")
-                add("  変更後: ${formatValue(change.after)}")
+                add("  変更前: ${formatValue(change.before, itemDisplayText)}")
+                add("  変更後: ${formatValue(change.after, itemDisplayText)}")
             }
         }
     }
@@ -71,6 +72,13 @@ private fun changesBetween(
     created: Boolean,
     itemDisplayText: (ItemInternalId) -> String
 ): List<Change> = when {
+    before is MutableRecipeData && after is MutableRecipeData -> buildList {
+        addValue("材料盤", before.size to before.ingredients, after.size to after.ingredients, created)
+        addValue("完成品", before.resultItemInternalId?.let(itemDisplayText) ?: "未選択", after.resultItemInternalId?.let(itemDisplayText) ?: "未選択", created)
+        addValue("完成数", before.resultCount, after.resultCount, created)
+        addMap("要求スキルレベル", before.skillLevelRequirements, after.skillLevelRequirements, created)
+        addValue("要求実績", before.achievementRequirements, after.achievementRequirements, created)
+    }
     before is MutableShopProductData && after is MutableShopProductData -> buildList {
         if (created || before.itemInternalId != after.itemInternalId) {
             add(Change("対象アイテム", before.itemInternalId?.let(itemDisplayText) ?: "未選択", after.itemInternalId?.let(itemDisplayText) ?: "未選択", created))
@@ -165,9 +173,11 @@ private fun MutableList<Change>.addMap(
     }
 }
 
-private fun formatValue(value: Any?): String {
-    val normalized = ConflictValueFormatter.format(value)
-        .replace(Regex("\\s+"), " ")
-        .trim()
-    return if (normalized.length <= 180) normalized else normalized.take(177) + "..."
+private fun formatValue(value: Any?, itemDisplayText: (ItemInternalId) -> String): String {
+    val normalized = ConflictValueFormatter.format(value, itemDisplayText)
+    if (value is Pair<*, *> && value.first is io.github.sushiericworkspace.common.data.recipe.model.RecipeSize &&
+        value.second is io.github.sushiericworkspace.common.data.recipe.model.RecipeIngredients
+    ) return normalized
+    val singleLine = normalized.replace(Regex("\\s+"), " ").trim()
+    return if (singleLine.length <= 180) singleLine else singleLine.take(177) + "..."
 }

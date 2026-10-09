@@ -18,6 +18,10 @@ import io.github.sushiericworkspace.common.data.core.validation.SushiEricValidat
 import io.github.sushiericworkspace.common.data.shop.ShopManager
 import io.github.sushiericworkspace.common.data.shop.model.mutable.MutableShopProductData
 import io.github.sushiericworkspace.sushiericservermanager.editor.merge.ShopDataMerger
+import io.github.sushiericworkspace.common.data.recipe.RecipeManager
+import io.github.sushiericworkspace.sushiericservermanager.editor.merge.RecipeDataMerger
+import io.github.sushiericworkspace.sushiericservermanager.editor.service.RecipeEditorCatalog
+import io.github.sushiericworkspace.sushiericservermanager.editor.service.validateRecipeForEditor
 
 /** Commonの検証結果を優先し、未提供の版ではスキル経験値の範囲検証だけを補います。 */
 internal fun validateOreDataForEditor(
@@ -51,7 +55,11 @@ class EditorDataDescriptor<T : ManagedData<T, *>>(
     private val duplicateForNewEntry: (T) -> T = { it.deepCopy() },
     val isValidId: (String) -> Boolean = PublicId::isValidFull,
     val loadBackup: (File, File) -> T? = load,
-    val saveBackup: (File, T) -> Unit = { file, data -> save(file, data, null) }
+    val saveBackup: (File, T) -> Unit = { file, data -> save(file, data, null) },
+    /** 保存先の最新定義を必要とする検証。読込失敗では保存を中止します。 */
+    val validateInStore: ((T, EditorDataStore) -> StoreResult<List<SushiEricValidationError>>)? = null,
+    /** falseならIDはパスだけに由来し、ローカルのID変更でも内容の再出力は不要です。 */
+    val storesIdInFile: Boolean = true
 ) {
     val displayName: String
         get() = dataType.displayName
@@ -103,7 +111,24 @@ object EditorDataDescriptors {
         saveBackup = ShopManager::saveEditorBackup
     )
 
-    val all: List<EditorDataDescriptor<out ManagedData<*, *>>> = listOf(item, ore, shop)
+    val recipe = EditorDataDescriptor(
+        dataType = SushiEricDataType.Recipe,
+        load = { file, directory -> RecipeManager.loadMutable(file, directory) },
+        save = { file, data, _ -> RecipeManager.saveRecipe(file, data.freeze()) },
+        validate = { data, ids -> validateRecipeForEditor(data, emptyList(), emptyList(), ids) },
+        merger = RecipeDataMerger,
+        loadBackup = { file, _ -> RecipeManager.loadEditorBackup(file) },
+        saveBackup = RecipeManager::saveEditorBackup,
+        validateInStore = { data, store ->
+            when (val result = RecipeEditorCatalog.load(store)) {
+                is StoreResult.Success -> StoreResult.Success(validateRecipeForEditor(data, result.value.items, result.value.recipes))
+                is StoreResult.Failure -> result
+            }
+        },
+        storesIdInFile = false
+    )
+
+    val all: List<EditorDataDescriptor<out ManagedData<*, *>>> = listOf(item, ore, shop, recipe)
 
     @Suppress("UNCHECKED_CAST")
     fun <T : ManagedData<T, *>> of(dataType: SushiEricDataType<T>): EditorDataDescriptor<T> {
@@ -111,6 +136,7 @@ object EditorDataDescriptors {
             SushiEricDataType.Item -> item
             SushiEricDataType.Ore -> ore
             SushiEricDataType.Shop -> shop
+            SushiEricDataType.Recipe -> recipe
         } as EditorDataDescriptor<T>
     }
 }

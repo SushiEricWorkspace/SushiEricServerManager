@@ -25,7 +25,8 @@ object MergeConflictDialog {
     fun show(
         owner: Stage?,
         dataId: String,
-        conflicts: List<DataConflict>
+        conflicts: List<DataConflict>,
+        formatValue: (Any?) -> String = { ConflictValueFormatter.format(it) }
     ): Set<DataFieldPath>? {
         if (conflicts.isEmpty()) return emptySet()
         val applyType = ButtonType("選択内容を適用", ButtonBar.ButtonData.OK_DONE)
@@ -33,7 +34,7 @@ object MergeConflictDialog {
         val choiceControls = linkedMapOf<DataFieldPath, ConflictChoiceControls>()
         val conflictList = VBox(10.0).apply {
             children.addAll(conflicts.map { conflict ->
-                createConflictRow(conflict, selection).also { row ->
+                createConflictRow(conflict, selection, formatValue).also { row ->
                     choiceControls[conflict.path] = row.choiceControls
                 }.container
             })
@@ -89,10 +90,11 @@ object MergeConflictDialog {
 
     private fun createConflictRow(
         conflict: DataConflict,
-        selection: MergeConflictSelectionModel
+        selection: MergeConflictSelectionModel,
+        formatValue: (Any?) -> String
     ): ConflictRow {
-        val localChoice = valueChoiceButton("ローカル", conflict.localValue)
-        val remoteChoice = valueChoiceButton("サーバー", conflict.remoteValue)
+        val localChoice = valueChoiceButton("ローカル", conflict.localValue, formatValue)
+        val remoteChoice = valueChoiceButton("サーバー", conflict.remoteValue, formatValue)
         val localLine = Line().apply {
             styleClass.add("merge-conflict-branch-line")
             isMouseTransparent = true
@@ -159,7 +161,7 @@ object MergeConflictDialog {
                         styleClass.add("merge-conflict-field-name")
                     },
                     HBox(
-                        valueLabel("編集開始時", conflict.baseValue).apply {
+                        valueLabel("編集開始時", conflict.baseValue, formatValue).apply {
                             prefWidth = 250.0
                             maxWidth = 250.0
                         },
@@ -175,8 +177,8 @@ object MergeConflictDialog {
         )
     }
 
-    private fun valueLabel(heading: String, value: Any?) = Label(
-        "$heading\n${ConflictValueFormatter.format(value)}"
+    private fun valueLabel(heading: String, value: Any?, formatValue: (Any?) -> String) = Label(
+        "$heading\n${formatValue(value)}"
     ).apply {
         styleClass.add("merge-conflict-value")
         isWrapText = true
@@ -185,8 +187,8 @@ object MergeConflictDialog {
         minHeight = Region.USE_PREF_SIZE
     }
 
-    private fun valueChoiceButton(heading: String, value: Any?) = Button(
-        "$heading\n${ConflictValueFormatter.format(value)}"
+    private fun valueChoiceButton(heading: String, value: Any?, formatValue: (Any?) -> String) = Button(
+        "$heading\n${formatValue(value)}"
     ).apply {
         styleClass.add("merge-conflict-choice")
         isMnemonicParsing = false
