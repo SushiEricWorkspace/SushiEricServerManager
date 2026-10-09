@@ -54,6 +54,7 @@ class EditorDataService(
     val items: DataAccess<MutableItemBaseData> = DataAccess(EditorDataDescriptors.item)
     val ores: DataAccess<MutableOreBaseData> = DataAccess(EditorDataDescriptors.ore)
     val shops = DataAccess(EditorDataDescriptors.shop)
+    val recipes = DataAccess(EditorDataDescriptors.recipe)
 
     /**
      * Mod共通設定（config.yml）の生テキストです。

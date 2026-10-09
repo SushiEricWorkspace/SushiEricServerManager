@@ -742,7 +742,7 @@ abstract class EditorView<T : ManagedData<T, *>>(
                 }
             }
         }
-        return when (val result = dataAccess.saveStore(dataId, normalizedSaveData)) {
+        return when (val result = saveStoreData(dataId, normalizedSaveData)) {
             is StoreResult.Success -> {
                 originalDataMap[dataId] = normalizedSaveData.deepCopy()
                 editingDataMap[dataId] = normalizedSaveData.deepCopy()
@@ -780,6 +780,9 @@ abstract class EditorView<T : ManagedData<T, *>>(
             }
         }
     }
+
+    /** 画面固有の保存前検証に重いI/Oがある場合は、バックグラウンド実行へ切り替えられます。 */
+    protected open fun saveStoreData(dataId: String, data: T): StoreResult<Unit> = dataAccess.saveStore(dataId, data)
 
     private fun persistDelete(dataId: String, operation: PendingStoreOperation.Delete): Boolean {
         return when (dataAccess.delete(operation.sourceId)) {
@@ -1143,7 +1146,7 @@ abstract class EditorView<T : ManagedData<T, *>>(
     }
 
     /** 現在の参照アイテム集合を使って検証結果を取得します。 */
-    protected fun validationErrors(data: T): List<SushiEricValidationError> =
+    protected open fun validationErrors(data: T): List<SushiEricValidationError> =
         dataAccess.validationErrors(data, availableItemInternalIds())
             .filterNot { error -> isHiddenValidationError(data, error) }
 

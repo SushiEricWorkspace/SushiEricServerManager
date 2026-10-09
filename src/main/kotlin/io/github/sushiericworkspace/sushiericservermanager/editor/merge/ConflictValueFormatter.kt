@@ -11,6 +11,9 @@ import io.github.sushiericworkspace.common.data.item.model.mutable.MutableLoreSe
 import io.github.sushiericworkspace.common.data.item.model.mutable.MutableHeadSkinData
 import io.github.sushiericworkspace.common.data.item.model.mutable.detail.MutableItemDetailContent
 import io.github.sushiericworkspace.common.stats.player.SkillType
+import io.github.sushiericworkspace.common.stats.player.AchievementType
+import io.github.sushiericworkspace.common.data.recipe.model.RecipeIngredients
+import io.github.sushiericworkspace.common.data.recipe.model.RecipeSize
 import io.github.sushiericworkspace.sushiericservermanager.ui.format.ItemDetailContentFormatter
 import io.github.sushiericworkspace.sushiericservermanager.ui.format.ItemStatMultiplierFormatter
 import net.kyori.adventure.text.serializer.plain.PlainTextComponentSerializer
@@ -42,16 +45,16 @@ object ConflictValueFormatter {
      * 競合値を表示用の文字列へ整形します。
      *
      * @param value 整形対象の競合値。
-     * @return 競合内容が読み取れる1行の文字列。
+     * @return 競合内容が読み取れる表示文字列。材料盤などは複数行になります。
      */
-    fun format(value: Any?): String {
+    fun format(value: Any?, itemDisplayText: ((ItemInternalId) -> String)? = null): String {
         return when (value) {
             null,
             MergeAccumulator.EntryValue.Missing,
             MergeAccumulator.IndexValue.Missing -> ABSENT
 
-            is MergeAccumulator.EntryValue.Present<*> -> format(value.value)
-            is MergeAccumulator.IndexValue.Present<*> -> format(value.value)
+            is MergeAccumulator.EntryValue.Present<*> -> format(value.value, itemDisplayText)
+            is MergeAccumulator.IndexValue.Present<*> -> format(value.value, itemDisplayText)
 
             is ItemDetailContent -> ItemDetailContentFormatter.format(value)
             is MutableItemDetailContent ->
@@ -63,22 +66,63 @@ object ConflictValueFormatter {
             is MutableLoreSection -> plainText.serialize(value.toComponent())
             is VanillaItemId -> value.value
             is VanillaBlockId -> value.value
-            is ItemInternalId -> value.value
+            is ItemInternalId -> itemDisplayText?.invoke(value) ?: value.value
             is SkillType -> value.display
+            is AchievementType -> value.display
+            is RecipeSize -> "${value.sideLength} × ${value.sideLength}"
+            is RecipeIngredients.Shaped -> formatRecipeIngredients(value, null, itemDisplayText)
+            is RecipeIngredients.Shapeless -> formatRecipeIngredients(value, null, itemDisplayText)
+            is Pair<*, *> -> if (value.first is RecipeSize && value.second is RecipeIngredients) {
+                formatRecipeIngredients(
+                    value.second as RecipeIngredients,
+                    value.first as RecipeSize,
+                    itemDisplayText
+                )
+            } else "${format(value.first, itemDisplayText)} / ${format(value.second, itemDisplayText)}"
 
             is Collection<*> -> {
-                if (value.isEmpty()) EMPTY else value.joinToString(" | ") { format(it) }
+                if (value.isEmpty()) EMPTY else value.joinToString(" | ") { format(it, itemDisplayText) }
             }
 
             is Map<*, *> -> {
                 if (value.isEmpty()) EMPTY else value.entries.joinToString(", ") { (key, entry) ->
-                    "${format(key)}=${format(entry)}"
+                    "${format(key, itemDisplayText)}=${format(entry, itemDisplayText)}"
                 }
             }
 
             is String -> value.ifBlank { EMPTY }
 
             else -> value.toString()
+        }
+    }
+
+    private fun formatRecipeIngredients(
+        ingredients: RecipeIngredients,
+        size: RecipeSize?,
+        itemDisplayText: ((ItemInternalId) -> String)?
+    ): String = when (ingredients) {
+        is RecipeIngredients.Shaped -> {
+            val boardSize = size ?: if (ingredients.slots.keys.any { it >= 9 }) RecipeSize.FIVE_BY_FIVE else RecipeSize.THREE_BY_THREE
+            buildString {
+                append("形状あり（${boardSize.sideLength} × ${boardSize.sideLength}）")
+                boardSize.slots.chunked(boardSize.sideLength).forEach { row ->
+                    append("\n│ ")
+                    append(row.joinToString(" │ ") { slot -> ingredients.slots[slot]?.let { itemDisplayText?.invoke(it) ?: it.value } ?: "・" })
+                    append(" │")
+                }
+                val outside = ingredients.slots.filterKeys { it !in boardSize.slots }.toSortedMap()
+                if (outside.isNotEmpty()) {
+                    append("\n盤外: ")
+                    append(outside.entries.joinToString("、") { (slot, id) -> "${slot + 1}番目 ${itemDisplayText?.invoke(id) ?: id.value}" })
+                }
+            }
+        }
+        is RecipeIngredients.Shapeless -> buildString {
+            append("形状なし${size?.let { "（${it.sideLength}×${it.sideLength}盤）" }.orEmpty()}")
+            ingredients.items.groupingBy { it }.eachCount().forEach { (id, count) ->
+                append("\n・${itemDisplayText?.invoke(id) ?: id.value}")
+                if (count > 1) append(" × $count")
+            }
         }
     }
 }

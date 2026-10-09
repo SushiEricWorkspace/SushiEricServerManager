@@ -165,8 +165,12 @@ class LocalEditorDataStore(
             return failure(StoreErrorCode.PERMISSION_DENIED, id)
         }
 
-        val itemIds = localItemIds()
-        val validationResults = data.refreshCompleted(descriptor.validate(data, itemIds))
+        val itemIds = if (descriptor.validateInStore == null) localItemIds() else emptySet()
+        val validation = descriptor.validateInStore?.invoke(data, this)
+        if (validation is StoreResult.Failure) return validation
+        val validationResults = data.refreshCompleted(
+            (validation as? StoreResult.Success)?.value ?: descriptor.validate(data, itemIds)
+        )
         val errors = validationResults.filter { it.isError }
         if (errors.isNotEmpty()) {
             return failure(
@@ -237,6 +241,18 @@ class LocalEditorDataStore(
         val target = resolveFile(descriptor, newId) ?: return failure(StoreErrorCode.INVALID_ID, newId)
         if (!source.isFile) return failure(StoreErrorCode.FILE_NOT_FOUND, oldId)
         if (target.exists()) return failure(StoreErrorCode.ALREADY_EXISTS, newId)
+
+        if (!descriptor.storesIdInFile) {
+            return try {
+                Files.createDirectories(target.parentFile.toPath())
+                Files.move(source.toPath(), target.toPath())
+                StoreResult.Success(newId)
+            } catch (e: SecurityException) {
+                failure(StoreErrorCode.PERMISSION_DENIED, oldId, cause = e)
+            } catch (e: Exception) {
+                failure(StoreErrorCode.IO_ERROR, oldId, cause = e)
+            }
+        }
 
         return when (val loaded = load(descriptor, oldId)) {
             is StoreResult.Failure -> loaded

@@ -19,7 +19,8 @@ import java.io.File
 /** アップロードできるデータの種別です。エディターが扱う[SushiEricDataType]と対応します。 */
 enum class UploadDataCategory(val displayName: String, val dataType: SushiEricDataType<*>) {
     ITEM("アイテム", SushiEricDataType.Item),
-    ORE("鉱石", SushiEricDataType.Ore);
+    ORE("鉱石", SushiEricDataType.Ore),
+    RECIPE("レシピ", SushiEricDataType.Recipe);
 
     companion object {
         /** エディターのデータ種別に対応するアップロード種別を返します。対応しない種別はnullです。 */
@@ -133,6 +134,7 @@ class OfflineUploadService(
         return when (category) {
             UploadDataCategory.ITEM -> scanDescriptor(category, EditorDataDescriptors.item, requiresUpdate)
             UploadDataCategory.ORE -> scanDescriptor(category, EditorDataDescriptors.ore, requiresUpdate)
+            UploadDataCategory.RECIPE -> scanDescriptor(category, EditorDataDescriptors.recipe, requiresUpdate)
         }
     }
 
@@ -180,6 +182,9 @@ class OfflineUploadService(
                 )
                 UploadDataCategory.ORE -> uploadUnchecked(
                     key, targetId, EditorDataDescriptors.ore, overwriteApproved, succeeded, failed
+                )
+                UploadDataCategory.RECIPE -> uploadUnchecked(
+                    key, targetId, EditorDataDescriptors.recipe, overwriteApproved, succeeded, failed
                 )
             }
         }
