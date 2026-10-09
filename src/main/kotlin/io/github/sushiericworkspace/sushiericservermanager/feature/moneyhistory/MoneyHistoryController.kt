@@ -40,6 +40,8 @@ class MoneyHistoryController {
     private val logger = LoggerFactory.getLogger(javaClass)
 
     @FXML private lateinit var achievementTab: Tab
+    @FXML private lateinit var shopTab: Tab
+    private var shopHistoryView: ShopHistoryView? = null
     @FXML private lateinit var achievementHistoryController: AchievementHistoryController
     @FXML private lateinit var playerSelectorPane: VBox
     private lateinit var playerBox: ComboBox<HistoryPlayer>
@@ -87,6 +89,12 @@ class MoneyHistoryController {
         loadPlayers()
         achievementTab.selectedProperty().addListener { _, _, selected ->
             if (selected) achievementHistoryController.initialize(store, managementClient)
+        }
+        shopTab.selectedProperty().addListener { _, _, selected ->
+            if (selected && shopHistoryView == null) {
+                shopHistoryView = ShopHistoryView(store, managementClient)
+                shopTab.content = shopHistoryView
+            }
         }
     }
 
@@ -377,6 +385,7 @@ class MoneyHistoryController {
     fun dispose() {
         allRows = emptyList()
         achievementHistoryController.dispose()
+        shopHistoryView?.dispose()
     }
 
 }
