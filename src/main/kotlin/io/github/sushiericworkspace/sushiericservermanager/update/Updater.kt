@@ -28,5 +28,9 @@ object Updaters {
      * @return 利用できるUpdater。対応するOSでない場合と、インストールされたアプリとして起動していない
      * 場合（開発中の実行など）はnull。
      */
-    fun forCurrentOs(): Updater? = if (OS.isWindows) WindowsUpdater.forInstalledApp() else null
+    fun forCurrentOs(): Updater? = when {
+        OS.isWindows -> WindowsUpdater.forInstalledApp()
+        OS.isMac -> MacUpdater.forInstalledApp()
+        else -> null
+    }
 }

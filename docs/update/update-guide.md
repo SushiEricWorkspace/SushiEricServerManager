@@ -2,7 +2,7 @@
 
 Managerの自動更新と、古いManagerからサーバーのデータを守る仕組みの設計をまとめる。更新処理や互換ファイルを実装・変更するときに読む。
 ここに書く内容は設計であり、実装は[実装の分割](#実装の分割)の各Issueで行う。実装が入った箇所は、実装に合わせてこのドキュメントを更新する。
-実装済みの範囲は、最新版の確認、ダウンロード、SHA-256の検証、進捗の表示と、Windowsでの置換と再起動である。macOSのUpdaterと互換ファイルは未実装である。
+実装済みの範囲は、最新版の確認、ダウンロード、SHA-256の検証、進捗の表示と、WindowsとmacOSでの置換と再起動である。互換ファイルは未実装である。
 ソースコードは`src/main/kotlin/io/github/sushiericworkspace/sushiericservermanager/`を基準にした相対パスで示す。
 
 ## 更新の流れ
@@ -80,7 +80,7 @@ Managerの自動更新と、古いManagerからサーバーのデータを守る
 
 検証が終わったあと、Updaterを使える環境（`update/Updater.kt`の`Updaters.forCurrentOs()`がnullでない場合）では、「再起動して更新」を表示する。
 押すとUpdaterを起動してManagerを終了する。使えない環境では、完了メッセージを表示し、そのまま起動する。
-現在のUpdaterはWindowsのインストールされたアプリだけで使える。macOSと、`gradlew run`などの開発中の実行では使えない。
+Updaterは、WindowsとmacOSのインストールされたアプリだけで使える。`gradlew run`などの開発中の実行と、macOSでdmgをマウントした領域（`/Volumes`）から直接起動している場合は使えない。
 サーバーの互換ファイルが求める最小版を満たしていない場合に、更新を必須にする制御（「後で」を選べない）も未実装で、現在は常に閉じて起動を続けられる。
 
 ## Updater
@@ -112,7 +112,23 @@ Updaterは、ManagerがOSごとのスクリプトを一時ディレクトリに�
 - jpackageのexeは、引数を`msiexec`へ渡す。`/qn`を指定すると、画面を出さずに上書きインストールする。終了コード0、1641、3010を成功として扱う。
 - 上書きインストールが成功するには、パッケージの版が上がっている必要がある。同じ版では上書きされない（[リリースガイド](release-guide.md#版の管理)の、`appVersion`とパッケージの版の関係を参照する）。
 
-### データの保護
+### macOS
+
+実装は`update/MacUpdater.kt`と、スクリプト`resources/updater/update-macos.sh`である。
+
+- ManagerがスクリプトをUTF-8で一時ディレクトリへ書き出し、`/bin/sh`で起動する。値（dmgのパス、プロセスID、`.app`のパス、結果ファイルなど）は、スクリプトへ埋め込まず、引数として渡す。
+- 置換する`.app`は、jpackageの起動ファイルが設定するシステムプロパティ`jpackage.app-path`から、親をたどって見つける。同じ`.app`を再起動にも使う（`open`）。
+- 手順は次のとおり。
+  1. Managerのプロセスが終了するまで、最大60秒待つ。
+  2. `hdiutil attach`でdmgを一時ディレクトリへ読み取り専用でマウントする。
+  3. dmg内の`.app`を、現在の`.app`と同じフォルダの隠しディレクトリへ`ditto`でコピーする。
+  4. 旧版を別名へ退避し、新版を現在の場所へ移動して、旧版を削除する。新版を置けなかった場合は、旧版を元に戻す。
+  5. 成功と失敗のどちらでもdmgをアンマウントし、結果を書いて、`.app`を起動する。
+- 新版は、置換先と同じフォルダでコピーし終えてから入れ替える。コピーに失敗した場合や、`/Applications`へ書き込めない場合は、旧版のまま起動し、失敗を結果へ書く。
+- 設定とデータは`.app`の外にあるため、退避は不要である。
+- `exitCode`は常に`null`で、失敗の原因は`message`に書く。
+
+### データの保護（Windows）
 
 jpackageのMSIは、上書き更新のときに**インストール先のフォルダ全体を削除する**。Managerの設定とデータ（`config.json`、`profiles.json`、`ssh`、`offline`、`autosave`など）は、インストール先と同じフォルダ（Windowsでは`%LOCALAPPDATA%\SushiEricServerManager`）にあるため、そのままでは更新のたびに消える。
 これは、Updaterを使わずにインストーラーを手動で実行した場合も同じである。
@@ -127,13 +143,13 @@ Updaterは、次のようにデータを守る。
 
 ### 更新の結果
 
-Updaterは、`update-result.json`をデータのディレクトリへ書く（復元のあとに書く）。`update/UpdateResult.kt`の`UpdateResult`と同じ形式である。
+Updaterは、`update-result.json`をデータのディレクトリへ書く（Windowsでは復元のあとに書く）。`update/UpdateResult.kt`の`UpdateResult`と同じ形式である。
 
 | 項目 | 内容 |
 |---|---|
 | `success` | 更新に成功し、データも復元できた場合は`true` |
 | `version` | 更新しようとした版 |
-| `exitCode` | インストーラーの終了コード。実行できなかった場合は`null` |
+| `exitCode` | インストーラーの終了コード。実行できなかった場合と、macOSでは`null` |
 | `message` | 失敗した場合の原因。成功した場合は`null` |
 | `timestamp` | 結果を書いた時刻（ISO-8601） |
 
