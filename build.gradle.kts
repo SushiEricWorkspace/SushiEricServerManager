@@ -167,7 +167,7 @@ val windowsInstallerReleaseName = "$appName-$releaseVersion-Windows-Installer.ex
 val macDmgBaseName = "$appName-$packageVersion.dmg"
 
 // GitHub Releasesなどに置くためのリリース用dmg名。
-val macDmgReleaseName = "$appName-$releaseVersion-macOS-Installer.dmg"
+val macDmgReleaseName = "$appName-$releaseVersion-macOS-arm64-Installer.dmg"
 
 /**
  * 0.2.2のManagerが読む移行用のupdate.jsonを生成する。
@@ -441,7 +441,7 @@ tasks.register<Exec>("packageMacDmg") {
  * build/installer/SushiEricServerManager-1.0.0.dmg
  *
  * 出力:
- * build/release-installer/SushiEricServerManager-<appVersion>-macOS-Installer.dmg
+ * build/release-installer/SushiEricServerManager-<appVersion>-macOS-arm64-Installer.dmg
  */
 tasks.register<Copy>("renameMacDmg") {
     group = "release"
