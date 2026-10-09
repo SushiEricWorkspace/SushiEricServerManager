@@ -30,14 +30,14 @@ class OfflineUploadServiceTest {
             remote.save(EditorDataDescriptors.item, "one", validItem("one"))
             val service = OfflineUploadService(root, remote)
 
-            val scan = assertIs<UploadScanResult.Success>(service.scan())
+            val scan = assertIs<UploadScanResult.Success>(service.scan(UploadDataCategory.ITEM))
             assertEquals(
                 UploadCandidateState.OVERWRITE,
-                scan.candidates.single { it.key.id == "one" }.state
+                planUpload(scan, "").single { it.key.id == "one" }.state
             )
 
             val two = UploadKey(UploadDataCategory.ITEM, "two")
-            val result = service.upload(setOf(two), emptySet())
+            val result = service.upload(setOf(two), emptySet(), "")
 
             assertEquals(listOf(two), result.succeeded)
             assertTrue(result.failed.isEmpty())
@@ -62,7 +62,7 @@ class OfflineUploadServiceTest {
             remote.save(EditorDataDescriptors.item, "same", validItem("same", "Remote"))
             val key = UploadKey(UploadDataCategory.ITEM, "same")
 
-            val result = OfflineUploadService(root, remote).upload(setOf(key), emptySet())
+            val result = OfflineUploadService(root, remote).upload(setOf(key), emptySet(), "")
 
             assertEquals(
                 StoreErrorCode.ALREADY_EXISTS,
@@ -80,7 +80,7 @@ class OfflineUploadServiceTest {
     }
 
     @Test
-    fun `リモート一覧を取得できない場合はアップロード対象を選択不可にする`() {
+    fun `リモート一覧を取得できない場合は走査が失敗する`() {
         val root = createTempDirectory("offline-upload-unavailable").toFile()
         try {
             LocalEditorDataStore(root).save(
@@ -89,13 +89,11 @@ class OfflineUploadServiceTest {
                 validItem("one")
             )
 
-            val scan = assertIs<UploadScanResult.Success>(
-                OfflineUploadService(root, ListUnavailableStore()).scan()
+            val scan = assertIs<UploadScanResult.Failure>(
+                OfflineUploadService(root, ListUnavailableStore()).scan(UploadDataCategory.ITEM)
             )
 
-            val candidate = scan.candidates.single { it.key.id == "one" }
-            assertEquals(UploadCandidateState.UNAVAILABLE, candidate.state)
-            assertEquals(StoreErrorCode.STORE_UNAVAILABLE, candidate.error?.code)
+            assertEquals(StoreErrorCode.STORE_UNAVAILABLE, scan.error.code)
         } finally {
             root.deleteRecursively()
         }
@@ -166,7 +164,7 @@ class OfflineUploadServiceTest {
     }
 
     @Test
-    fun `サブディレクトリの完全IDを維持してアップロードする`() {
+    fun `宛先を指定するとローカルのディレクトリを置き換えてアップロードする`() {
         val root = createTempDirectory("offline-upload-directory").toFile()
         try {
             val id = "combat.sword.test_sword"
@@ -175,16 +173,79 @@ class OfflineUploadServiceTest {
             val remote = InMemoryEditorDataStore("server")
             val service = OfflineUploadService(root, remote)
 
-            val scan = assertIs<UploadScanResult.Success>(service.scan())
+            val scan = assertIs<UploadScanResult.Success>(service.scan(UploadDataCategory.ITEM))
             val key = UploadKey(UploadDataCategory.ITEM, id)
-            assertEquals(UploadCandidateState.NEW, scan.candidates.single().state)
+            val candidate = planUpload(scan, "event.weapons").single()
+            assertEquals(UploadCandidateState.NEW, candidate.state)
+            assertEquals("event.weapons.test_sword", candidate.targetId)
 
-            val result = service.upload(setOf(key), emptySet())
+            val result = service.upload(setOf(key), emptySet(), "event.weapons")
 
             assertEquals(listOf(key), result.succeeded)
-            assertEquals(id, assertIs<StoreResult.Success<MutableItemBaseData>>(
-                remote.load(EditorDataDescriptors.item, id)
-            ).value.id)
+            assertEquals(
+                "event.weapons.test_sword",
+                assertIs<StoreResult.Success<MutableItemBaseData>>(
+                    remote.load(EditorDataDescriptors.item, "event.weapons.test_sword")
+                ).value.id
+            )
+            assertIs<StoreResult.Failure>(remote.load(EditorDataDescriptors.item, id))
+            assertIs<StoreResult.Success<MutableItemBaseData>>(local.load(EditorDataDescriptors.item, id))
+        } finally {
+            root.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun `宛先を空にするとルート直下の名前でアップロードする`() {
+        val root = createTempDirectory("offline-upload-root").toFile()
+        try {
+            val id = "combat.sword.test_sword"
+            LocalEditorDataStore(root).save(EditorDataDescriptors.item, id, validItem(id))
+            val remote = InMemoryEditorDataStore("server")
+
+            val result = OfflineUploadService(root, remote)
+                .upload(setOf(UploadKey(UploadDataCategory.ITEM, id)), emptySet(), "")
+
+            assertTrue(result.failed.isEmpty())
+            assertIs<StoreResult.Success<MutableItemBaseData>>(remote.load(EditorDataDescriptors.item, "test_sword"))
+        } finally {
+            root.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun `宛先の指定が不正な場合は何もアップロードしない`() {
+        val root = createTempDirectory("offline-upload-invalid").toFile()
+        try {
+            LocalEditorDataStore(root).save(EditorDataDescriptors.item, "one", validItem("one"))
+            val remote = InMemoryEditorDataStore("server")
+            val key = UploadKey(UploadDataCategory.ITEM, "one")
+
+            val result = OfflineUploadService(root, remote).upload(setOf(key), emptySet(), "Bad..dir")
+
+            assertTrue(result.succeeded.isEmpty())
+            assertEquals(StoreErrorCode.INVALID_ID, result.failed.single().error.code)
+            assertIs<StoreResult.Failure>(remote.load(EditorDataDescriptors.item, "one"))
+        } finally {
+            root.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun `宛先を含めたIDが既存の場合は上書き承認が必要になる`() {
+        val root = createTempDirectory("offline-upload-target-conflict").toFile()
+        try {
+            LocalEditorDataStore(root).save(EditorDataDescriptors.item, "one", validItem("one", "Local"))
+            val remote = InMemoryEditorDataStore("server")
+            remote.save(EditorDataDescriptors.item, "event.one", validItem("event.one", "Remote"))
+            val key = UploadKey(UploadDataCategory.ITEM, "one")
+            val service = OfflineUploadService(root, remote)
+
+            val refused = service.upload(setOf(key), emptySet(), "event")
+            assertEquals(StoreErrorCode.ALREADY_EXISTS, refused.failed.single().error.code)
+
+            val approved = service.upload(setOf(key), setOf(key), "event")
+            assertEquals(listOf(key), approved.succeeded)
         } finally {
             root.deleteRecursively()
         }
