@@ -1,21 +1,10 @@
 package io.github.sushiericworkspace.sushiericservermanager.app
 
 import io.github.sushiericworkspace.sushiericservermanager.ui.dialog.CustomDialog
-import io.github.sushiericworkspace.sushiericservermanager.update.AppVersion
-import io.github.sushiericworkspace.sushiericservermanager.update.UpdateInfo
+import io.github.sushiericworkspace.sushiericservermanager.ui.dialog.UpdateDialog
+import io.github.sushiericworkspace.sushiericservermanager.update.UpdateCheckResult
 import javafx.application.Application
 import javafx.application.Platform
-import javafx.geometry.Insets
-import javafx.scene.control.Button
-import javafx.scene.control.ButtonType
-import javafx.scene.control.Dialog
-import javafx.scene.control.Hyperlink
-import javafx.scene.control.Label
-import javafx.scene.control.TextArea
-import javafx.scene.input.Clipboard
-import javafx.scene.input.ClipboardContent
-import javafx.scene.layout.HBox
-import javafx.scene.layout.VBox
 import javafx.stage.Stage
 
 /**
@@ -53,71 +42,8 @@ class MainApp : Application() {
         SingleAppLock.release()
     }
 
-    private fun showUpdateDialog(updateInfo: UpdateInfo) {
-        val downloadUrl = updateInfo.downloadUrlForCurrentOs()
-
-        val message = buildString {
-            appendLine("新しいバージョンがあります。")
-            appendLine()
-            appendLine("現在のバージョン: ${AppVersion.CURRENT}")
-            appendLine("最新バージョン: ${updateInfo.version}")
-            appendLine()
-
-            if (updateInfo.notes.isNotEmpty()) {
-                appendLine("変更内容:")
-                updateInfo.notes.forEach { note ->
-                    appendLine("- $note")
-                }
-            }
-        }
-
-        val messageArea = TextArea(message).apply {
-            isEditable = false
-            isWrapText = true
-            prefRowCount = 8
-            prefColumnCount = 48
-        }
-
-        val urlArea = TextArea(downloadUrl).apply {
-            isEditable = false
-            isWrapText = true
-            prefRowCount = 2
-            prefColumnCount = 48
-        }
-
-        val openLink = Hyperlink("ダウンロードページを開く").apply {
-            setOnAction {
-                hostServices.showDocument(downloadUrl)
-            }
-        }
-
-        val copyButton = Button("URLをコピー").apply {
-            setOnAction {
-                Clipboard.getSystemClipboard().setContent(
-                    ClipboardContent().apply {
-                        putString(downloadUrl)
-                    }
-                )
-            }
-        }
-
-        val root = VBox(10.0).apply {
-            padding = Insets(10.0)
-            children.addAll(
-                Label("新しいバージョンがあります。アプリを更新してください。"),
-                messageArea,
-                Label("ダウンロードURL:"),
-                urlArea,
-                HBox(10.0, openLink, copyButton)
-            )
-        }
-
-        Dialog<Unit>().apply {
-            title = "アップデート確認"
-            headerText = "アップデートがあります"
-            dialogPane.content = root
-            dialogPane.buttonTypes.setAll(ButtonType.OK)
-        }.showAndWait()
+    private fun showUpdateDialog(update: UpdateCheckResult.Update) {
+        UpdateDialog.show(update, openUrl = hostServices::showDocument)
     }
 }
 
