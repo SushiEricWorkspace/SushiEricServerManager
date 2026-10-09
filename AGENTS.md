@@ -236,6 +236,14 @@ commitとpushを依頼された場合は、次を簡潔に報告する。
 - unchecked castや強制キャストを避け、generic型や既存の型付きAPIを使用する。
 - 既存の結果型や例外処理を無視し、単純なbooleanやnullだけへ置き換えない。
 
+## GitHub Actions
+
+- GitHub Actionsのworkflow（`.github/workflows/`）は、人間の明示的な許可がない限り、AIが実行しない。`gh workflow run`、`gh run rerun`、GitHubの画面や`workflow_dispatch`のAPIからの実行を含む。
+- 実行を許可された場合は、実行の前に、対象のOS、入力値、見込みの消費（分数）を人間へ提示する。許可された1回だけを実行し、同じ許可で再実行しない。
+- push、pull_request、scheduleなど、自動で実行されるトリガーを、人間の許可なくworkflowへ追加しない。現在のworkflowは、`workflow_dispatch`（手動実行）だけで動く。
+- 無料枠を圧迫しないよう、対象のOSは必要なものだけを選ぶ。macOSのランナーは、非公開リポジトリではLinuxの10倍、Windowsは2倍の分数を消費する。
+- workflowを追加・変更するときは、`timeout-minutes`と`concurrency`を設定する。
+
 ## ServerManager固有ドキュメント
 
 - ドキュメントを変更する場合は、現在の`develop`上のコードと照合する。
