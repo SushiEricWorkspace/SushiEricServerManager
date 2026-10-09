@@ -48,16 +48,20 @@ sealed interface UpdateCheckResult {
  *
  * OSごとの成果物は、名前の規則で選びます。
  * - Windows: `SushiEricServerManager-<版>-Windows-Installer.exe`
- * - macOS: `SushiEricServerManager-<版>-macOS-Installer.dmg`
+ * - macOS: `SushiEricServerManager-<版>-macOS-arm64-Installer.dmg`
+ *
+ * macOSの成果物はApple Silicon（arm64）専用です。arm64でないMacでは、自動更新せずに手動での更新を案内します。
  *
  * @param source 最新のReleaseの取得元。
  * @param currentVersion 実行中の版。
  * @param osName OSの名前。`os.name`と同じ形式。
+ * @param osArch CPUのアーキテクチャ。`os.arch`と同じ形式。
  */
 class UpdateChecker(
     private val source: ReleaseSource = GitHubReleaseSource(),
     private val currentVersion: String = AppVersion.CURRENT,
-    private val osName: String = System.getProperty("os.name")
+    private val osName: String = System.getProperty("os.name"),
+    private val osArch: String = System.getProperty("os.arch")
 ) {
     /**
      * 更新を確認します。通信を伴うため、JavaFX Application Threadでは呼び出しません。
@@ -72,7 +76,7 @@ class UpdateChecker(
 
         val notes = release.body.orEmpty().trim()
         val assetName = assetNameFor(version)
-            ?: return manual(version, notes, release, "このOSは自動更新に対応していません。")
+            ?: return manual(version, notes, release, unsupportedReason())
         val asset = release.assets.firstOrNull { it.name == assetName }
             ?: return manual(version, notes, release, "対応する成果物（$assetName）がReleaseにありません。")
         val sha256 = sha256Of(asset.digest)
@@ -93,10 +97,19 @@ class UpdateChecker(
         val os = osName.lowercase()
         return when {
             os.contains("win") -> "$PRODUCT_NAME-$version-Windows-Installer.exe"
-            os.contains("mac") -> "$PRODUCT_NAME-$version-macOS-Installer.dmg"
+            os.contains("mac") && isArm64() -> "$PRODUCT_NAME-$version-macOS-arm64-Installer.dmg"
             else -> null
         }
     }
+
+    private fun isArm64(): Boolean = osArch.lowercase().let { it == "aarch64" || it == "arm64" }
+
+    private fun unsupportedReason(): String =
+        if (osName.lowercase().contains("mac")) {
+            "Apple Silicon（arm64）のMacだけが自動更新に対応しています。"
+        } else {
+            "このOSは自動更新に対応していません。"
+        }
 
     private companion object {
         const val PRODUCT_NAME = "SushiEricServerManager"

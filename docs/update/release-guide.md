@@ -12,7 +12,7 @@ Managerの版の上げ方と、GitHub Releasesへ置く成果物の作り方を�
 | 値 | 作られ方 |
 |---|---|
 | `AppVersion.CURRENT` | ビルド時に`generateAppVersion`タスクが`build/generated/source/appVersion/`へ生成する。ソースには含めない |
-| 成果物の名前 | `SushiEricServerManager-<appVersion>-Windows-Installer.exe`と`SushiEricServerManager-<appVersion>-macOS-Installer.dmg` |
+| 成果物の名前 | `SushiEricServerManager-<appVersion>-Windows-Installer.exe`と`SushiEricServerManager-<appVersion>-macOS-arm64-Installer.dmg` |
 | jpackageの版 | `appVersion`の先頭の数字に1を足した値。`0.2.2`なら`1.2.2` |
 
 jpackageの版で先頭に1を足すのは、macOSのjpackageが先頭の数字に0を許さないためである。常に1を足すことで、`appVersion`が`1.0.0`以降になってもパッケージの版が減らない。

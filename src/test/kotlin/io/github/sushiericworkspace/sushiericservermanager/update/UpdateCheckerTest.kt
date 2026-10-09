@@ -17,7 +17,7 @@ class UpdateCheckerTest {
                 "SushiEricServerManager-0.3.0-Windows-Installer.exe", "https://example.com/win.exe", 100, "sha256:$hash"
             ),
             GitHubReleaseAsset(
-                "SushiEricServerManager-0.3.0-macOS-Installer.dmg", "https://example.com/mac.dmg", 200, "sha256:$hash"
+                "SushiEricServerManager-0.3.0-macOS-arm64-Installer.dmg", "https://example.com/mac.dmg", 200, "sha256:$hash"
             )
         )
     ) = GitHubRelease(tag, "https://example.com/release", "  変更内容  ", assets)
@@ -25,8 +25,9 @@ class UpdateCheckerTest {
     private fun checker(
         release: GitHubRelease,
         os: String = "Windows 11",
-        current: String = "0.2.2"
-    ) = UpdateChecker({ release }, current, os)
+        current: String = "0.2.2",
+        arch: String = "amd64"
+    ) = UpdateChecker({ release }, current, os, arch)
 
     @Test
     fun `Windowsでは対応する成果物とSHA-256を選ぶ`() {
@@ -39,10 +40,36 @@ class UpdateCheckerTest {
     }
 
     @Test
-    fun `macOSではdmgを選ぶ`() {
-        val result = assertIs<UpdateCheckResult.Automatic>(checker(release(), os = "Mac OS X").check())
+    fun `macOSのarm64ではdmgを選ぶ`() {
+        listOf("aarch64", "arm64", "AARCH64").forEach { arch ->
+            val result = assertIs<UpdateCheckResult.Automatic>(
+                checker(release(), os = "Mac OS X", arch = arch).check(),
+                arch
+            )
 
-        assertEquals("SushiEricServerManager-0.3.0-macOS-Installer.dmg", result.asset.name)
+            assertEquals("SushiEricServerManager-0.3.0-macOS-arm64-Installer.dmg", result.asset.name)
+        }
+    }
+
+    @Test
+    fun `arm64でないMacでは手動での更新になり理由にApple Siliconを示す`() {
+        listOf("x86_64", "amd64").forEach { arch ->
+            val result = assertIs<UpdateCheckResult.Manual>(
+                checker(release(), os = "Mac OS X", arch = arch).check(),
+                arch
+            )
+
+            assertTrue("Apple Silicon" in result.reason, result.reason)
+        }
+    }
+
+    @Test
+    fun `Windowsでは、CPUの種類によらず同じ成果物を選ぶ`() {
+        listOf("amd64", "aarch64").forEach { arch ->
+            val result = assertIs<UpdateCheckResult.Automatic>(checker(release(), arch = arch).check())
+
+            assertEquals("SushiEricServerManager-0.3.0-Windows-Installer.exe", result.asset.name)
+        }
     }
 
     @Test
@@ -85,7 +112,9 @@ class UpdateCheckerTest {
 
     @Test
     fun `自動更新に対応しないOSでは手動での更新になる`() {
-        assertIs<UpdateCheckResult.Manual>(checker(release(), os = "Linux").check())
+        val result = assertIs<UpdateCheckResult.Manual>(checker(release(), os = "Linux").check())
+
+        assertTrue("このOS" in result.reason, result.reason)
     }
 
     @Test

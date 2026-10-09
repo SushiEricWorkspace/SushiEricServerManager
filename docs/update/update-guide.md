@@ -31,12 +31,12 @@ Managerの自動更新と、古いManagerからサーバーのデータを守る
 
 ### 成果物の名前
 
-成果物は次の名前に統一する。Managerはこの名前でOSごとの成果物を選ぶ。
+成果物は次の名前に統一する。Managerはこの名前でOSごとの成果物を選ぶ。macOSの成果物は、Apple Silicon（arm64）専用である。
 
 | OS | 名前 |
 |---|---|
 | Windows | `SushiEricServerManager-<版>-Windows-Installer.exe` |
-| macOS | `SushiEricServerManager-<版>-macOS-Installer.dmg` |
+| macOS | `SushiEricServerManager-<版>-macOS-arm64-Installer.dmg` |
 
 ### 確認の結果
 
@@ -47,7 +47,7 @@ Managerの自動更新と、古いManagerからサーバーのデータを守る
 |---|---|---|
 | `UpToDate` | 最新のReleaseの版が、実行中の版以下 | 何も表示せず起動する |
 | `Automatic` | 新しい版があり、OSの成果物があり、`digest`が`sha256:`と16進数64桁の形式 | ダウンロードと検証ができる |
-| `Manual` | 新しい版はあるが、OSの成果物がない、`digest`が使えない、または自動更新に対応しないOS（Windows、macOS以外） | ダウンロードページを案内する |
+| `Manual` | 新しい版はあるが、OSの成果物がない、`digest`が使えない、または自動更新に対応しない環境（Windows、macOS以外のOS、arm64でないMac） | ダウンロードページを案内する |
 
 タグが`vX.Y.Z`形式でない場合は、確認の失敗として扱う。
 
