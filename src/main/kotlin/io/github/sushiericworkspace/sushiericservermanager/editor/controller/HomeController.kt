@@ -34,6 +34,7 @@ import javafx.scene.control.Label
 import javafx.fxml.FXML
 import javafx.fxml.FXMLLoader
 import javafx.fxml.Initializable
+import javafx.scene.layout.GridPane
 import javafx.scene.layout.VBox
 import org.slf4j.LoggerFactory
 import java.net.URL
@@ -60,6 +61,9 @@ class HomeController : Initializable {
     @FXML private lateinit var serverControlButton: Button
     @FXML private lateinit var modeSelectButton: Button
     @FXML private lateinit var backButton: Button
+    @FXML private lateinit var modConfigButton: Button
+    @FXML private lateinit var onlineToolsPane: VBox
+    @FXML private lateinit var homeSections: GridPane
 
     private val sshManager = EditorSession.sshManager
 
@@ -192,18 +196,25 @@ class HomeController : Initializable {
             Platform.runLater { applyMonitorSnapshot(snapshot) }
         }
 
-        uploadLocalButton.isManaged = mode == AppMode.ONLINE
-        uploadLocalButton.isVisible = mode == AppMode.ONLINE
-        consoleButton.isManaged = mode == AppMode.ONLINE
-        consoleButton.isVisible = mode == AppMode.ONLINE
-        historyButton.isManaged = mode == AppMode.ONLINE
-        historyButton.isVisible = mode == AppMode.ONLINE
-        dashboardButton.isManaged = mode == AppMode.ONLINE
-        dashboardButton.isVisible = mode == AppMode.ONLINE
-        serverControlButton.isManaged = mode == AppMode.ONLINE
-        serverControlButton.isVisible = mode == AppMode.ONLINE
-        modeSelectButton.isManaged = mode == AppMode.ONLINE
-        modeSelectButton.isVisible = mode == AppMode.ONLINE
+        val online = mode == AppMode.ONLINE
+        uploadLocalButton.isManaged = online
+        uploadLocalButton.isVisible = online
+        consoleButton.isManaged = online
+        consoleButton.isVisible = online
+        historyButton.isManaged = online
+        historyButton.isVisible = online
+        dashboardButton.isManaged = online
+        dashboardButton.isVisible = online
+        serverControlButton.isManaged = online
+        serverControlButton.isVisible = online
+        modConfigButton.isManaged = online
+        modConfigButton.isVisible = online
+        onlineToolsPane.isManaged = online
+        onlineToolsPane.isVisible = online
+        homeSections.columnConstraints[0].percentWidth = if (online) 50.0 else 100.0
+        homeSections.columnConstraints[1].percentWidth = if (online) 50.0 else 0.0
+        modeSelectButton.isManaged = online
+        modeSelectButton.isVisible = online
         backButton.text = if (mode == AppMode.ONLINE) "サーバー選択へ戻る" else "モード選択へ戻る"
 
         // Platform.runLater を使って Stage が確実に生成された後に処理
@@ -265,6 +276,7 @@ class HomeController : Initializable {
     @FXML
     @Suppress("unused")
     fun handleReturnToModeSelect() {
+        if (EditorSession.mode != AppMode.ONLINE) return
         val confirmed = CustomDialog.confirmation()
             .header("モード選択へ戻りますか？")
             .content("サーバーとの接続を切り、開いているウィンドウを閉じます。\n未保存の編集内容はローカルへ退避されます。")
@@ -277,6 +289,7 @@ class HomeController : Initializable {
     @FXML
     @Suppress("unused")
     fun onUploadLocalData() {
+        if (EditorSession.mode != AppMode.ONLINE) return
         val service = EditorSession.dataService ?: return
         if (!service.isRemote) return
         setUploadBusy(true, "ローカルデータを確認中...")
@@ -408,6 +421,7 @@ class HomeController : Initializable {
     @FXML
     @Suppress("unused")
     fun onOpenConsole() {
+        if (EditorSession.mode != AppMode.ONLINE) return
         ConsoleWindowManager.open(rootPane.scene?.window)
     }
 
@@ -415,6 +429,7 @@ class HomeController : Initializable {
     @FXML
     @Suppress("unused")
     fun onOpenDashboard() {
+        if (EditorSession.mode != AppMode.ONLINE) return
         DashboardWindowManager.open(rootPane.scene?.window)
     }
 
@@ -422,6 +437,7 @@ class HomeController : Initializable {
     @FXML
     @Suppress("unused")
     fun onOpenServerControl() {
+        if (EditorSession.mode != AppMode.ONLINE) return
         ServerControlWindowManager.open(rootPane.scene?.window)
     }
 
@@ -429,6 +445,7 @@ class HomeController : Initializable {
     @FXML
     @Suppress("unused")
     fun onOpenModConfig() {
+        if (EditorSession.mode != AppMode.ONLINE) return
         if (EditorSession.mode == AppMode.ONLINE && !sshManager.isSftpActive) {
             CustomDialog.error(ErrorType.CONNECTION_FAILED).show()
             Utility.navigateToServerSelect()
@@ -449,6 +466,7 @@ class HomeController : Initializable {
     @FXML
     @Suppress("unused")
     fun onOpenMoneyHistory() {
+        if (EditorSession.mode != AppMode.ONLINE) return
         val service = EditorSession.dataService ?: return
         MoneyHistoryWindowManager.open(rootPane.scene?.window, service.store)
     }
