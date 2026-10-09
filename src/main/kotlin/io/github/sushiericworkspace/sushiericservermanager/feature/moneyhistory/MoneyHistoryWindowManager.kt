@@ -9,7 +9,7 @@ import javafx.scene.Parent
 import javafx.stage.Stage
 import javafx.stage.Window
 
-/** 履歴閲覧ウィンドウ（入出金・実績）の生成とライフサイクルを管理します。 */
+/** 履歴閲覧ウィンドウ（入出金・実績・ショップ）の生成とライフサイクルを管理します。 */
 object MoneyHistoryWindowManager {
     private var activeStage: Stage? = null
 

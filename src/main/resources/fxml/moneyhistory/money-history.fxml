@@ -61,6 +61,7 @@
                         <fx:include fx:id="achievementHistory" source="achievement-history.fxml" />
                     </content>
                 </Tab>
+                <Tab fx:id="shopTab" text="ショップ" />
             </tabs>
         </TabPane>
     </center>
