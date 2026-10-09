@@ -19,6 +19,12 @@
     -fx-background-color: -fx-bg-deep;
 }
 
+.money-history-root .tab-pane,
+.money-history-root .tab-pane .tab {
+    -fx-focus-color: transparent;
+    -fx-faint-focus-color: transparent;
+}
+
 .money-history-root .tab-pane .tab-header-area {
     -fx-padding: 0;
 }
@@ -48,6 +54,14 @@
 
 .money-history-root .tab-pane .tab:selected .tab-label {
     -fx-text-fill: -fx-text-color;
+}
+
+.money-history-root .tab-pane .tab:focused > .focus-indicator {
+    -fx-border-color: transparent;
+    -fx-border-width: 0;
+    -fx-border-insets: 0;
+    -fx-padding: 0;
+    -fx-background-color: transparent;
 }
 
 .money-history-root .table-view {
