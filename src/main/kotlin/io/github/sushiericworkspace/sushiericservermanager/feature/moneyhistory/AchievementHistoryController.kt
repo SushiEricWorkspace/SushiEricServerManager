@@ -92,14 +92,31 @@ class AchievementHistoryController {
 
     private fun initializeTable() {
         historyTable.selectionModel = null
+        HistoryTableSupport.install(historyTable)
         historyTable.placeholder = Label("達成履歴はありません")
         historyTable.columnResizePolicy = TableView.CONSTRAINED_RESIZE_POLICY_FLEX_LAST_COLUMN
         timeColumn.setCellValueFactory { SimpleStringProperty(it.value.timeText) }
         nameColumn.setCellValueFactory { SimpleStringProperty(it.value.name) }
         categoryColumn.setCellValueFactory { SimpleStringProperty(it.value.category) }
-        listOf(timeColumn, nameColumn, categoryColumn).forEach { column ->
+        timeColumn.apply {
+            isReorderable = false
+            setCellFactory {
+                HistoryTextCell(
+                    onSetFromTime = { setFilterBoundary(fromDate, fromTime, it) },
+                    onSetToTime = { setFilterBoundary(toDate, toTime, it) }
+                )
+            }
+        }
+        listOf(nameColumn, categoryColumn).forEach { column ->
             column.isReorderable = false
             column.setCellFactory { HistoryTextCell() }
+        }
+    }
+
+    private fun setFilterBoundary(date: DatePicker, time: TextField, value: LocalDateTime) {
+        changeFilters {
+            date.value = value.toLocalDate()
+            time.text = value.toLocalTime().format(DateTimeFormatter.ofPattern("HH:mm:ss"))
         }
     }
 

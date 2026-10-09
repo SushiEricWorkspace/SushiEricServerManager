@@ -96,10 +96,15 @@ internal class ShopHistoryView(private val store: EditorDataStore, private val c
         )
         VBox.setVgrow(table, Priority.ALWAYS)
         table.selectionModel = null
+        HistoryTableSupport.install(table)
         table.isEditable = false
         table.placeholder = Label("ショップ売買履歴はありません")
         table.columnResizePolicy = TableView.CONSTRAINED_RESIZE_POLICY_FLEX_LAST_COLUMN
-        column("時刻", 170.0) { TIME_FORMAT.format(it.timestamp.atZone(ZoneId.systemDefault())) }
+        column(
+            "時刻", 170.0,
+            onSetFromTime = { setFilterBoundary(from, fromTime, it) },
+            onSetToTime = { setFilterBoundary(to, toTime, it) }
+        ) { TIME_FORMAT.format(it.timestamp.atZone(ZoneId.systemDefault())) }
         column("商品ID", 190.0) { it.productId }
         column("種別", 70.0) { it.mode.displayName }
         column("プレイヤー", 140.0) { if (playerToggle.isSelected) it.playerUuid.toString() else it.playerName }
@@ -144,12 +149,25 @@ internal class ShopHistoryView(private val store: EditorDataStore, private val c
         reloadDelay.playFromStart()
     }
 
-    private fun column(title: String, width: Double, value: (ShopHistoryEntry) -> String) {
+    private fun column(
+        title: String,
+        width: Double,
+        onSetFromTime: ((LocalDateTime) -> Unit)? = null,
+        onSetToTime: ((LocalDateTime) -> Unit)? = null,
+        value: (ShopHistoryEntry) -> String
+    ) {
         table.columns.add(TableColumn<ShopHistoryEntry, String>(title).apply {
             prefWidth = width; isReorderable = false
             setCellValueFactory { SimpleStringProperty(value(it.value)) }
-            setCellFactory { HistoryTextCell() }
+            setCellFactory { HistoryTextCell(onSetFromTime, onSetToTime) }
         })
+    }
+
+    private fun setFilterBoundary(date: DatePicker, time: TextField, value: LocalDateTime) {
+        changeFilters {
+            date.value = value.toLocalDate()
+            time.text = value.toLocalTime().format(DateTimeFormatter.ofPattern("HH:mm:ss"))
+        }
     }
 
     private fun load() {
