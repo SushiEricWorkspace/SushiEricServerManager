@@ -31,6 +31,23 @@ jpackageの版で先頭に1を足すのは、macOSのjpackageが先頭の数字�
 
 出力先は`build/release-installer/`で、ファイル名は上の表の名前になる。
 
+## GitHub Actionsでの成果物の作成
+
+別のOSの機械を使わずに作るために、GitHub Actionsのworkflow（`.github/workflows/build-installer.yml`）がある。
+手動実行（`workflow_dispatch`）だけで動き、push、pull_request、scheduleでは動かない。**人間の明示的な許可なく実行しない**（AIも同様。[AGENTS.md](../../AGENTS.md)を参照する）。
+
+準備として、Commonが非公開のため、リポジトリのシークレット`COMMON_REPO_TOKEN`に、Commonの内容を読み取れるトークン（読み取り専用）を登録する。未登録の場合、workflowはビルドの前に失敗する。
+
+| 入力 | 内容 |
+|---|---|
+| `os` | 作成するOS。`windows`、`macos`、`both`から選ぶ。既定は`windows` |
+| `common_ref` | ビルドに使うCommonのブランチまたはタグ。既定は`develop` |
+| `common_release_version` | Commonの正式版のバージョン（`X.Y.Z`、`v`なし）。省略すると、開発版のCommonで作り、指定すると正式版のCommonを発行して`releaseWindowsInstaller`、`releaseMacDmg`で作る |
+
+- 成果物は、実行結果のartifact（`installer-windows`、`installer-macos-arm64`）として3日間保持される。Releaseへの添付は、手動で行う。
+- macOSの成果物は、`macos-latest`（Apple Silicon）で作るため、arm64専用である。
+- 無料枠を使い切らないよう、必要なOSだけを選ぶ。各ジョブは30分でタイムアウトし、同時に1つしか実行しない。このリポジトリは公開のため、標準のランナーの利用は無料だが、非公開にするとmacOSはLinuxの10倍、Windowsは2倍の分数を消費する。
+
 ## Releaseの作成
 
 1. `appVersion`を上げたコミットをマージする。

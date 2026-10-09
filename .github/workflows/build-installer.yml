@@ -1,0 +1,182 @@
+# WindowsとmacOSのインストーラーを作成する。手動実行（workflow_dispatch）だけで動く。
+#
+# 実行の制限:
+# - 人間の明示的な許可なく実行しない。AIは`gh workflow run`などで実行しない（AGENTS.mdを参照）。
+# - push、pull_request、scheduleなど、自動で実行されるトリガーを追加しない。
+# - 無料枠を使い切らないよう、対象のOSは必要なものだけを選ぶ。macOSのランナーは、非公開リポジトリでは
+#   Linuxの10倍、Windowsは2倍の分数を消費する。
+#
+# 事前の準備:
+# - Commonは非公開のため、リポジトリのシークレットCOMMON_REPO_TOKENに、Commonの内容を読み取れるトークンを登録する。
+#
+# 手順は docs/update/release-guide.md を参照する。
+name: Build Installer
+
+on:
+  workflow_dispatch:
+    inputs:
+      os:
+        description: 'インストーラーを作成するOS'
+        type: choice
+        options:
+          - windows
+          - macos
+          - both
+        default: windows
+      common_ref:
+        description: 'ビルドに使うCommonのブランチまたはタグ'
+        type: string
+        default: develop
+      common_release_version:
+        description: 'Commonの正式版のバージョン（例: 0.2.0）。省略すると、開発版のCommonで作成する'
+        type: string
+        default: ''
+
+permissions:
+  contents: read
+
+concurrency:
+  group: build-installer
+  cancel-in-progress: false
+
+env:
+  # 入力値は、スクリプトへ直接埋め込まず、環境変数として渡す。
+  COMMON_REF: ${{ inputs.common_ref }}
+  COMMON_RELEASE_VERSION: ${{ inputs.common_release_version }}
+
+jobs:
+  windows:
+    if: ${{ inputs.os == 'windows' || inputs.os == 'both' }}
+    runs-on: windows-latest
+    timeout-minutes: 30
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: 入力とトークンを確認する
+        env:
+          COMMON_REPO_TOKEN: ${{ secrets.COMMON_REPO_TOKEN }}
+        run: |
+          if [ -z "$COMMON_REPO_TOKEN" ]; then
+            echo "::error::シークレットCOMMON_REPO_TOKENが登録されていません。Commonを読み取れるトークンを登録してください。"
+            exit 1
+          fi
+          if [ -n "$COMMON_RELEASE_VERSION" ] && ! [[ "$COMMON_RELEASE_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::common_release_versionはX.Y.Z形式で指定してください（vを付けない）: $COMMON_RELEASE_VERSION"
+            exit 1
+          fi
+
+      - uses: actions/checkout@v4
+        with:
+          path: SushiEricServerManager
+
+      - uses: actions/checkout@v4
+        with:
+          repository: SushiEricWorkspace/Common
+          ref: ${{ inputs.common_ref }}
+          token: ${{ secrets.COMMON_REPO_TOKEN }}
+          path: Common
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - uses: gradle/actions/setup-gradle@v4
+
+      - name: Commonを発行する
+        working-directory: Common
+        run: |
+          if [ -n "$COMMON_RELEASE_VERSION" ]; then
+            ./gradlew publishRelease "-PcommonReleaseVersion=$COMMON_RELEASE_VERSION"
+          else
+            ./gradlew publishDevelopment
+          fi
+
+      - name: WiXをPATHへ追加する
+        run: |
+          wix='C:/Program Files (x86)/WiX Toolset v3.14/bin'
+          if [ ! -d "$wix" ]; then
+            echo "::error::WiX Toolset v3.14が見つかりません: $wix"
+            exit 1
+          fi
+          echo "$wix" >> "$GITHUB_PATH"
+
+      - name: インストーラーを作成する
+        working-directory: SushiEricServerManager
+        run: |
+          if [ -n "$COMMON_RELEASE_VERSION" ]; then
+            ./gradlew releaseWindowsInstaller "-PcommonReleaseVersion=$COMMON_RELEASE_VERSION"
+          else
+            ./gradlew renameWindowsInstaller
+          fi
+
+      - name: 成果物をアップロードする
+        uses: actions/upload-artifact@v4
+        with:
+          name: installer-windows
+          path: SushiEricServerManager/build/release-installer/*.exe
+          if-no-files-found: error
+          retention-days: 3
+
+  macos:
+    if: ${{ inputs.os == 'macos' || inputs.os == 'both' }}
+    runs-on: macos-latest
+    timeout-minutes: 30
+    steps:
+      - name: 入力とトークンを確認する
+        env:
+          COMMON_REPO_TOKEN: ${{ secrets.COMMON_REPO_TOKEN }}
+        run: |
+          if [ -z "$COMMON_REPO_TOKEN" ]; then
+            echo "::error::シークレットCOMMON_REPO_TOKENが登録されていません。Commonを読み取れるトークンを登録してください。"
+            exit 1
+          fi
+          if [ -n "$COMMON_RELEASE_VERSION" ] && ! [[ "$COMMON_RELEASE_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::common_release_versionはX.Y.Z形式で指定してください（vを付けない）: $COMMON_RELEASE_VERSION"
+            exit 1
+          fi
+
+      - uses: actions/checkout@v4
+        with:
+          path: SushiEricServerManager
+
+      - uses: actions/checkout@v4
+        with:
+          repository: SushiEricWorkspace/Common
+          ref: ${{ inputs.common_ref }}
+          token: ${{ secrets.COMMON_REPO_TOKEN }}
+          path: Common
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - uses: gradle/actions/setup-gradle@v4
+
+      - name: Commonを発行する
+        working-directory: Common
+        run: |
+          if [ -n "$COMMON_RELEASE_VERSION" ]; then
+            ./gradlew publishRelease "-PcommonReleaseVersion=$COMMON_RELEASE_VERSION"
+          else
+            ./gradlew publishDevelopment
+          fi
+
+      - name: インストーラーを作成する
+        working-directory: SushiEricServerManager
+        run: |
+          if [ -n "$COMMON_RELEASE_VERSION" ]; then
+            ./gradlew releaseMacDmg "-PcommonReleaseVersion=$COMMON_RELEASE_VERSION"
+          else
+            ./gradlew renameMacDmg
+          fi
+
+      - name: 成果物をアップロードする
+        uses: actions/upload-artifact@v4
+        with:
+          name: installer-macos-arm64
+          path: SushiEricServerManager/build/release-installer/*.dmg
+          if-no-files-found: error
+          retention-days: 3
