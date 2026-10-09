@@ -13,6 +13,7 @@ enum class FilePath {
     SETTINGS,
     AUTOSAVE_DIR,
     OFFLINE_DIR,
+    UPDATES_DIR,
     LOCK,
     SSH_DIR,
     KNOWN_HOSTS;
@@ -24,6 +25,7 @@ enum class FilePath {
             SETTINGS -> buildPath("config.json")
             AUTOSAVE_DIR -> buildPath("autosave")
             OFFLINE_DIR -> buildPath("offline")
+            UPDATES_DIR -> buildPath("updates")
             LOCK -> buildPath("lock")
             SSH_DIR -> buildPath("ssh")
             KNOWN_HOSTS -> buildPath("ssh${File.separator}known_hosts")

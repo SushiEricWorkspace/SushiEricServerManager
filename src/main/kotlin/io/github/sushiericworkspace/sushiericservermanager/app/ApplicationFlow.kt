@@ -7,7 +7,7 @@ import io.github.sushiericworkspace.sushiericservermanager.editor.session.Editor
 import io.github.sushiericworkspace.sushiericservermanager.editor.store.LocalEditorDataStore
 import io.github.sushiericworkspace.sushiericservermanager.ui.dialog.CustomDialog
 import io.github.sushiericworkspace.sushiericservermanager.update.UpdateChecker
-import io.github.sushiericworkspace.sushiericservermanager.update.UpdateInfo
+import io.github.sushiericworkspace.sushiericservermanager.update.UpdateCheckResult
 import io.github.sushiericworkspace.sushiericservermanager.util.Utility
 import javafx.application.Platform
 import javafx.fxml.FXMLLoader
@@ -21,7 +21,11 @@ import kotlin.concurrent.thread
 
 object ApplicationFlow {
     private val logger = LoggerFactory.getLogger(javaClass)
-    var showUpdate: (UpdateInfo) -> Unit = {}
+    /**
+     * 更新が見つかったときに表示する画面です。ダイアログが閉じられるまで戻りません。
+     * JavaFX Application Threadから呼び出されます。
+     */
+    var showUpdate: (UpdateCheckResult.Update) -> Unit = {}
 
     fun showModeSelection(stage: Stage = Stage()) {
         val loader = FXMLLoader(AppScreen::class.java.getResource(AppScreen.MODE_SELECT.fxml!!))
@@ -47,30 +51,20 @@ object ApplicationFlow {
     }
 
     private fun prepareOnline(stage: Stage) {
-        val coordinator = StartupCoordinator {
-            UpdateChecker(
-                "https://github.com/SushiEricWorkspace/SushiEricServerManager/releases/latest/download/update.json"
-            ).check()
-        }
-        when (val result = coordinator.prepare(AppMode.ONLINE)) {
-            StartupPreparationResult.Ready -> Platform.runLater {
-                EditorSession.prepareOnlineMode()
-                stage.close()
-                Utility.navigateToServerSelect()
+        val coordinator = StartupCoordinator { UpdateChecker().check() }
+        val result = coordinator.prepare(AppMode.ONLINE)
+
+        Platform.runLater {
+            when (result) {
+                StartupPreparationResult.Ready -> Unit
+                is StartupPreparationResult.UpdateFound -> showUpdate(result.update)
+                // 確認できない場合（インターネット未接続など）は、更新せずにそのまま起動する。
+                is StartupPreparationResult.Failure ->
+                    logger.warn("アップデートを確認できませんでした。そのまま起動します。", result.cause)
             }
-            is StartupPreparationResult.UpdateRequired -> Platform.runLater {
-                showUpdate(result.updateInfo)
-                Platform.exit()
-            }
-            is StartupPreparationResult.Failure -> Platform.runLater {
-                logger.error("アップデート確認に失敗しました", result.cause)
-                CustomDialog.error()
-                    .title("アップデート確認エラー")
-                    .header("アップデート情報を確認できませんでした")
-                    .content("インターネット接続を確認してください。\n\nこのアプリはアップデート確認に失敗したため起動を中止します。")
-                    .show()
-                Platform.exit()
-            }
+            EditorSession.prepareOnlineMode()
+            stage.close()
+            Utility.navigateToServerSelect()
         }
     }
 
