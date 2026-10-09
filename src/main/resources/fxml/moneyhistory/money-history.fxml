@@ -5,7 +5,7 @@
             fx:controller="io.github.sushiericworkspace.sushiericservermanager.feature.moneyhistory.MoneyHistoryController"
             prefWidth="1100" prefHeight="640" styleClass="money-history-root">
     <center>
-        <TabPane tabClosingPolicy="UNAVAILABLE">
+        <TabPane focusTraversable="false" tabClosingPolicy="UNAVAILABLE">
             <tabs>
                 <Tab text="入出金">
                     <content>
