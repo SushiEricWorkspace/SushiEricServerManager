@@ -19,6 +19,8 @@
                         <VBox styleClass="home-status-panel">
                             <children>
                                 <Label fx:id="modeLabel" maxWidth="1.7976931348623157E308" styleClass="home-mode-label" />
+                                <Label fx:id="compatibilityLabel" maxWidth="1.7976931348623157E308" wrapText="true" styleClass="home-mode-label" />
+                                <Button fx:id="updateButton" text="更新する（必須）" onAction="#onRequiredUpdate" />
                                 <Label fx:id="managementLabel" maxWidth="1.7976931348623157E308" styleClass="home-mode-label" />
                                 <Label fx:id="monitorLabel" maxWidth="1.7976931348623157E308" styleClass="home-mode-label" wrapText="true" />
                             </children>

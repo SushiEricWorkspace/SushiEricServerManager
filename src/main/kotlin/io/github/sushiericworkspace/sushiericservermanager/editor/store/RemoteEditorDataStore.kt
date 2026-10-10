@@ -67,6 +67,7 @@ class RemoteEditorDataStore(
     }
 
     override fun writeText(relativePath: String, text: String): StoreResult<Unit> {
+        writeDenied()?.let { return it }
         val remotePath = resolveRemotePath(relativePath)
             ?: return failure(StoreErrorCode.INVALID_ID, relativePath)
         if (!ssh.isSftpActive) return failure(StoreErrorCode.STORE_UNAVAILABLE, relativePath)
@@ -194,6 +195,7 @@ class RemoteEditorDataStore(
         id: String,
         data: T
     ): StoreResult<Unit> {
+        writeDenied()?.let { return it }
         if (!StorePathValidator.isValidId(id) || !descriptor.isValidId(id)) {
             return failure(StoreErrorCode.INVALID_ID, id)
         }
@@ -235,6 +237,7 @@ class RemoteEditorDataStore(
         oldId: String,
         newName: String
     ): StoreResult<Unit> {
+        writeDenied()?.let { return it }
         if (!StorePathValidator.isValidId(oldId) || !StorePathValidator.isValidName(newName)) {
             return failure(StoreErrorCode.INVALID_ID, newName)
         }
@@ -250,6 +253,7 @@ class RemoteEditorDataStore(
         id: String,
         targetDirectory: String
     ): StoreResult<String> {
+        writeDenied()?.let { return it }
         if (!StorePathValidator.isValidId(id) ||
             !StorePathValidator.isValidDirectory(targetDirectory)
         ) {
@@ -298,6 +302,7 @@ class RemoteEditorDataStore(
         descriptor: EditorDataDescriptor<T>,
         directory: String
     ): StoreResult<Unit> {
+        writeDenied()?.let { return it }
         if (!StorePathValidator.isValidDirectory(directory, allowRoot = false)) {
             return failure(StoreErrorCode.INVALID_ID, directory)
         }
@@ -317,6 +322,7 @@ class RemoteEditorDataStore(
         descriptor: EditorDataDescriptor<T>,
         directory: String
     ): StoreResult<Unit> {
+        writeDenied()?.let { return it }
         if (!StorePathValidator.isValidDirectory(directory, allowRoot = false)) {
             return failure(StoreErrorCode.INVALID_ID, directory)
         }
@@ -382,6 +388,7 @@ class RemoteEditorDataStore(
         descriptor: EditorDataDescriptor<T>,
         id: String
     ): StoreResult<Unit> {
+        writeDenied()?.let { return it }
         if (!StorePathValidator.isValidId(id) || !descriptor.isValidId(id)) {
             return failure(StoreErrorCode.INVALID_ID, id)
         }
@@ -450,6 +457,11 @@ class RemoteEditorDataStore(
             is StoreResult.Failure -> emptySet()
         }
     }
+
+    private fun writeDenied(): StoreResult.Failure? =
+        if (ssh.compatibility.writable) null else StoreResult.Failure(
+            StoreError(StoreErrorCode.PERMISSION_DENIED, detail = ssh.compatibility.message)
+        )
 
     private fun <T> failure(
         code: StoreErrorCode,

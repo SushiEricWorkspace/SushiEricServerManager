@@ -1,6 +1,7 @@
 package io.github.sushiericworkspace.sushiericservermanager.communication
 
 import com.hierynomus.sshj.common.KeyDecryptionFailedException
+import io.github.sushiericworkspace.sushiericservermanager.update.ManagerCompatibility
 import io.github.sushiericworkspace.sushiericservermanager.config.FilePath
 import io.github.sushiericworkspace.sushiericservermanager.config.RemoteOperatingSystem
 import io.github.sushiericworkspace.sushiericservermanager.config.ServerProfile
@@ -29,7 +30,8 @@ import java.util.UUID
 /** 接続済みSSH・SFTPクライアント。所有者が必ず[close]する必要があります。 */
 data class ConnectedSsh(
     val client: SSHClient,
-    val sftpClient: SFTPClient
+    val sftpClient: SFTPClient,
+    val compatibility: ManagerCompatibility = ManagerCompatibility.Unchecked
 )
 
 class SshConnectionService(
@@ -127,7 +129,8 @@ class SshConnectionService(
             }
             sftp = connectedSftp
 
-            RemoteDirectoryValidator.validate(connectedSftp, profile.path)?.let { failure ->
+            val compatibility = readManagerCompatibility(connectedSftp, profile.path)
+            RemoteDirectoryValidator.validate(connectedSftp, profile.path, compatibility.writable)?.let { failure ->
                 return failureAndClose(
                     client,
                     connectedSftp,
@@ -135,7 +138,7 @@ class SshConnectionService(
                 )
             }
 
-            return SshResult.Success(ConnectedSsh(client, connectedSftp))
+            return SshResult.Success(ConnectedSsh(client, connectedSftp, compatibility))
         } catch (e: Exception) {
             val failure = mapConnectionFailure(e, verifier, remoteOperatingSystem)
             SafeSshLogger.warn(logger, "public_key_connection_failed", failure.code, e)
@@ -349,7 +352,7 @@ class SshConnectionService(
 }
 
 object RemoteDirectoryValidator {
-    fun validate(sftp: SFTPClient, remoteRootPath: String): SshFailure? {
+    fun validate(sftp: SFTPClient, remoteRootPath: String, checkWrite: Boolean = true): SshFailure? {
         val normalizedPath = normalizeRemotePath(remoteRootPath)
 
         val attributes = try {
@@ -373,6 +376,8 @@ object RemoteDirectoryValidator {
         } catch (_: Exception) {
             return SshFailure(SshFailureCode.REMOTE_DIRECTORY_NOT_READABLE)
         }
+
+        if (!checkWrite) return null
 
         val testPath = if (normalizedPath == "/") {
             "/.sushieric-write-test-${UUID.randomUUID()}"
