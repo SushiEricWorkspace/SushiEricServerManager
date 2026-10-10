@@ -1,6 +1,8 @@
 package io.github.sushiericworkspace.sushiericservermanager.communication
 
 import io.github.sushiericworkspace.sushiericservermanager.config.ServerProfile
+import io.github.sushiericworkspace.sushiericservermanager.update.ManagerCompatibility
+import java.io.IOException
 import net.schmizz.sshj.SSHClient
 import net.schmizz.sshj.sftp.FileMode
 import net.schmizz.sshj.sftp.RemoteResourceInfo
@@ -20,6 +22,15 @@ class SshManager(
     private var sftpClient: SFTPClient? = null
     private val logger = LoggerFactory.getLogger(javaClass)
     private var profile: ServerProfile? = null
+
+    /** 接続時に評価したサーバーの互換性。切断・再接続でリセットします。 */
+    var compatibility: ManagerCompatibility = ManagerCompatibility.Unchecked
+        private set
+
+    /** SFTPの書き込み直前に必ず確認します。読み取り専用の接続では副作用を開始しません。 */
+    internal fun requireWritable() {
+        if (!compatibility.writable) throw IOException(compatibility.message)
+    }
 
     val currentProfile: ServerProfile? get() = profile
 
@@ -50,6 +61,7 @@ class SshManager(
                 client = result.value.client
                 sftpClient = result.value.sftpClient
                 this.profile = profile
+                compatibility = result.value.compatibility
                 logger.info("SSH接続に成功しました: profile={}", profile.name)
                 SshResult.Success(Unit)
             }
@@ -74,6 +86,7 @@ class SshManager(
         sftpClient = null
         client = null
         profile = null
+        compatibility = ManagerCompatibility.Unchecked
     }
 
     fun listFilesOrThrow(path: String): List<RemoteResourceInfo> {
@@ -85,6 +98,7 @@ class SshManager(
     }
 
     fun upload(localPath: String, remotePath: String) {
+        requireWritable()
         val normalizedRemotePath = normalizeRemotePath(remotePath)
         val parentPath = normalizedRemotePath.substringBeforeLast(
             delimiter = "/",
@@ -99,14 +113,17 @@ class SshManager(
     }
 
     fun remove(remotePath: String) {
+        requireWritable()
         activeSftp().rm(remotePath)
     }
 
     fun removeDirectory(remotePath: String) {
+        requireWritable()
         activeSftp().rmdir(remotePath)
     }
 
     fun rename(oldRemotePath: String, newRemotePath: String) {
+        requireWritable()
         activeSftp().rename(oldRemotePath, newRemotePath)
     }
 
@@ -120,6 +137,7 @@ class SshManager(
     }
 
     fun createDirectories(remoteDirPath: String) {
+        requireWritable()
         val sftp = activeSftp()
         val normalizedPath = normalizeRemotePath(remoteDirPath).trimEnd('/')
         if (normalizedPath.isBlank()) return

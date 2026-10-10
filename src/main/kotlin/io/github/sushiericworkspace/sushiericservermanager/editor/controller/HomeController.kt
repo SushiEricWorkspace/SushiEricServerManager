@@ -23,6 +23,12 @@ import io.github.sushiericworkspace.sushiericservermanager.feature.servercontrol
 import io.github.sushiericworkspace.sushiericservermanager.feature.moneyhistory.MoneyHistoryWindowManager
 import io.github.sushiericworkspace.sushiericservermanager.editor.main.shop.ShopEditorLogic
 import io.github.sushiericworkspace.sushiericservermanager.editor.main.recipe.RecipeEditorLogic
+import io.github.sushiericworkspace.sushiericservermanager.update.ManagerCompatibility
+import io.github.sushiericworkspace.sushiericservermanager.update.UpdateChecker
+import io.github.sushiericworkspace.sushiericservermanager.update.UpdateCheckResult
+import io.github.sushiericworkspace.sushiericservermanager.update.isNewerVersion
+import io.github.sushiericworkspace.sushiericservermanager.ui.dialog.UpdateDialog
+import javafx.concurrent.Task
 import javafx.application.Platform
 import javafx.scene.control.Button
 import javafx.scene.control.Label
@@ -47,6 +53,8 @@ class HomeController : Initializable {
     @FXML
     private lateinit var rootPane: VBox
     @FXML private lateinit var modeLabel: Label
+    @FXML private lateinit var compatibilityLabel: Label
+    @FXML private lateinit var updateButton: Button
     @FXML private lateinit var managementLabel: Label
     @FXML private lateinit var monitorLabel: Label
     @FXML private lateinit var consoleButton: Button
@@ -191,6 +199,13 @@ class HomeController : Initializable {
         }
 
         val online = mode == AppMode.ONLINE
+        compatibilityLabel.text = sshManager.compatibility.message
+        compatibilityLabel.isVisible = online
+        compatibilityLabel.isManaged = online
+        applyConnectionStyle(compatibilityLabel, sshManager.compatibility.writable)
+        val updateRequired = online && sshManager.compatibility is ManagerCompatibility.UpdateRequired
+        updateButton.isVisible = updateRequired
+        updateButton.isManaged = updateRequired
         consoleButton.isManaged = online
         consoleButton.isVisible = online
         historyButton.isManaged = online
@@ -227,11 +242,41 @@ class HomeController : Initializable {
     }
 
     /**
-     * 指定されたプロファイルを用いてサーバーに接続し、初期データをロードします。
-     *
-     * @param profile 接続先の [ServerProfile]
-     * @return 接続に成功した場合は true、失敗した場合は false
+     * 最小版を満たす更新だけを案内します。確認失敗でも読み取り専用状態を維持します。
      */
+    @FXML
+    private fun onRequiredUpdate() {
+        val compatibility = sshManager.compatibility as? ManagerCompatibility.UpdateRequired ?: return
+        updateButton.isDisable = true
+        val task = object : Task<UpdateCheckResult>() {
+            override fun call() = UpdateChecker().check()
+        }
+        task.setOnSucceeded {
+            updateButton.isDisable = false
+            val update = task.value as? UpdateCheckResult.Update
+            if (update == null || isNewerVersion(compatibility.minimumVersion, update.version)) {
+                CustomDialog.error().title("更新が必要です").header("必要な版の更新を取得できません")
+                    .content("最低版 ${compatibility.minimumVersion} が必要です。公開されるまで読み取り専用で利用してください。").show()
+            } else {
+                val outcome = UpdateDialog.show(
+                    update, openUrl = { java.awt.Desktop.getDesktop().browse(java.net.URI(it)) }, required = true
+                )
+                if (outcome == UpdateDialog.Outcome.EXIT) {
+                    EditorSession.disconnect()
+                    Platform.exit()
+                }
+            }
+        }
+        task.setOnFailed {
+            updateButton.isDisable = false
+            logger.warn("必須更新を確認できませんでした", task.exception)
+            CustomDialog.error().title("更新が必要です").header("更新を確認できません")
+                .content("最低版 ${compatibility.minimumVersion} が必要です。接続を確認して再試行してください。").show()
+        }
+        Thread(task, "required-update-check").apply { isDaemon = true; start() }
+    }
+
+    /** 指定プロファイルへ接続し、成功時にオンラインセッションを開始します。 */
     fun initData(profile: ServerProfile): Boolean {
         this.selectedProfile = profile
 

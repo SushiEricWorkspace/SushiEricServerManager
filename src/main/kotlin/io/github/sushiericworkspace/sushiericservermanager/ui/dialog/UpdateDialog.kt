@@ -44,7 +44,7 @@ object UpdateDialog {
         /** 通常の起動を続ける。 */
         CONTINUE,
 
-        /** Updaterを起動したため、アプリを終了する。 */
+        /** Updaterの起動、または必須更新の中断のため、アプリを終了する。 */
         EXIT
     }
 
@@ -53,11 +53,13 @@ object UpdateDialog {
      *
      * @param openUrl ダウンロードページをブラウザーで開く関数。
      * @param updater 置換と再起動を行うUpdater。nullの場合は「再起動して更新」を表示しません。
+     * @param required trueなら更新を後回しにできず、閉じた場合もアプリの終了を求めます。
      */
     fun show(
         update: UpdateCheckResult.Update,
         openUrl: (String) -> Unit,
-        updater: Updater? = Updaters.forCurrentOs()
+        updater: Updater? = Updaters.forCurrentOs(),
+        required: Boolean = false
     ): Outcome {
         var outcome = Outcome.CONTINUE
         val stage = Stage().apply {
@@ -79,14 +81,14 @@ object UpdateDialog {
             isManaged = false
         }
         val primary = Button()
-        val secondary = Button("閉じる")
+        val secondary = Button(if (required) "アプリを終了" else "閉じる")
         val releaseLink = Hyperlink("リリースページを開く").apply { setOnAction { openUrl(update.releaseUrl) } }
         val buttons = HBox(10.0, releaseLink, Region().also { HBox.setHgrow(it, Priority.ALWAYS) }, primary, secondary)
             .apply { alignment = Pos.CENTER_RIGHT }
 
         val root = VBox(
             10.0,
-            Label("新しいバージョンがあります。"),
+            Label(if (required) "サーバーへ書き込むには更新が必要です。" else "新しいバージョンがあります。"),
             Label("現在のバージョン: ${AppVersion.CURRENT}　最新バージョン: ${update.version}"),
             notes,
             status,
@@ -97,7 +99,8 @@ object UpdateDialog {
             padding = Insets(16.0)
         }
 
-        secondary.setOnAction { stage.close() }
+        secondary.setOnAction { if (required) outcome = Outcome.EXIT; stage.close() }
+        stage.setOnCloseRequest { if (required) outcome = Outcome.EXIT }
         when (update) {
             is UpdateCheckResult.Manual -> {
                 status.text = update.reason + "\nリリースページから、手動で更新してください。"
@@ -108,7 +111,7 @@ object UpdateDialog {
                 status.text = "更新をダウンロードして、SHA-256を検証します。"
                 primary.text = "ダウンロード"
                 primary.setOnAction {
-                    startDownload(stage, update, updater, status, progress, primary, secondary) {
+                    startDownload(stage, update, updater, status, progress, primary, secondary, required) {
                         outcome = Outcome.EXIT
                     }
                 }
@@ -130,6 +133,7 @@ object UpdateDialog {
         progress: ProgressBar,
         primary: Button,
         secondary: Button,
+        required: Boolean,
         onRestart: () -> Unit
     ) {
         val downloader = UpdateDownloader(FilePath.UPDATES_DIR.toFile())
@@ -161,9 +165,9 @@ object UpdateDialog {
             status.text = message
             primary.isVisible = false
             primary.isManaged = false
-            secondary.text = "閉じる"
-            secondary.setOnAction { stage.close() }
-            stage.onCloseRequest = null
+            secondary.text = if (required) "アプリを終了" else "閉じる"
+            secondary.setOnAction { if (required) onRestart(); stage.close() }
+            stage.setOnCloseRequest { if (required) onRestart() }
         }
 
         task.addEventHandler(WorkerStateEvent.WORKER_STATE_SUCCEEDED) {
