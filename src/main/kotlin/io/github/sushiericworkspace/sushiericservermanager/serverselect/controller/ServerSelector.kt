@@ -1,6 +1,7 @@
 package io.github.sushiericworkspace.sushiericservermanager.serverselect.controller
 
 import io.github.sushiericworkspace.sushiericservermanager.app.AppScreen
+import io.github.sushiericworkspace.sushiericservermanager.app.appWindowTitle
 import io.github.sushiericworkspace.sushiericservermanager.communication.HostKeyApprovalHandler
 import io.github.sushiericworkspace.sushiericservermanager.communication.SshFailure
 import io.github.sushiericworkspace.sushiericservermanager.communication.SshFailureCode
@@ -331,7 +332,7 @@ class ServerSelector : Initializable {
         val scene = Utility.createScene(screen, customRoot = root)
 
         return Stage().apply {
-            this.title = title
+            this.title = appWindowTitle(title)
             this.scene = scene
             initModality(modality)
             if (modality == Modality.APPLICATION_MODAL) showAndWait() else show()
@@ -394,7 +395,7 @@ class ServerSelector : Initializable {
         val root = loader.load<Parent>()
 
         Stage().apply {
-            title = "SushiEricServerManager - ${profile.name}"
+            title = appWindowTitle(profile.name)
             scene = Utility.createScene(AppScreen.HOME, customRoot = root)
             show()
         }

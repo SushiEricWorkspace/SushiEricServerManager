@@ -1,6 +1,7 @@
 package io.github.sushiericworkspace.sushiericservermanager.feature.moneyhistory
 
 import io.github.sushiericworkspace.sushiericservermanager.app.AppScreen
+import io.github.sushiericworkspace.sushiericservermanager.app.appWindowTitle
 import io.github.sushiericworkspace.sushiericservermanager.editor.store.EditorDataStore
 import io.github.sushiericworkspace.sushiericservermanager.editor.session.EditorSession
 import io.github.sushiericworkspace.sushiericservermanager.util.Utility
@@ -21,7 +22,7 @@ object MoneyHistoryWindowManager {
         val controller = loader.getController<MoneyHistoryController>()
         controller.initialize(store, EditorSession.managementClient)
         val stage = Stage().apply {
-            title = "SushiEricServerManager - 履歴"
+            title = appWindowTitle("履歴")
             scene = Utility.createScene(AppScreen.MONEY_HISTORY, customRoot = root)
             minWidth = 900.0
             minHeight = 560.0

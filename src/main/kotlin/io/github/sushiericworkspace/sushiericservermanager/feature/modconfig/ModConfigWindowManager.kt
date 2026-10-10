@@ -1,6 +1,7 @@
 package io.github.sushiericworkspace.sushiericservermanager.feature.modconfig
 
 import io.github.sushiericworkspace.sushiericservermanager.app.AppScreen
+import io.github.sushiericworkspace.sushiericservermanager.app.appWindowTitle
 import io.github.sushiericworkspace.sushiericservermanager.editor.service.EditorDataService
 import io.github.sushiericworkspace.sushiericservermanager.util.Utility
 import javafx.fxml.FXMLLoader
@@ -30,7 +31,7 @@ object ModConfigWindowManager {
         loader.getController<ModConfigController>().initData(dataService)
 
         val stage = Stage().apply {
-            title = "SushiEricServerManager - Mod設定"
+            title = appWindowTitle("Mod設定")
             scene = Utility.createScene(AppScreen.MOD_CONFIG, customRoot = root)
             minWidth = 640.0
             minHeight = 480.0

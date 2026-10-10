@@ -1,6 +1,7 @@
 package io.github.sushiericworkspace.sushiericservermanager.feature.servercontrol
 
 import io.github.sushiericworkspace.sushiericservermanager.app.AppScreen
+import io.github.sushiericworkspace.sushiericservermanager.app.appWindowTitle
 import io.github.sushiericworkspace.sushiericservermanager.util.Utility
 import javafx.fxml.FXMLLoader
 import javafx.scene.Parent
@@ -22,7 +23,7 @@ object ServerControlWindowManager {
         val root = loader.load<Parent>()
 
         val stage = Stage().apply {
-            title = "SushiEricServerManager - Server Control"
+            title = appWindowTitle("Server Control")
             scene = Utility.createScene(AppScreen.SERVER_CONTROL, customRoot = root)
             minWidth = 560.0
             minHeight = 480.0

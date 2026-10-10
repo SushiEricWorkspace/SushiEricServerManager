@@ -1,6 +1,7 @@
 package io.github.sushiericworkspace.sushiericservermanager.feature.console
 
 import io.github.sushiericworkspace.sushiericservermanager.app.AppScreen
+import io.github.sushiericworkspace.sushiericservermanager.app.appWindowTitle
 import io.github.sushiericworkspace.sushiericservermanager.util.Utility
 import javafx.fxml.FXMLLoader
 import javafx.scene.Parent
@@ -22,7 +23,7 @@ object ConsoleWindowManager {
         val root = loader.load<Parent>()
         val controller = loader.getController<ConsoleController>()
         val stage = Stage().apply {
-            title = "SushiEricServerManager - Minecraftコンソール"
+            title = appWindowTitle("Minecraftコンソール")
             scene = Utility.createScene(AppScreen.CONSOLE, customRoot = root)
             minWidth = 640.0
             minHeight = 420.0
