@@ -33,7 +33,14 @@ if (releaseTaskRequested && commonReleaseVersion == null) {
     )
 }
 
-val commonDependency = if (commonReleaseVersion == null) {
+val commonDevelopmentCoordinate = providers.gradleProperty("commonDevelopmentCoordinate").orNull
+if (commonDevelopmentCoordinate != null && (commonReleaseVersion != null || !Regex(
+        """io\.github\.sushiericworkspace:sushieric-common-editor-dev:0\.1\.0-dev\.[a-zA-Z0-9.-]+"""
+    ).matches(commonDevelopmentCoordinate))) {
+    throw GradleException("開発Commonは完全なEditor用固定座標で指定し、正式版指定と併用しないでください。")
+}
+
+val commonDependency = commonDevelopmentCoordinate ?: if (commonReleaseVersion == null) {
     "io.github.sushiericworkspace:sushieric-common-editor-dev:0.1.0-dev.+"
 } else {
     "io.github.sushiericworkspace:sushieric-common:$commonReleaseVersion"
