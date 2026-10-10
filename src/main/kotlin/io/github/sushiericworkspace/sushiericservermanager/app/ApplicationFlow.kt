@@ -36,7 +36,7 @@ object ApplicationFlow {
             prepareMode(stage, mode)
         }
 
-        stage.title = "SushiEricServerManager - 動作モード選択"
+        stage.title = appWindowTitle("動作モード選択")
         stage.scene = Utility.createScene(AppScreen.MODE_SELECT, customRoot = root)
         stage.isResizable = false
         stage.show()
@@ -113,6 +113,6 @@ object ApplicationFlow {
                 styleClass.add("startup-progress")
             }
         )
-        stage.title = "起動準備中"
+        stage.title = appWindowTitle("起動準備中")
     }
 }

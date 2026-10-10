@@ -1,6 +1,7 @@
 package io.github.sushiericworkspace.sushiericservermanager.editor.view
 
 import io.github.sushiericworkspace.sushiericservermanager.app.AppScreen
+import io.github.sushiericworkspace.sushiericservermanager.app.appWindowTitle
 import io.github.sushiericworkspace.sushiericservermanager.editor.controller.MainController
 import io.github.sushiericworkspace.sushiericservermanager.util.Utility
 import javafx.fxml.FXMLLoader
@@ -41,7 +42,7 @@ object EditorWindowManager {
         val mainController = loader.getController<MainController>()
 
         val newStage = Stage().apply {
-            this.title = title
+            this.title = appWindowTitle(title)
             this.scene = Utility.createScene(AppScreen.BASE, customRoot = root)
         }
 

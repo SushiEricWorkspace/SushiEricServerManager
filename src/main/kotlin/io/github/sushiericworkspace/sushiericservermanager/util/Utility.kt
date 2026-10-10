@@ -4,6 +4,7 @@ import io.github.sushiericworkspace.common.path.SushiEricDataDirectory
 import io.github.sushiericworkspace.common.path.SushiEricPath
 import io.github.sushiericworkspace.sushiericservermanager.app.AppScreen
 import io.github.sushiericworkspace.sushiericservermanager.app.ApplicationFlow
+import io.github.sushiericworkspace.sushiericservermanager.app.appWindowTitle
 import io.github.sushiericworkspace.sushiericservermanager.editor.session.EditorSession
 import io.github.sushiericworkspace.sushiericservermanager.editor.view.EditorWindowManager
 import io.github.sushiericworkspace.sushiericservermanager.config.ServerProfile
@@ -51,7 +52,7 @@ object Utility {
         val scene = createScene(AppScreen.SERVER_SELECT, 600.0, 400.0)
 
         val nextStage = Stage().apply {
-            title = "SushiEricServerManager - サーバー選択"
+            title = appWindowTitle("サーバー選択")
             this.scene = scene // ここで適用済みsceneをセット
             isResizable = false
         }
@@ -71,7 +72,7 @@ object Utility {
     fun navigateToHome(contextName: String) {
         val scene = createScene(AppScreen.HOME)
         Stage().apply {
-            title = "SushiEricServerManager - $contextName"
+            title = appWindowTitle(contextName)
             this.scene = scene
             show()
         }

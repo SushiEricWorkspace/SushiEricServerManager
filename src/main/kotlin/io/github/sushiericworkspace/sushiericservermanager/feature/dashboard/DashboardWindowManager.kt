@@ -1,6 +1,7 @@
 package io.github.sushiericworkspace.sushiericservermanager.feature.dashboard
 
 import io.github.sushiericworkspace.sushiericservermanager.app.AppScreen
+import io.github.sushiericworkspace.sushiericservermanager.app.appWindowTitle
 import io.github.sushiericworkspace.sushiericservermanager.util.Utility
 import javafx.fxml.FXMLLoader
 import javafx.scene.Parent
@@ -23,7 +24,7 @@ object DashboardWindowManager {
         val controller = loader.getController<DashboardController>()
 
         val stage = Stage().apply {
-            title = "SushiEricServerManager - Dashboard"
+            title = appWindowTitle("Dashboard")
             scene = Utility.createScene(AppScreen.DASHBOARD, customRoot = root)
             minWidth = 480.0
             minHeight = 420.0
