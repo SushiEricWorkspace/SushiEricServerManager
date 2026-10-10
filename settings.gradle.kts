@@ -8,7 +8,7 @@ dependencyResolutionManagement {
     repositories {
         maven {
             name = "commonDevelopment"
-            url = uri("../.common-dev-repository")
+            url = uri(providers.gradleProperty("commonDevelopmentRepository").orElse("../.common-dev-repository").get())
             content {
                 includeModule(
                     "io.github.sushiericworkspace",
