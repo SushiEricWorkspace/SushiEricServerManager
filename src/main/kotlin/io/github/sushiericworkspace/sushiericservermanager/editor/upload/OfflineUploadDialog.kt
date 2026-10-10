@@ -39,15 +39,17 @@ object OfflineUploadDialog {
      * 宛先を入力するたびに、サーバー上のIDと新規・上書きの状態を[planUpload]で更新します。
      * 宛先の指定が不正な間と、選択が0件の間は、アップロードできません。
      *
+     * @param forEditing 保存せずエディターへ読み込む操作として表示する場合はtrue。
      * @return 確定した内容。取り消した場合はnull。
      */
     fun select(
         owner: Stage?,
         profileName: String,
         category: UploadDataCategory,
-        scan: UploadScanResult.Success
+        scan: UploadScanResult.Success,
+        forEditing: Boolean = false
     ): OfflineUploadSelection? {
-        val uploadType = ButtonType("アップロード", ButtonBar.ButtonData.OK_DONE)
+        val uploadType = ButtonType(if (forEditing) "エディターへ読み込む" else "アップロード", ButtonBar.ButtonData.OK_DONE)
         val countLabel = Label()
         val destinationField = TextField().apply {
             promptText = "宛先ディレクトリ（空の場合はルート。例: event.weapons）"
@@ -89,8 +91,12 @@ object OfflineUploadDialog {
         }
 
         val dialog = Dialog<OfflineUploadSelection>().apply {
-            title = "ローカルデータをアップロード"
-            headerText = "アップロード先: $profileName（${category.displayName}）"
+            title = if (forEditing) "ローカルデータを読み込む" else "ローカルデータをアップロード"
+            headerText = if (forEditing) {
+                "読み込み先: $profileName（${category.displayName}）。サーバーへの反映は保存時に行います"
+            } else {
+                "アップロード先: $profileName（${category.displayName}）"
+            }
             owner?.let(::initOwner)
             dialogPane.buttonTypes.addAll(uploadType, ButtonType.CANCEL)
             dialogPane.stylesheets.add(
