@@ -182,16 +182,20 @@ class MacUpdaterTest {
 
     @Test
     fun `コマンドは値を引数として渡す`() {
+        val appBundle = File("/Applications/Manager.app")
+        val resultFile = File("/data/result.json")
+        val script = File("/tmp/update.sh")
+        val installer = File("/dl/installer's.dmg")
         val updater = MacUpdater(
-            File("/Applications/Manager.app"), File("/data/result.json"), processId = 42, launcher = "open"
+            appBundle, resultFile, processId = 42, launcher = "open"
         )
 
-        val command = updater.buildCommand(File("/tmp/update.sh"), File("/dl/installer's.dmg"), "0.3.0")
+        val command = updater.buildCommand(script, installer, "0.3.0")
 
         assertEquals(
             listOf(
-                "/bin/sh", "/tmp/update.sh", "42", "/dl/installer's.dmg",
-                "/Applications/Manager.app", "/data/result.json", "0.3.0", "open"
+                "/bin/sh", script.absolutePath, "42", installer.absolutePath,
+                appBundle.absolutePath, resultFile.absolutePath, "0.3.0", "open"
             ),
             command
         )
