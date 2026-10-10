@@ -130,16 +130,17 @@ Updaterは、ManagerがOSごとのスクリプトを一時ディレクトリに�
 
 ### データの保護（Windows）
 
-jpackageのMSIは、上書き更新のときに**インストール先のフォルダ全体を削除する**。Managerの設定とデータ（`config.json`、`profiles.json`、`ssh`、`offline`、`autosave`など）は、インストール先と同じフォルダ（Windowsでは`%LOCALAPPDATA%\SushiEricServerManager`）にあるため、そのままでは更新のたびに消える。
-これは、Updaterを使わずにインストーラーを手動で実行した場合も同じである。
+jpackageのMSIは、上書き更新のときに**インストール先のフォルダ全体を削除する**。Windowsのインストール先は`--install-dir SushiEricServerManager\app`で`%LOCALAPPDATA%\SushiEricServerManager\app`に限定する。設定とデータ（`config.json`、`profiles.json`、`ssh`、`offline`、`autosave`など）は親の`%LOCALAPPDATA%\SushiEricServerManager`に維持する。この分離された配置同士の更新では、手動インストールでもデータは削除対象にならず、Updaterによる退避・復元も行わない。
 
-Updaterは、次のようにデータを守る。
+起動ファイルがデータ領域の直下にある配置からの移行では、Updaterは次のようにデータを守る。
+
+WindowsインストーラーはGradle daemonのJDK 21にあるjpackageを使用する。`prepareWindowsInstallerResources`がJDKのWiXテンプレートを読み、ネストしたユーザー単位のインストールに必要な親ディレクトリの削除定義を補う（WiX ICE64対策）。削除するのは空の親だけであり、データファイルや親ディレクトリの再帰削除は行わない。
 
 1. インストールの前に、`app`、`runtime`、`updates`、`lock`、起動ファイル以外のすべてを、一時ディレクトリへ退避する。
 2. インストールの成功と失敗のどちらでも、インストールのあとで退避したデータを戻す。戻したあとに、退避した各項目が存在することを確認する。
 3. 復元に失敗した場合は、退避したデータを削除せず、結果の`message`に退避先を書く。更新の結果は失敗として扱う。
 
-インストール先をデータのフォルダと分ければ、この退避は不要になる。分ける場合は、既存の利用者の移行を別途検討する。
+移行成功後は`app`配下の起動ファイルを優先して再起動する。失敗時は元の起動ファイルが残っていればそれを使う。データ領域直下の配置からの手動更新には退避機構がないため、Updaterを使用するか、インストーラー実行前にデータを別の場所へバックアップし、完了後に復元する。保存先やデータ形式は変更しない。macOSは`.app`と`~/Library/Application Support/SushiEricServerManager`が別領域であり、変更は不要である。
 
 ### 更新の結果
 

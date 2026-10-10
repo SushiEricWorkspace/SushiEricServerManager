@@ -190,8 +190,8 @@ class MacUpdaterTest {
 
         assertEquals(
             listOf(
-                "/bin/sh", "/tmp/update.sh", "42", "/dl/installer's.dmg",
-                "/Applications/Manager.app", "/data/result.json", "0.3.0", "open"
+                "/bin/sh", File("/tmp/update.sh").absolutePath, "42", File("/dl/installer's.dmg").absolutePath,
+                File("/Applications/Manager.app").absolutePath, File("/data/result.json").absolutePath, "0.3.0", "open"
             ),
             command
         )
