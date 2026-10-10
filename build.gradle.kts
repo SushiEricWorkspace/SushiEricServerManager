@@ -1,3 +1,9 @@
+import java.nio.file.Path
+import java.nio.file.Files
+import java.net.URI
+import java.util.Locale
+import java.util.UUID
+
 plugins {
     alias(libs.plugins.kotlin.jvm)
     alias(libs.plugins.kotlin.serialization)
@@ -319,16 +325,50 @@ tasks.register<Exec>("packageWindowsAppImage") {
  * ユーザー単位インストールにする。
  * 自動アップデートでProgram Filesの権限問題を避けやすくするため。
  */
+val windowsInstallerResources = layout.buildDirectory.dir("windows-installer-resources")
+
+// JDK 21のjpackageはネストしたper-user配置の親へRemoveFolderを生成せず、WiX ICE64で失敗する。
+// JDK自身のテンプレートを使用し、空の親だけを削除する定義を補う。データや親の再帰削除は行わない。
+tasks.register("prepareWindowsInstallerResources") {
+    doLast {
+        val args = tasks.named<Exec>("packageWindowsInstaller").get().commandLine
+        val name = args[args.indexOf("--name") + 1]
+        val installDirectory = args[args.indexOf("--install-dir") + 1]
+        val parent = Path.of(installDirectory).parent
+        val output = windowsInstallerResources.get().asFile.apply { mkdirs() }
+        val template = Files.readString(Path.of(
+            URI.create("jrt:/jdk.jpackage/jdk/jpackage/internal/resources/main.wxs")
+        ))
+        val adjusted = if (parent == null) template else {
+            // DirectoryのIDはJDK 21のWixAppImageFragmentBuilderと同じ規則で導出する。
+            val key = "Folder@" + "TARGETDIR\\LocalAppDataFolder\\$parent".lowercase(Locale.ROOT)
+            val directoryId = "dir" + UUID.nameUUIDFromBytes(key.toByteArray(Charsets.UTF_8)).toString().replace("-", "")
+            val component = """
+                <DirectoryRef Id="$directoryId">
+                  <Component Id="EmptyDataDirectory" Guid="*">
+                    <RegistryValue Root="HKCU" Key="Software\$name\Installer" Name="DataDirectory" Type="integer" Value="1" KeyPath="yes" />
+                    <RemoveFolder Id="RemoveEmptyDataDirectory" On="uninstall" />
+                  </Component>
+                </DirectoryRef>
+            """.trimIndent()
+            check(template.contains("<ComponentGroupRef Id=\"Files\"/>")) { "JDKのWiXテンプレートが未対応です。" }
+            template.replace("<ComponentGroupRef Id=\"Files\"/>", "<ComponentGroupRef Id=\"Files\"/><ComponentRef Id=\"EmptyDataDirectory\"/>")
+                .replace("</Product>", "$component\n</Product>")
+        }
+        output.resolve("main.wxs").writeText(adjusted, Charsets.UTF_8)
+    }
+}
+
 tasks.register<Exec>("packageWindowsInstaller") {
     group = "release"
     description = "Windows用exeインストーラーを作成します"
 
-    dependsOn("cleanWindowsInstallerOutput", "installDist")
+    dependsOn("cleanWindowsInstallerOutput", "installDist", "prepareWindowsInstallerResources")
 
     workingDir = projectDir
 
     commandLine(
-        "jpackage",
+        File(System.getProperty("java.home"), "bin/jpackage.exe").absolutePath,
         "--type", "exe",
         "--name", appName,
         "--app-version", packageVersion,
@@ -339,7 +379,10 @@ tasks.register<Exec>("packageWindowsInstaller") {
         "--icon", windowsIconPath,
         "--win-menu",
         "--win-shortcut",
-        "--win-per-user-install"
+        "--win-per-user-install",
+        // データ領域の親は維持し、MSIの削除対象をアプリ専用ディレクトリに限定する。
+        "--install-dir", "$appName\\app",
+        "--resource-dir", windowsInstallerResources.get().asFile
     )
 }
 

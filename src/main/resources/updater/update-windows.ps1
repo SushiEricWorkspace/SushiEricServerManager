@@ -1,8 +1,8 @@
 # Managerの終了後に、ダウンロードして検証済みのインストーラーでManagerを上書き更新し、再起動する。
 #
 # jpackageのMSIは、上書き更新のときにインストール先のフォルダ全体を削除する。
-# Managerのデータ（設定、プロファイル、SSH、オフラインデータなど）はインストール先と同じ
-# フォルダにあるため、インストールの前に退避し、インストールのあとで復元する。
+# データ領域直下にインストールされた版から移行する場合だけ、データを退避・復元する。
+# app配下に分離された版では、インストーラーがデータ領域を削除しないため退避は不要。
 #
 # 結果は、成功と失敗のどちらでも$ResultFileへJSONで書き、Managerを再起動する。
 param(
@@ -19,6 +19,10 @@ $success = $false
 $exitCode = $null
 $message = $null
 $backup = Join-Path ([IO.Path]::GetTempPath()) ('SushiEricServerManager-update-' + [Guid]::NewGuid().ToString('N'))
+$dataRoot = [IO.Path]::GetFullPath($DataDir).TrimEnd('\', '/')
+$appParent = [IO.Path]::GetFullPath((Split-Path -Parent $AppExe)).TrimEnd('\', '/')
+$legacyLayout = [StringComparer]::OrdinalIgnoreCase.Equals($dataRoot, $appParent)
+$newAppExe = Join-Path (Join-Path $DataDir 'app') ([IO.Path]::GetFileName($AppExe))
 
 # インストールで置き換わる項目。これ以外は、データとして退避する。
 $replaced = @('app', 'runtime', 'updates', 'lock', [IO.Path]::GetFileName($AppExe))
@@ -29,12 +33,14 @@ try {
         throw 'Managerが終了しなかったため、更新を中止しました。'
     }
 
-    New-Item -ItemType Directory -Path $backup -Force | Out-Null
-    Get-ChildItem -LiteralPath $DataDir -Force |
-        Where-Object { $replaced -notcontains $_.Name } |
-        ForEach-Object { Copy-Item -LiteralPath $_.FullName -Destination $backup -Recurse -Force }
+    if ($legacyLayout) {
+        New-Item -ItemType Directory -Path $backup -Force | Out-Null
+        Get-ChildItem -LiteralPath $DataDir -Force |
+            Where-Object { $replaced -notcontains $_.Name } |
+            ForEach-Object { Copy-Item -LiteralPath $_.FullName -Destination $backup -Recurse -Force }
+    }
 
-    $install = Start-Process -FilePath $Installer -ArgumentList '/qn' -Wait -PassThru
+    $install = Start-Process -FilePath $Installer -ArgumentList '/qn' -WindowStyle Hidden -Wait -PassThru
     $exitCode = $install.ExitCode
     # 0は成功、1641と3010は成功して再起動が必要であることを表す。
     if (@(0, 1641, 3010) -contains $exitCode) {
@@ -59,7 +65,14 @@ try {
                 throw "データを復元できませんでした: $($item.Name)"
             }
         }
-        Remove-Item -LiteralPath $backup -Recurse -Force
+        # この実行で生成した一時退避先だけを削除する。
+        $expectedBackup = [IO.Path]::GetFullPath($backup)
+        $tempRoot = [IO.Path]::GetFullPath([IO.Path]::GetTempPath()).TrimEnd('\', '/') + [IO.Path]::DirectorySeparatorChar
+        if (-not $expectedBackup.StartsWith($tempRoot, [StringComparison]::OrdinalIgnoreCase) -or
+            -not ([IO.Path]::GetFileName($expectedBackup)).StartsWith('SushiEricServerManager-update-')) {
+            throw '退避先が一時ディレクトリ外のため、削除を中止しました。'
+        }
+        Remove-Item -LiteralPath $expectedBackup -Recurse -Force
     }
 } catch {
     # 復元に失敗した場合は、退避したデータを残す。
@@ -83,6 +96,11 @@ try {
     # 結果を書けなくても、Managerの再起動は続ける。
 }
 
-if (Test-Path -LiteralPath $AppExe) {
-    Start-Process -FilePath $AppExe
+# 移行が成功した場合は新配置を優先する。失敗時は残っている元のアプリを優先する。
+$restartExe = $AppExe
+if (($success -or -not (Test-Path -LiteralPath $restartExe)) -and (Test-Path -LiteralPath $newAppExe)) {
+    $restartExe = $newAppExe
+}
+if (Test-Path -LiteralPath $restartExe) {
+    Start-Process -FilePath $restartExe
 }

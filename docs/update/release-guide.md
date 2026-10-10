@@ -80,5 +80,5 @@ jpackageの版で先頭に1を足すのは、macOSのjpackageが先頭の数字�
 
 ## インストーラーの手動実行の注意
 
-WindowsのインストーラーをUpdaterを使わずに手動で実行して上書きすると、インストール先と同じフォルダにあるManagerの設定とデータ（`config.json`、`profiles.json`、`ssh`、`offline`、`autosave`など）が削除される。詳しくは[更新ガイド](update-guide.md#データの保護)を参照する。
-検証などで手動実行する前には、`%LOCALAPPDATA%\SushiEricServerManager`のデータをバックアップする。Updaterによる更新では、データは自動で退避・復元される。
+Windowsのインストール先は`%LOCALAPPDATA%\SushiEricServerManager\app`、データ領域はその親である。この配置同士の上書きインストールではデータは保持される。
+データ領域直下にインストールされた版から移行する場合は、Updaterを使用するか、事前にデータを別領域へバックアップして完了後に復元する。手動更新ではデータが削除される可能性がある。詳しくは[更新ガイド](update-guide.md#データの保護windows)を参照する。
