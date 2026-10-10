@@ -397,16 +397,55 @@ abstract class EditorView<T : ManagedData<T, *>>(
         onAction = EventHandler { action() }
     }
 
-    /** ローカルデータを、宛先ディレクトリを指定してサーバーへアップロードします。 */
+    /** ローカルデータを、宛先ディレクトリを指定して未保存の編集として取り込みます。 */
     private fun onUploadLocalData(category: UploadDataCategory) {
         val profileName = EditorSession.sshManager.currentProfile?.name ?: return
+        var editingBeforeLoad: Map<String, T> = emptyMap()
+        var operationsBeforeLoad: Map<String, PendingStoreOperation> = emptyMap()
         LocalDataUploader.start(
             owner = main.currentStage,
             remoteStore = dataService.store,
             profileName = profileName,
             category = category,
+            descriptor = dataAccess.descriptor,
+            editingIds = { editingDataMap.keys.toSet() },
+            onBeforeLoad = {
+                editingBeforeLoad = editingDataMap.mapValues { it.value.deepCopy() }
+                operationsBeforeLoad = pendingStoreOperations.toMap()
+            },
             onBusyChanged = { busy -> uploadMenuItem?.isDisable = busy },
-            onUploaded = { setupSidebar(main.sidebarContainer, currentSelectedDataId) }
+            onLoaded = { entries ->
+                val changedWhileLoading = entries.filter { entry ->
+                    val id = entry.data.id
+                    editingDataMap[id] != editingBeforeLoad[id] ||
+                        pendingStoreOperations[id] != operationsBeforeLoad[id]
+                }
+                if (changedWhileLoading.isNotEmpty() && !CustomDialog.confirmation()
+                        .title("読み込み中に変更された編集内容の確認")
+                        .header("読み込み中に編集内容が変わりました。置き換えますか？")
+                        .content(changedWhileLoading.map { it.data.id })
+                        .owner(main.currentStage)
+                        .show()
+                ) {
+                    false
+                } else {
+                    entries.forEach { entry ->
+                        val id = entry.data.id
+                        val hasOriginal = id in originalDataMap
+                        originalDataMap.putIfAbsent(id, (entry.original ?: dataAccess.createDefault(id)).deepCopy())
+                        editingDataMap[id] = entry.data.deepCopy()
+                        mergeConflicts.remove(id)
+                        editHistory.reset(id, entry.data)
+                        cancelPendingStoreDeletion(id)
+                        if (!hasOriginal && entry.original == null) stageDataCreation(id)
+                        persistContentChangeBackup(id)
+                    }
+                    persistPendingStoreState()
+                    setupSidebar(main.sidebarContainer, entries.first().data.id)
+                    refreshSyncButtonState()
+                    true
+                }
+            }
         )
     }
 
