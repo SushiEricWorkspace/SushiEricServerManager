@@ -10,6 +10,9 @@ import io.github.sushiericworkspace.common.data.item.model.HeadSkinSource
 import io.github.sushiericworkspace.common.data.item.model.mutable.MutableHeadSkinData
 import io.github.sushiericworkspace.common.data.ore.model.mutable.MutableOreBaseData
 import io.github.sushiericworkspace.common.stats.player.SkillType
+import org.junit.jupiter.api.condition.EnabledOnOs
+import org.junit.jupiter.api.condition.OS
+import java.nio.file.Files
 import kotlin.io.path.createTempDirectory
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -307,6 +310,34 @@ class LocalEditorDataStoreTest {
             assertIs<StoreResult.Success<MutableItemBaseData>>(store.load(descriptor, "mining.shared"))
         } finally {
             root.deleteRecursively()
+        }
+    }
+
+    @Test
+    @EnabledOnOs(OS.MAC, OS.LINUX)
+    fun `別名パスを基準にしても完全IDを維持して保存と一覧と再読込を行う`() {
+        val root = createTempDirectory("offline-store-alias")
+        val directory = Files.createDirectory(root.resolve("data"))
+        val alias = root.resolve("alias")
+        try {
+            Files.createSymbolicLink(alias, directory)
+            val store = LocalEditorDataStore(alias.toFile())
+            val descriptor = EditorDataDescriptors.item
+            val item = validItem("combat.sword.shared")
+
+            assertIs<StoreResult.Success<Unit>>(store.save(descriptor, item.id, item))
+            assertEquals(directory.toFile().canonicalFile, store.root())
+            assertEquals(
+                listOf(item.id),
+                assertIs<StoreResult.Success<List<StoreResource>>>(store.list(descriptor)).value.map(StoreResource::id)
+            )
+            assertEquals(
+                item.id,
+                assertIs<StoreResult.Success<MutableItemBaseData>>(store.load(descriptor, item.id)).value.id
+            )
+        } finally {
+            Files.deleteIfExists(alias)
+            root.toFile().deleteRecursively()
         }
     }
 
