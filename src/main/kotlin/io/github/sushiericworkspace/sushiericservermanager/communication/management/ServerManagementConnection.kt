@@ -8,6 +8,7 @@ import java.net.http.HttpClient
 import java.net.http.WebSocket
 import java.time.Duration
 import java.util.concurrent.CompletionStage
+import java.util.concurrent.CompletableFuture
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
 
@@ -27,6 +28,8 @@ class ServerManagementConnection internal constructor(
     private val logger = LoggerFactory.getLogger(javaClass)
 
     private val buffer = StringBuilder()
+    private val closed = CompletableFuture<Unit>()
+    private var connecting: CompletableFuture<WebSocket>? = null
 
     @Volatile
     private var webSocket: WebSocket? = null
@@ -63,12 +66,18 @@ class ServerManagementConnection internal constructor(
         val uri =
             URI.create("ws://$LOOPBACK:$localPort$PATH")
 
-        webSocket =
-            HttpClient.newHttpClient()
+        val future = HttpClient.newHttpClient()
                 .newWebSocketBuilder()
                 .connectTimeout(timeout)
                 .buildAsync(uri, Adapter())
-                .get(timeout.toMillis(), TimeUnit.MILLISECONDS)
+        connecting = future
+        try {
+            webSocket = future.get(timeout.toMillis(), TimeUnit.MILLISECONDS)
+        } catch (error: Exception) {
+            // 期限後にhandshakeが成立してもhandleを保持し、Closeを要求する。
+            future.thenAccept { socket -> socket.sendClose(WebSocket.NORMAL_CLOSURE, "late managed connection") }
+            throw error
+        }
     }
 
     /**
@@ -141,12 +150,28 @@ class ServerManagementConnection internal constructor(
         runCatching { socket.abort() }
     }
 
+    /** 管理sessionでは送信キューと相手のCloseを確認し、timeoutを終了証明にしません。 */
+    internal fun closeVerified() {
+        check(connecting?.isDone == true && connecting?.isCompletedExceptionally == false) { "監視接続の確立結果が未確認です。" }
+        sendExecutor.shutdown()
+        check(sendExecutor.awaitTermination(SEND_TIMEOUT_MILLIS, TimeUnit.MILLISECONDS)) { "監視送信キューが終了していません。" }
+        val socket = webSocket
+        if (socket != null && !closed.isDone) {
+            socket.sendClose(WebSocket.NORMAL_CLOSURE, "managed session closed")
+                .get(SEND_TIMEOUT_MILLIS, TimeUnit.MILLISECONDS)
+            closed.get(SEND_TIMEOUT_MILLIS, TimeUnit.MILLISECONDS)
+        }
+        check(closed.isDone && !closed.isCompletedExceptionally) { "監視socketの終了が未確認です。" }
+        webSocket = null
+    }
+
     /**
      * JDKのWebSocketコールバックを[ServerManagementListener]へ橋渡しします。
      */
     private inner class Adapter : WebSocket.Listener {
 
         override fun onOpen(webSocket: WebSocket) {
+            this@ServerManagementConnection.webSocket = webSocket
             webSocket.request(Long.MAX_VALUE)
         }
 
@@ -184,6 +209,7 @@ class ServerManagementConnection internal constructor(
             statusCode: Int,
             reason: String
         ): CompletionStage<*>? {
+            closed.complete(Unit)
             listener.onClosed(statusCode, reason)
             return null
         }
@@ -192,6 +218,7 @@ class ServerManagementConnection internal constructor(
             webSocket: WebSocket,
             error: Throwable
         ) {
+            closed.completeExceptionally(error)
             listener.onError(error)
         }
     }

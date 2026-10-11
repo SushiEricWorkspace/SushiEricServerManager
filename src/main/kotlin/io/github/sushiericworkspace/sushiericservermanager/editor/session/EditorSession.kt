@@ -11,6 +11,15 @@ import io.github.sushiericworkspace.sushiericservermanager.monitor.host.HostMetr
 import io.github.sushiericworkspace.sushiericservermanager.app.AppMode
 import io.github.sushiericworkspace.sushiericservermanager.editor.service.EditorDataService
 import io.github.sushiericworkspace.sushiericservermanager.editor.store.EditorDataStore
+import io.github.sushiericworkspace.sushiericservermanager.editor.store.ManagedEditorDataStore
+import io.github.sushiericworkspace.sushiericservermanager.communication.managed.ManagedProfile
+import io.github.sushiericworkspace.sushiericservermanager.communication.managed.ManagedSession
+import io.github.sushiericworkspace.sushiericservermanager.communication.managed.SupervisorFailure
+import io.github.sushiericworkspace.sushiericservermanager.config.FilePath
+import io.github.sushiericworkspace.sushiericservermanager.update.ManagerCompatibility
+import io.github.sushiericworkspace.sushiericservermanager.update.evaluateManagerCompatibility
+import io.github.sushiericworkspace.common.path.SushiEricDataDirectory
+import kotlinx.serialization.json.*
 import org.slf4j.LoggerFactory
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
@@ -45,6 +54,10 @@ object EditorSession {
     val hostMetricsMonitor = HostMetricsMonitor(sshManager)
 
     var dataService: EditorDataService? = null
+        private set
+    var managedSession: ManagedSession? = null
+        private set
+    var managedCompatibility: ManagerCompatibility = ManagerCompatibility.Unchecked
         private set
 
     var mode: AppMode? = null
@@ -81,11 +94,13 @@ object EditorSession {
     }
 
     fun prepareOnlineMode() {
+        check(managedSession == null) { "管理writerを終了する前にSSH profileへ切り替えられません。" }
         mode = AppMode.ONLINE
         dataService = null
     }
 
     fun startOnlineSession() {
+        check(managedSession == null)
         mode = AppMode.ONLINE
         dataService = EditorDataService(sshManager)
 
@@ -102,6 +117,7 @@ object EditorSession {
      * 接続済みの場合とSSH接続が無い場合は何も行いません。
      */
     fun reconnectManagementApi() {
+        if (managedSession != null) return
         if (mode != AppMode.ONLINE || managementClient.isConnected) {
             return
         }
@@ -241,6 +257,7 @@ object EditorSession {
     }
 
     fun startOfflineSession(store: EditorDataStore) {
+        check(managedSession == null)
         mode = AppMode.OFFLINE
         dataService = EditorDataService(store)
     }
@@ -250,6 +267,16 @@ object EditorSession {
          * 利用者が切断を選んだ場合は、以降の状態変化で再接続を予約しない。
          */
         autoReconnectEnabled = false
+        val managed = managedSession
+        if (managed != null) {
+            // 失敗時は参照を残して、別profileへの切替を許可しません。
+            managed.close { managementClient.disconnect() }
+            serverMonitor.stop()
+            managedSession = null
+            managedCompatibility = ManagerCompatibility.Unchecked
+            dataService = null
+            return
+        }
 
         if (mode != AppMode.OFFLINE) {
             /*
@@ -275,6 +302,28 @@ object EditorSession {
     fun resetMode() {
         disconnect()
         mode = null
+    }
+
+    /** 接続・登録・互換性読込はUIスレッド外で実行します。 */
+    fun startManagedSession(profile: ManagedProfile) {
+        check(managedSession == null && dataService == null && !sshManager.isConnected)
+        autoReconnectEnabled = false
+        val session = ManagedSession.open(profile, FilePath.dataDirectory().toPath())
+        managedSession = session
+        val compatibility = try {
+            val text = session.io(buildJsonObject {
+                put("action", "read"); put("path", SushiEricDataDirectory.ManagerCompat().getRawPath())
+            }).getValue("text").jsonPrimitive.content
+            evaluateManagerCompatibility(text)
+        } catch (error: SupervisorFailure) {
+            if (error.code == "FILE_NOT_FOUND") ManagerCompatibility.Missing else throw error
+        }
+        managedCompatibility = compatibility
+        val store = ManagedEditorDataStore(session, compatibility)
+        check(managementClient.connectManaged(session)) { "管理監視接続を確立できません。writer登録は保全されています。" }
+        mode = AppMode.ONLINE
+        dataService = EditorDataService(store, session.autoSaveDirectory)
+        serverMonitor.start(AppSettingsManager.load().resolvedMonitorIntervalTicks())
     }
 }
 

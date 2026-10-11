@@ -399,7 +399,7 @@ abstract class EditorView<T : ManagedData<T, *>>(
 
     /** ローカルデータを、宛先ディレクトリを指定して未保存の編集として取り込みます。 */
     private fun onUploadLocalData(category: UploadDataCategory) {
-        val profileName = EditorSession.sshManager.currentProfile?.name ?: return
+        val profileName = dataService.currentProfileName ?: return
         var editingBeforeLoad: Map<String, T> = emptyMap()
         var operationsBeforeLoad: Map<String, PendingStoreOperation> = emptyMap()
         LocalDataUploader.start(

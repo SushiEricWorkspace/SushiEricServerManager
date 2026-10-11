@@ -19,6 +19,7 @@ import javafx.scene.layout.VBox
 import javafx.stage.Stage
 import org.slf4j.LoggerFactory
 import kotlin.concurrent.thread
+import io.github.sushiericworkspace.sushiericservermanager.communication.managed.ManagedProfile
 
 object ApplicationFlow {
     private val logger = LoggerFactory.getLogger(javaClass)
@@ -71,6 +72,43 @@ object ApplicationFlow {
             EditorSession.prepareOnlineMode()
             stage.close()
             Utility.navigateToServerSelect()
+        }
+    }
+
+    /** 登録・IPC・socketはバックグラウンドで準備し、失敗をSSH接続へ変換しません。 */
+    internal fun prepareManaged(stage: Stage, profile: ManagedProfile) {
+        showPreparing(stage, "管理writerと起動識別を確認しています...")
+        thread(isDaemon = true, name = "managed-connect") {
+            try {
+                EditorSession.startManagedSession(profile)
+                Platform.runLater { stage.close(); Utility.navigateToHome(profile.instanceId) }
+            } catch (_: Exception) {
+                Platform.runLater {
+                    CustomDialog.error().header("管理接続に失敗しました")
+                        .content("writer登録が残っている可能性があります。監督statusと診断を確認してください。自動解除・別profileへのfallbackは行いません。")
+                        .show()
+                    stage.close()
+                    showModeSelection()
+                }
+            }
+        }
+    }
+
+    /** 終了証明が得られたときだけ次の画面へ進みます。失敗時はsessionを保全します。 */
+    internal fun finishManaged(stage: Stage, completed: () -> Unit) {
+        showPreparing(stage, "保存キューと管理接続の終了を確認しています...")
+        stage.show()
+        thread(isDaemon = true, name = "managed-disconnect") {
+            try {
+                EditorSession.resetMode()
+                Platform.runLater(completed)
+            } catch (_: Exception) {
+                Platform.runLater {
+                    CustomDialog.error().header("管理writerの終了が未確認です")
+                        .content("writer登録とsessionデータを保全しました。監督statusを確認してください。別profileへ切り替えません。")
+                        .show()
+                }
+            }
         }
     }
 

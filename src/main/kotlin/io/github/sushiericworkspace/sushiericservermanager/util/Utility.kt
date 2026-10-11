@@ -9,6 +9,7 @@ import io.github.sushiericworkspace.sushiericservermanager.editor.session.Editor
 import io.github.sushiericworkspace.sushiericservermanager.editor.view.EditorWindowManager
 import io.github.sushiericworkspace.sushiericservermanager.config.ServerProfile
 import javafx.fxml.FXMLLoader
+import javafx.application.Platform
 import javafx.scene.Parent
 import javafx.scene.Scene
 import javafx.scene.control.Alert
@@ -38,6 +39,10 @@ object Utility {
      * 必要であればSSH接続を切断し、サーバー選択画面へ遷移します。
      */
     fun navigateToServerSelect() {
+        if (EditorSession.managedSession != null) {
+            navigateToModeSelect()
+            return
+        }
 
         // 1. 全てのウィンドウを閉じる (HomeもEditorも全部消える)
         EditorWindowManager.closeAll()
@@ -61,12 +66,30 @@ object Utility {
     }
 
     fun navigateToModeSelect() {
+        if (EditorSession.managedSession != null) {
+            closeManagedSession { ApplicationFlow.showModeSelection(Stage()) }
+            return
+        }
         EditorWindowManager.closeAll()
         Stage.getWindows().toList().forEach { window ->
             (window as? Stage)?.close()
         }
         EditorSession.resetMode()
         ApplicationFlow.showModeSelection(Stage())
+    }
+
+    /** ローカル退避は画面側、管理queue/socket終了待ちはUIスレッド外で行います。 */
+    fun closeManagedSession(afterClose: () -> Unit) {
+        val stage = Stage.getWindows().filterIsInstance<Stage>().first { it.isShowing }
+        val implicitExit = Platform.isImplicitExit()
+        Platform.setImplicitExit(false)
+        EditorWindowManager.closeAll()
+        stage.setOnCloseRequest { it.consume() }
+        ApplicationFlow.finishManaged(stage) {
+            Stage.getWindows().toList().filterIsInstance<Stage>().forEach { it.close() }
+            afterClose()
+            Platform.setImplicitExit(implicitExit)
+        }
     }
 
     fun navigateToHome(contextName: String) {

@@ -11,8 +11,9 @@ import java.nio.file.Files
 import java.nio.file.StandardCopyOption
 
 class LocalEditorDataStore(
-    private val rootDirectory: File
+    rootDirectory: File
 ) : EditorDataStore {
+    private val rootDirectory = rootDirectory.canonicalFile
     private val logger = LoggerFactory.getLogger(javaClass)
 
     override val kind: EditorDataStoreKind = EditorDataStoreKind.LOCAL
