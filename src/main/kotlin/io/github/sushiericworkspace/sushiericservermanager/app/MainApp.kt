@@ -9,6 +9,7 @@ import io.github.sushiericworkspace.sushiericservermanager.update.pruneOldUpdate
 import javafx.application.Application
 import javafx.application.Platform
 import javafx.stage.Stage
+import io.github.sushiericworkspace.sushiericservermanager.editor.session.EditorSession
 
 /**
  * JavaFX アプリケーションのメインライフサイクルを管理するクラス。
@@ -42,7 +43,8 @@ class MainApp : Application() {
     }
 
     override fun stop() {
-        io.github.sushiericworkspace.sushiericservermanager.editor.session.EditorSession.disconnect()
+        val session = EditorSession
+        if (session.managedSession != null) session.managedSession?.holdUnknown() else session.disconnect()
         SingleAppLock.release()
     }
 
