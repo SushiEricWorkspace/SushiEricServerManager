@@ -177,7 +177,8 @@ class HomeController : Initializable {
     override fun initialize(location: URL?, resources: ResourceBundle?) {
         val mode = EditorSession.mode
         modeLabel.text = when (mode) {
-            AppMode.ONLINE -> "オンライン：${EditorSession.sshManager.currentProfile?.name.orEmpty()}"
+            AppMode.ONLINE -> EditorSession.managedSession?.let { "管理：${it.profile.instanceId}" }
+                ?: "オンライン：${EditorSession.sshManager.currentProfile?.name.orEmpty()}"
             AppMode.OFFLINE -> "オフライン"
             null -> "モード未選択"
         }
@@ -199,11 +200,12 @@ class HomeController : Initializable {
         }
 
         val online = mode == AppMode.ONLINE
-        compatibilityLabel.text = sshManager.compatibility.message
+        val compatibility = if (EditorSession.managedSession != null) EditorSession.managedCompatibility else sshManager.compatibility
+        compatibilityLabel.text = compatibility.message
         compatibilityLabel.isVisible = online
         compatibilityLabel.isManaged = online
-        applyConnectionStyle(compatibilityLabel, sshManager.compatibility.writable)
-        val updateRequired = online && sshManager.compatibility is ManagerCompatibility.UpdateRequired
+        applyConnectionStyle(compatibilityLabel, compatibility.writable)
+        val updateRequired = online && compatibility is ManagerCompatibility.UpdateRequired
         updateButton.isVisible = updateRequired
         updateButton.isManaged = updateRequired
         consoleButton.isManaged = online
@@ -212,8 +214,8 @@ class HomeController : Initializable {
         historyButton.isVisible = online
         dashboardButton.isManaged = online
         dashboardButton.isVisible = online
-        serverControlButton.isManaged = online
-        serverControlButton.isVisible = online
+        serverControlButton.isManaged = online && EditorSession.managedSession == null
+        serverControlButton.isVisible = online && EditorSession.managedSession == null
         modConfigButton.isManaged = online
         modConfigButton.isVisible = online
         onlineToolsPane.isManaged = online
@@ -228,6 +230,11 @@ class HomeController : Initializable {
         javafx.application.Platform.runLater {
             val stage = rootPane.scene?.window as? javafx.stage.Stage
             stage?.setOnCloseRequest {
+                if (EditorSession.managedSession != null) {
+                    it.consume()
+                    Utility.closeManagedSession { Platform.exit() }
+                    return@setOnCloseRequest
+                }
                 // 親が閉じられたら、エディタウィンドウをすべて閉じる
                 EditorWindowManager.closeAll()
                 ModConfigWindowManager.close()
@@ -246,7 +253,7 @@ class HomeController : Initializable {
      */
     @FXML
     private fun onRequiredUpdate() {
-        val compatibility = sshManager.compatibility as? ManagerCompatibility.UpdateRequired ?: return
+        val compatibility = (if (EditorSession.managedSession != null) EditorSession.managedCompatibility else sshManager.compatibility) as? ManagerCompatibility.UpdateRequired ?: return
         updateButton.isDisable = true
         val task = object : Task<UpdateCheckResult>() {
             override fun call() = UpdateChecker().check()
@@ -262,6 +269,10 @@ class HomeController : Initializable {
                     update, openUrl = { java.awt.Desktop.getDesktop().browse(java.net.URI(it)) }, required = true
                 )
                 if (outcome == UpdateDialog.Outcome.EXIT) {
+                    if (EditorSession.managedSession != null) {
+                        Utility.closeManagedSession { Platform.exit() }
+                        return@setOnSucceeded
+                    }
                     EditorSession.disconnect()
                     Platform.exit()
                 }
@@ -390,7 +401,7 @@ class HomeController : Initializable {
     @Suppress("unused")
     fun onOpenModConfig() {
         if (EditorSession.mode != AppMode.ONLINE) return
-        if (EditorSession.mode == AppMode.ONLINE && !sshManager.isSftpActive) {
+        if (EditorSession.mode == AppMode.ONLINE && EditorSession.dataService?.store?.isAvailable != true) {
             CustomDialog.error(ErrorType.CONNECTION_FAILED).show()
             Utility.navigateToServerSelect()
             return
@@ -421,7 +432,7 @@ class HomeController : Initializable {
         dataAccessProvider: (EditorDataService) -> EditorDataService.DataAccess<T>,
         logicFactory: (MainController, EditorDataService) -> L
     ) {
-        if (EditorSession.mode == AppMode.ONLINE && !sshManager.isSftpActive) {
+        if (EditorSession.mode == AppMode.ONLINE && EditorSession.dataService?.store?.isAvailable != true) {
             CustomDialog.error(ErrorType.CONNECTION_FAILED).show()
             Utility.navigateToServerSelect()
             return
@@ -446,7 +457,7 @@ class HomeController : Initializable {
             try {
                 val profileName = service.cacheIdentity
 
-                val dataDir = FilePath.AUTOSAVE_DIR.toFile()
+                val dataDir = service.autoSaveDirectory
                     .resolve(profileName)
                     .resolve(dataAccess.dataType.categoryDirName)
 

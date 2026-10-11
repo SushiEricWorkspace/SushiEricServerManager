@@ -41,7 +41,7 @@ import java.nio.file.StandardCopyOption
  */
 class EditorDataService(
     val store: EditorDataStore,
-    private val autoSaveDirectory: File = FilePath.AUTOSAVE_DIR.toFile()
+    val autoSaveDirectory: File = FilePath.AUTOSAVE_DIR.toFile()
 ) {
     constructor(ssh: SshManager) : this(RemoteEditorDataStore(ssh))
 
