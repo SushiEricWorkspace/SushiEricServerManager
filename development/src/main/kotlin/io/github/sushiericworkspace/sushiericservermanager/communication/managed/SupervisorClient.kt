@@ -8,7 +8,7 @@ import java.util.concurrent.TimeUnit
 
 /** ローカル監督へ本文をstdinで渡します。秘密本文をargv・通常ログへ出しません。 */
 class CliSupervisorClient(private val root: Path, private val python: Path, private val cli: Path) : SupervisorClient {
-    constructor(profile: ManagedProfile) : this(profile.root, profile.python, profile.cli)
+    constructor(profile: ManagedProfile) : this(profile.root, profile.localTarget.python, profile.localTarget.cli)
     override fun request(command: String, payload: JsonObject, operationId: String): JsonObject {
         val envelope = buildJsonObject {
             put("version", 1); put("command", command); put("operationId", operationId); put("payload", payload); put("dryRun", false)
@@ -60,14 +60,37 @@ fun interface SupervisorClient {
 
 class SupervisorFailure(val code: String, cause: Throwable? = null, val rejectedBeforeEffect: Boolean = false) : RuntimeException("管理接続: $code", cause)
 
-/** 接続時だけ保持する貸出入力。SSH profileや設定JSONへ混ぜません。 */
-data class ManagedProfile(val root: Path, val python: Path, val cli: Path,
-                          val instanceId: String, val leaseId: String, val epoch: Long,
-                          val fixedBinding: JsonObject? = null) {
-    init {
-        require(listOf(root, python, cli).all { it.isAbsolute }) { "管理root・Python・CLIは絶対パスで指定してください。" }
-        require(Regex("[a-z0-9][a-z0-9-]{0,127}").matches(instanceId) && leaseId.isNotBlank() && epoch > 0)
+/** 接続先ホストの識別。SSHのパスをこのPCのPathとして解決しません。 */
+sealed interface ManagedTarget {
+    val identity: String
+    val description: String
+    data class Local(val root: Path, val python: Path, val cli: Path) : ManagedTarget {
+        init { require(listOf(root, python, cli).all { it.isAbsolute }) }
+        override val identity = "local:$root"
+        override val description = root.toString()
     }
+    data class Ssh(val profile: ConnectionProfile, val owner: String, val client: SupervisorClient) : ManagedTarget {
+        override val identity = "ssh:" + profile.json.toString()
+        override val description = profile.description
+    }
+}
+
+/** 接続時だけ保持する貸出入力。SSH profileや設定JSONへ混ぜません。 */
+data class ManagedProfile(val target: ManagedTarget, val instanceId: String, val leaseId: String, val epoch: Long,
+                          val fixedBinding: JsonObject? = null) {
+    constructor(root: Path, python: Path, cli: Path, instanceId: String, leaseId: String, epoch: Long,
+                fixedBinding: JsonObject? = null) : this(ManagedTarget.Local(root, python, cli), instanceId, leaseId, epoch, fixedBinding)
+    internal val localTarget get() = when (val active = target) {
+        is ManagedTarget.Local -> active
+        is ManagedTarget.Ssh -> error("SSH対象のパスをこのPCのPathとして使用できません。")
+    }
+    /** ローカル接続専用。SSH対象では使用できません。 */
+    val root: Path get() = localTarget.root
+    internal fun client(): SupervisorClient = when (val active = target) {
+        is ManagedTarget.Local -> CliSupervisorClient(this)
+        is ManagedTarget.Ssh -> active.client
+    }
+    init { require(Regex("[a-z0-9][a-z0-9-]{0,127}").matches(instanceId) && leaseId.isNotBlank() && epoch > 0) }
 }
 
 internal fun operationId(): String = UUID.randomUUID().toString()

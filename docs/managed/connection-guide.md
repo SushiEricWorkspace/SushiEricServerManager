@@ -1,4 +1,4 @@
-# ローカル監督への管理接続
+# ローカル・SSH監督への管理接続
 
 分離テスト枠をManagerで編集し、貸出・世代・起動識別を固定する接続方式です。
 非管理のSSH/オフライン接続は維持します。CommonやModの保存形式・#504互換判定を複製しません。
@@ -28,9 +28,13 @@ gradlew :development:installDist -PcommonDevelopmentRepository=<Maven絶対パ�
 登録・編集は共通契約の`.github/scripts/connection-profile.py`を使用してください。
 形式1の非秘密設定・private権限・対象ホスト・Python 3.12・CLIを正本のConnectionStoreで検査します。
 localプロファイルのhostには`socket.gethostname()`と一致する対象ホスト名を指定します。
-SSHプロファイルは後続のSSH管理接続が必要なため拒否し、localへfallbackしません。
+SSHプロファイルには`transport: ssh`、対象ホストの`host`・`targetOs`・`sshUser`と
+対象ホスト上の絶対パスを登録します。画面の「SSH用：このPCの設定」で、このPCの
+Python 3.12、確定した管理CLI、別途確認済みknown_hostsの絶対パスを指定してください。
+プロファイル読み込みでは正本を検査し、「枠状態を更新」などの明示操作からSSH接続します。
+対象ホストのroot/Python/CLIをこのPCのファイルとして開きません。local・SFTPへfallbackしません。
 
-選択したプロファイルのパス、貸出owner、受取clientだけをアプリデータの
+選択したプロファイルのパス、貸出owner、受取client、このPCのツール・known_hostsのパスをアプリデータの
 `development-connection.properties`へ保存します。root/Python/CLIは登録済みプロファイルを再利用します。
 leaseId/epoch/generation/run/nonce/session・引継ぎIDは固定設定へ保存しません。
 画面にはホスト、root、運用承認の参照と、候補枠の状態・owner・期限切れを表示します。
@@ -38,7 +42,14 @@ leaseId/epoch/generation/run/nonce/session・引継ぎIDは固定設定へ保存
 
 「枠状態を更新」は候補枠だけを一覧表示し、貸出tokenを列挙しません。
 AVAILABLE、停止中、RUNNING、他ownerの貸出、期限切れ、RECOVERY_REQUIREDを区別します。
-期限切れや復旧待ちを奪取・自動復旧しません。通常SSHの設定・認証・host keyは使用せず変更もしません。
+期限切れや復旧待ちを奪取・自動復旧しません。SSH仲介は正本SshConnectionのOpenSSHを使用します。
+既存の非対話公開鍵認証と厳密なknown_hosts検証を使い、未確認・変更済みの鍵を拒否します。
+SSH設定や鍵の自動登録・更新、agent/port forwarding、APIの外部公開は行いません。
+通常ManagerのSSHJ/SFTP設定・認証処理は変更しません。
+
+Windowsの監督は、SSH仲介のnative開始識別・cwd・OS ownerを照合できる権限状態で起動してください。
+同一ユーザーでも監督と仲介の昇格状態が異なるとアクセス拒否になるため、承認済みの同じSSH経路から監督を起動するなど、照合できる状態を揃えます。
+照合できない場合はwriter登録を拒否し、PID照合やOS owner検査を省略しません。
 
 ### Manager自身が借りる場合
 
@@ -88,18 +99,25 @@ tokenはstdinとこのprivate記録だけに置き、argv・通常ログ・Git�
 
 ## 保存と隔離
 
-管理ファイルのI/Oは`ManagedEditorDataStore`からstdin付きCLIを通じて監督へ渡します。
+管理ファイルのI/Oは`ManagedEditorDataStore`からSupervisorClientの同じ契約で監督へ渡します。
+ローカルはstdin付きCLI、SSHは接続先ホスト上の仲介を使用します。
+SSHのwriter登録は仲介自身のnative PID・開始識別・cwdです。外部ManagerのPIDを登録しません。
+貸出操作用仲介とwriter用仲介を分け、writerが正常切断した後もManager取得分のrenewを維持します。
 EditorDataDescriptorのSerializer/Validator・レシピの最新ストア検証を再利用し、CommonモデルやYAMLを再実装しません。
 cacheは取得本文のSerializer用コピーであり、管理rootをLocalStoreとして開きません。
 rename/moveはファイル内IDも再出力し、監督の1操作で移動します。途中失敗は再試行・rollback削除せず保留します。
 
 アプリデータの`managed/<session hash>/`へautosave/offline/cacheを隔離します。
-hashには管理root、instance、generation、run、nonce、新規sessionを含み、leaseの秘密値は含めません。
+hashにはtransport・接続先（SSHは固定非秘密プロファイル全体）、instance、generation、run、nonce、sessionを含み、
+leaseの秘密値は含めません。二ホスト・二枠の同一public IDも別領域です。
 同じpublic IDでも別profile・世代・sessionのstore identity、履歴、pending構造操作、自動保存ペアを共有しません。
 新規接続で旧sessionキャッシュを自動復元・uploadしません。退避データは残し、別sessionへ勝手に反映しません。
 ローカル取り込みはこのoffline領域から未保存編集へ読み込む操作で、サーバーへ反映するのは通常の保存です。
 
-コマンド実行・入出金/実績の保存APIも監督仲介です。監視socketはread-onlyで、古いcallbackは現在の接続を上書きしません。
+コマンド実行・入出金/実績の保存APIも監督仲介です。
+SSHはping・コマンド補完もwriter-I/Oへ委譲し、監視は仲介のmonitor-open/read/closeで購読します。
+監視は1秒の待機で読み取り、現在のOPEN sessionにだけ通知します。
+SSH仲介の許可対象にないconsoleログ購読は受理しません。監視socketはread-onlyで、古いcallbackは現在の接続を上書きしません。
 `completed:true`は通信完了であり、APIの`success:false`はそのまま保存失敗として届けます。
 既存画面の保存結果/編集pendingを成功へ変換する情報ではありません。
 管理接続ではSSHサーバープロセス操作画面を表示しません。起動停止はsupervisor側で行います。
@@ -117,6 +135,11 @@ ALREADY_EXISTS/permission/validationといったcodeだけから、作用前で�
 切断は新規受付を閉じ、受理済みAPI queueの各結果を確定させます。
 executorをI/O lock外で待ち、実行中I/O・受理済み件数0・peer Closeを確認してからdrained/disconnectedを申告します。
 queueを捨てたことをdrainと扱いません。timeoutでは登録を残します。
+SSHの正常切断は監視unsubscribe・peer Close、writer-close、SSH子プロセスexit=0まで必要です。
+仲介の接続・要求は各々15秒・40秒、Managerのframe待機は45秒です。
+長いSSH世代準備はこの期限に収まらなければ結果不明として保全し、正本の証跡で照合してください。
+このPCのprivate storeのssh-clientsと接続先rootのmanager/ssh-connectionsに、本文・tokenを含まない証跡が残ります。
+認証失敗・EOF・要求ID不一致・保存結果不明で自動再接続や再送を行いません。
 画面の編集退避は既存WindowManager、終了待機はバックグラウンドで行います。
 終了中はimplicitExitを抑制し、成功後に画面遷移します。終了確認が失敗した場合はprofile切替を許可しません。
 アプリ異常終了時にはwriter-closeを推測して送らず、監督側の登録を保留します。
@@ -147,10 +170,12 @@ Windowsは子プロセスのLOCALAPPDATA/APPDATAを専用ディレクトリへ�
 Python bridgeはPython 3.12と確定済み共通契約のディレクトリで実行します。
 
 ```text
-MANAGED_CONTRACT_DIRECTORY=<.githubの絶対パス> python3.12 -B development/src/test/python/test_connection_bridge.py
+MANAGED_CONTRACT_DIRECTORY=<.githubの絶対パス> python3.12 -B -m unittest discover -s development/src/test/python -p 'test_*.py'
 ```
 
-合成lease-checkによる引継ぎと使い捨てprivate記録の試験です。実ホスト・Minecraftへ接続しません。
+合成lease-check、SSH connectionと使い捨てprivate記録の試験です。実ホスト・Minecraftへ接続しません。
+SSHの実保存・読込・正常切断は、許可したWindows→macOSとmacOS→Windowsの分離環境で個別に確認します。
+OS固有native仲介・認証失敗・切断・キャンセルも確認し、実行できない方向は未確認として記録します。
 
 ## 配布検査
 

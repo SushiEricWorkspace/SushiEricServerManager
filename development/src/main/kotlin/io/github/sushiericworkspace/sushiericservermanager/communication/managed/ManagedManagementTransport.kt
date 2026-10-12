@@ -12,12 +12,19 @@ import java.util.concurrent.TimeUnit
 class ManagedManagementTransport(private val session: ManagedSession) : ManagementTransport {
     private lateinit var listener: ServerManagementListener
     private var connection: ServerManagementConnection? = null
+    private var sshMonitor: SshManagedMonitor? = null
     private val managedSender = Executors.newSingleThreadExecutor {
         Thread(it, "managed-api-write").apply { isDaemon = true }
     }
 
     override fun connect(listener: ServerManagementListener, timeout: Duration): Int {
         this.listener = listener
+        if (session.ssh) {
+            val monitor = SshManagedMonitor(session, listener)
+            sshMonitor = monitor
+            monitor.connect()
+            return session.endpointPort
+        }
         val guarded = object : ServerManagementListener {
             override fun onMessage(message: ServerManagementResponse) = listener.onMessage(message)
             override fun onClosed(statusCode: Int, reason: String) {
@@ -39,7 +46,9 @@ class ManagedManagementTransport(private val session: ManagedSession) : Manageme
 
     override fun disconnect() {
         managedSender.shutdown()
-        check(managedSender.awaitTermination(20, TimeUnit.SECONDS)) { "管理APIのキューが終了していません。" }
+        check(managedSender.awaitTermination(if (session.ssh) 45 else 20, TimeUnit.SECONDS)) { "管理APIのキューが終了していません。" }
+        sshMonitor?.disconnect()
+        sshMonitor = null
         connection?.closeVerified()
         connection = null
     }
@@ -49,7 +58,9 @@ class ManagedManagementTransport(private val session: ManagedSession) : Manageme
         return when (request) {
             is ServerManagementRequest.CommandExecute,
             is ServerManagementRequest.MoneyHistorySave,
-            is ServerManagementRequest.AchievementSave -> session.enqueueIo(buildJsonObject {
+            is ServerManagementRequest.AchievementSave,
+            is ServerManagementRequest.Ping,
+            is ServerManagementRequest.CommandComplete -> if (session.ssh || request !is ServerManagementRequest.Ping && request !is ServerManagementRequest.CommandComplete) session.enqueueIo(buildJsonObject {
                 put("action", "api"); put("message", Json.parseToJsonElement(ServerManagementMessageCodec.encode(request)))
                 put("timeoutSeconds", 5)
             }, managedSender, result = { result ->
@@ -66,14 +77,12 @@ class ManagedManagementTransport(private val session: ManagedSession) : Manageme
             }, failure = { error ->
                 if (error !is SupervisorFailure || !error.rejectedBeforeEffect) session.holdUnknown()
                 listener.onError(IllegalStateException("管理API要求を完了できませんでした。監督statusを確認してください。"))
-            })
+            }) else connection?.send(request) == true
             // 監視socketでは状態を変更する要求を送信しません。
-            is ServerManagementRequest.Ping,
-            is ServerManagementRequest.CommandComplete,
             is ServerManagementRequest.MonitorSubscribe,
             is ServerManagementRequest.MonitorUnsubscribe,
             ServerManagementRequest.ConsoleSubscribe,
-            ServerManagementRequest.ConsoleUnsubscribe -> connection?.send(request) == true
+            ServerManagementRequest.ConsoleUnsubscribe -> sshMonitor?.send(request) ?: (connection?.send(request) == true)
         }
     }
 
