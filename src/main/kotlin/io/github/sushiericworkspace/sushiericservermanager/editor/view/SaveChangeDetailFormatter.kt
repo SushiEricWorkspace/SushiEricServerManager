@@ -141,7 +141,7 @@ private fun oreChanges(
     addValue("要求Tier", original.requiredTier, current.requiredTier, created)
     addList("ドロップアイテム", original.mutableDropItems, current.mutableDropItems, created)
     addMap("スキル経験値", original.skillExperienceMap, current.skillExperienceMap, created)
-    addValue("魔力量", original.manaAmount, current.manaAmount, created)
+    addValue("魔力量", original.magicPowerAmount, current.magicPowerAmount, created)
     addList("エディターコメント", original.editorMeta.comment, current.editorMeta.comment, created)
 }
 

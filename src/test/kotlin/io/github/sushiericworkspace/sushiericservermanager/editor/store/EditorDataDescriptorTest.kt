@@ -39,13 +39,13 @@ class EditorDataDescriptorTest {
         val data = MutableOreBaseData(
             id = "ore",
             blockId = VanillaBlockId("minecraft:stone"),
-            manaAmount = -0.5
+            magicPowerAmount = -0.5
         )
 
         val errors = EditorDataDescriptors.ore.validate(data, emptySet())
 
         assertTrue(errors.any {
-            it.property.name == OreBaseDataView::manaAmount.name && it.isError
+            it.property.name == OreBaseDataView::magicPowerAmount.name && it.isError
         })
     }
 
@@ -54,12 +54,12 @@ class EditorDataDescriptorTest {
         val data = MutableOreBaseData(
             id = "ore",
             blockId = VanillaBlockId("minecraft:stone"),
-            manaAmount = 0.0
+            magicPowerAmount = 0.0
         )
 
         val errors = EditorDataDescriptors.ore.validate(data, emptySet())
 
-        assertTrue(errors.none { it.property.name == OreBaseDataView::manaAmount.name })
+        assertTrue(errors.none { it.property.name == OreBaseDataView::magicPowerAmount.name })
     }
 
     @Test

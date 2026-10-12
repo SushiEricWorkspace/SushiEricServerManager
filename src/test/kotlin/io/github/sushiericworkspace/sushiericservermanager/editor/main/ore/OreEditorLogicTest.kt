@@ -71,19 +71,19 @@ class OreEditorLogicTest {
 
     @Test
     fun `魔力量は空欄を0として有限なDoubleだけ解釈する`() {
-        assertEquals(25.5, parseManaAmountInput("25.5"))
-        assertEquals(0.0, parseManaAmountInput("0"))
-        assertEquals(0.0, parseManaAmountInput(""))
-        assertEquals(0.0, parseManaAmountInput("   "))
-        assertEquals(12.0, parseManaAmountInput(" 12 "))
-        assertNull(parseManaAmountInput("-"))
-        assertNull(parseManaAmountInput("NaN"))
-        assertNull(parseManaAmountInput("Infinity"))
+        assertEquals(25.5, parseMagicPowerAmountInput("25.5"))
+        assertEquals(0.0, parseMagicPowerAmountInput("0"))
+        assertEquals(0.0, parseMagicPowerAmountInput(""))
+        assertEquals(0.0, parseMagicPowerAmountInput("   "))
+        assertEquals(12.0, parseMagicPowerAmountInput(" 12 "))
+        assertNull(parseMagicPowerAmountInput("-"))
+        assertNull(parseMagicPowerAmountInput("NaN"))
+        assertNull(parseMagicPowerAmountInput("Infinity"))
     }
 
     @Test
     fun `負の魔力量は解釈できる値として返し検証に任せる`() {
-        assertEquals(-3.5, parseManaAmountInput("-3.5"))
+        assertEquals(-3.5, parseMagicPowerAmountInput("-3.5"))
     }
 
     @Test

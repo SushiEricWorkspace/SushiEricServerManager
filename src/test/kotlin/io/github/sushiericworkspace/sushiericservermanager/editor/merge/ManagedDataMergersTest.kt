@@ -219,30 +219,32 @@ class ManagedDataMergersTest {
 
     @Test
     fun `鉱石の魔力量の片側だけの変更は自動マージする`() {
-        val base = MutableOreBaseData(id = "ore", manaAmount = 10.0)
-        val local = base.deepCopy().apply { manaAmount = 15.0 }
+        val base = MutableOreBaseData(id = "ore", magicPowerAmount = 10.0)
+        val local = base.deepCopy().apply { magicPowerAmount = 15.0 }
         val remote = base.deepCopy().apply { requiredTier = 2 }
 
         val result = OreDataMerger.merge(base, local, remote)
 
         assertTrue(result.conflicts.isEmpty())
-        assertEquals(15.0, result.merged.manaAmount)
+        assertEquals(15.0, result.merged.magicPowerAmount)
         assertEquals(2, result.merged.requiredTier)
-        assertEquals(10.0, base.manaAmount)
+        assertEquals(10.0, base.magicPowerAmount)
     }
 
     @Test
     fun `鉱石の魔力量の競合を魔力量として識別して解決できる`() {
-        val base = MutableOreBaseData(id = "ore", manaAmount = 10.0)
-        val local = base.deepCopy().apply { manaAmount = 20.0 }
-        val remote = base.deepCopy().apply { manaAmount = 30.0 }
+        val base = MutableOreBaseData(id = "ore", magicPowerAmount = 10.0)
+        val local = base.deepCopy().apply { magicPowerAmount = 20.0 }
+        val remote = base.deepCopy().apply { magicPowerAmount = 30.0 }
 
         val result = OreDataMerger.merge(base, local, remote)
 
-        assertEquals(listOf(DataFields.manaAmount), result.conflicts.map { it.path })
-        assertEquals("魔力量", DataFields.manaAmount.displayName)
-        assertEquals(30.0, result.merged.manaAmount)
-        assertEquals(20.0, result.resolveWithLocal(setOf(DataFields.manaAmount)).manaAmount)
+        assertEquals(listOf(DataFields.magicPowerAmount), result.conflicts.map { it.path })
+        val path = assertIs<DataFieldSegment.Property>(result.conflicts.single().path.segments.single())
+        assertEquals("magic-power-amount", path.id)
+        assertEquals("魔力量", DataFields.magicPowerAmount.displayName)
+        assertEquals(30.0, result.merged.magicPowerAmount)
+        assertEquals(20.0, result.resolveWithLocal(setOf(DataFields.magicPowerAmount)).magicPowerAmount)
     }
 
     @Test

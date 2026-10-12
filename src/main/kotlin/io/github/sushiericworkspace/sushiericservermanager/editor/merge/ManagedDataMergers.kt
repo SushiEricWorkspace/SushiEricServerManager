@@ -124,11 +124,11 @@ object OreDataMerger : DataMerger<MutableOreBaseData> {
             targetMap = { it.skillExperienceMap }
         )
         accumulator.mergeValue(
-            DataFields.manaAmount,
-            base.manaAmount,
-            local.manaAmount,
-            remote.manaAmount
-        ) { data, value -> data.manaAmount = value }
+            DataFields.magicPowerAmount,
+            base.magicPowerAmount,
+            local.magicPowerAmount,
+            remote.magicPowerAmount
+        ) { data, value -> data.magicPowerAmount = value }
         accumulator.mergeList(
             path = DataFields.comments,
             base = base.editorMeta.comment,

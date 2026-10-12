@@ -118,6 +118,7 @@ class PendingStoreOperationTest {
             id = "new_ore",
             hardness = 8.0,
             requiredTier = 3,
+            magicPowerAmount = 12.5,
             skillExperienceMap = mutableMapOf(SkillType.MINING to 40.0)
         )
 
@@ -132,6 +133,8 @@ class PendingStoreOperationTest {
         assertTrue("・硬度" in details)
         assertTrue("  値: 8.0" in details)
         assertTrue("・要求Tier" in details)
+        assertTrue("・魔力量" in details)
+        assertTrue("  値: 12.5" in details)
         assertTrue("・スキル経験値 / 採掘" in details)
         assertTrue("  値: 40.0" in details)
     }
