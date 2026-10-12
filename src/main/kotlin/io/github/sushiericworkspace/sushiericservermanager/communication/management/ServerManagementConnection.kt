@@ -15,14 +15,14 @@ import java.util.concurrent.TimeUnit
 /**
  * Management APIとのWebSocket接続1本です。
  *
- * 接続はSSH Tunnelのローカル側へ張ります。転送先はサーバーのループバックへ
- * 固定されているため、この接続が外部ホストへ向くことはありません。
+ * 呼び出し側が指定したループバック上のポートへ接続します。
+ * この接続が外部ホストへ向くことはありません。
  *
  * 受信したメッセージは[listener]へ渡します。復号できないメッセージは
  * 記録するだけで接続を維持します。サーバー側が新しい種別を送っても
  * 接続が落ちないようにするためです。
  */
-class ServerManagementConnection internal constructor(
+class ServerManagementConnection(
     private val listener: ServerManagementListener
 ) {
     private val logger = LoggerFactory.getLogger(javaClass)
@@ -55,11 +55,11 @@ class ServerManagementConnection internal constructor(
     /**
      * 指定したローカルポートのManagement APIへ接続します。
      *
-     * @param localPort SSH Tunnelのローカル側ポート。
+     * @param localPort 接続先のループバック上のポート。
      * @param timeout 接続の待ち時間。
      * @throws java.io.IOException 接続に失敗した場合。
      */
-    internal fun connect(
+    fun connect(
         localPort: Int,
         timeout: Duration
     ) {
@@ -150,14 +150,17 @@ class ServerManagementConnection internal constructor(
         runCatching { socket.abort() }
     }
 
-    /** 管理sessionでは送信キューと相手のCloseを確認し、timeoutを終了証明にしません。 */
-    internal fun closeVerified() {
+    /**
+     * 送信キューと相手のCloseを確認して切断します。
+     * @throws IllegalStateException キュー終了またはpeer Closeを期限内に確認できない場合。
+     */
+    fun closeVerified() {
         check(connecting?.isDone == true && connecting?.isCompletedExceptionally == false) { "監視接続の確立結果が未確認です。" }
         sendExecutor.shutdown()
         check(sendExecutor.awaitTermination(SEND_TIMEOUT_MILLIS, TimeUnit.MILLISECONDS)) { "監視送信キューが終了していません。" }
         val socket = webSocket
         if (socket != null && !closed.isDone) {
-            socket.sendClose(WebSocket.NORMAL_CLOSURE, "managed session closed")
+            socket.sendClose(WebSocket.NORMAL_CLOSURE, "manager connection closed")
                 .get(SEND_TIMEOUT_MILLIS, TimeUnit.MILLISECONDS)
             closed.get(SEND_TIMEOUT_MILLIS, TimeUnit.MILLISECONDS)
         }

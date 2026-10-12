@@ -5,6 +5,8 @@ import io.github.sushiericworkspace.common.data.core.ManagedData
 interface EditorDataStore {
     val kind: EditorDataStoreKind
     val identity: String
+    /** ローカル取り込み元の隔離領域。nullの場合はアプリ共通のオフライン領域を使います。 */
+    val offlineDirectory: java.io.File? get() = null
     val isAvailable: Boolean
 
     fun <T : ManagedData<T, *>> list(

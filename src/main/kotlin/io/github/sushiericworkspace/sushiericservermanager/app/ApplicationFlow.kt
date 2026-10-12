@@ -19,7 +19,6 @@ import javafx.scene.layout.VBox
 import javafx.stage.Stage
 import org.slf4j.LoggerFactory
 import kotlin.concurrent.thread
-import io.github.sushiericworkspace.sushiericservermanager.communication.managed.ManagedProfile
 
 object ApplicationFlow {
     private val logger = LoggerFactory.getLogger(javaClass)
@@ -30,7 +29,14 @@ object ApplicationFlow {
      */
     var showUpdate: (UpdateCheckResult.Update) -> UpdateDialog.Outcome = { UpdateDialog.Outcome.CONTINUE }
 
-    fun showModeSelection(stage: Stage = Stage()) {
+    /** 起動画面の生成経路。開発launcherは自身の画面を設定します。 */
+    var modeSelection: (Stage) -> Unit = ::showDefaultModeSelection
+    /** 正式更新を利用する入口だけで有効にします。 */
+    var updatesEnabled = true
+
+    fun showModeSelection(stage: Stage = Stage()) = modeSelection(stage)
+
+    private fun showDefaultModeSelection(stage: Stage) {
         val loader = FXMLLoader(AppScreen::class.java.getResource(AppScreen.MODE_SELECT.fxml!!))
         val root = loader.load<Parent>()
         loader.getController<ModeSelectionController>().configure { mode ->
@@ -43,8 +49,12 @@ object ApplicationFlow {
         stage.show()
     }
 
-    private fun prepareMode(stage: Stage, mode: AppMode) {
-        showPreparing(stage, if (mode == AppMode.ONLINE) "アップデートを確認しています..." else "オフラインデータを確認しています...")
+    fun prepareMode(stage: Stage, mode: AppMode) {
+        showPreparing(stage, when {
+            mode == AppMode.OFFLINE -> "オフラインデータを確認しています..."
+            updatesEnabled -> "アップデートを確認しています..."
+            else -> "接続画面を準備しています..."
+        })
         thread(isDaemon = true, name = "startup-${mode.name.lowercase()}") {
             when (mode) {
                 AppMode.ONLINE -> prepareOnline(stage)
@@ -54,7 +64,7 @@ object ApplicationFlow {
     }
 
     private fun prepareOnline(stage: Stage) {
-        val coordinator = StartupCoordinator { UpdateChecker().check() }
+        val coordinator = StartupCoordinator { if (updatesEnabled) UpdateChecker().check() else UpdateCheckResult.UpToDate }
         val result = coordinator.prepare(AppMode.ONLINE)
 
         Platform.runLater {
@@ -75,37 +85,18 @@ object ApplicationFlow {
         }
     }
 
-    /** 登録・IPC・socketはバックグラウンドで準備し、失敗をSSH接続へ変換しません。 */
-    internal fun prepareManaged(stage: Stage, profile: ManagedProfile) {
-        showPreparing(stage, "管理writerと起動識別を確認しています...")
-        thread(isDaemon = true, name = "managed-connect") {
-            try {
-                EditorSession.startManagedSession(profile)
-                Platform.runLater { stage.close(); Utility.navigateToHome(profile.instanceId) }
-            } catch (_: Exception) {
-                Platform.runLater {
-                    CustomDialog.error().header("管理接続に失敗しました")
-                        .content("writer登録が残っている可能性があります。監督statusと診断を確認してください。自動解除・別profileへのfallbackは行いません。")
-                        .show()
-                    stage.close()
-                    showModeSelection()
-                }
-            }
-        }
-    }
-
     /** 終了証明が得られたときだけ次の画面へ進みます。失敗時はsessionを保全します。 */
-    internal fun finishManaged(stage: Stage, completed: () -> Unit) {
-        showPreparing(stage, "保存キューと管理接続の終了を確認しています...")
+    fun finishConnection(stage: Stage, completed: () -> Unit) {
+        showPreparing(stage, "保存キューと接続の終了を確認しています...")
         stage.show()
-        thread(isDaemon = true, name = "managed-disconnect") {
+        thread(isDaemon = true, name = "editor-disconnect") {
             try {
                 EditorSession.resetMode()
                 Platform.runLater(completed)
             } catch (_: Exception) {
                 Platform.runLater {
-                    CustomDialog.error().header("管理writerの終了が未確認です")
-                        .content("writer登録とsessionデータを保全しました。監督statusを確認してください。別profileへ切り替えません。")
+                    CustomDialog.error().header("接続の終了が未確認です")
+                        .content("接続データを保全しました。接続先の状態を確認してください。別の接続へ切り替えません。")
                         .show()
                 }
             }
@@ -141,7 +132,7 @@ object ApplicationFlow {
         }
     }
 
-    private fun showPreparing(stage: Stage, message: String) {
+    fun showPreparing(stage: Stage, message: String) {
         stage.scene = Utility.createScene(
             AppScreen.WIDGETS_ONLY,
             width = 420.0,

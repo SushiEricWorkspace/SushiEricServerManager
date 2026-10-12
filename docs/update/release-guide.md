@@ -29,6 +29,9 @@ jpackageの版で先頭に1を足すのは、macOSのjpackageが先頭の数字�
 | Windows | `./gradlew releaseWindowsInstaller -PcommonReleaseVersion=<version>` |
 | macOS | `./gradlew releaseMacDmg -PcommonReleaseVersion=<version>` |
 
+タスクworktreeなどCommonの正式artifactが兄弟配置にない環境では、
+`-PcommonReleaseRepository=<Mavenリポジトリの絶対パス>`で保存先を指定する。
+
 出力先は`build/release-installer/`で、ファイル名は上の表の名前になる。
 
 ## GitHub Actionsでの成果物の作成

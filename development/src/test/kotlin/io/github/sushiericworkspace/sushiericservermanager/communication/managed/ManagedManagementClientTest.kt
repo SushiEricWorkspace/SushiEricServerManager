@@ -37,7 +37,7 @@ class ManagedManagementClientTest {
                 val client = ServerManagementClient()
                 val received = CopyOnWriteArrayList<ServerManagementResponse>()
                 client.addMessageListener { received += it; response.countDown() }
-                assertTrue(client.connectManaged(session))
+                assertTrue(client.connect(ManagedManagementTransport(session)))
                 assertTrue(client.send(ServerManagementRequest.MoneyHistorySave(null, "save-1")))
                 assertTrue(response.await(3, TimeUnit.SECONDS))
                 assertFalse(assertIs<ServerManagementResponse.MoneyHistorySaveResult>(received.single()).success)
@@ -58,7 +58,7 @@ class ManagedManagementClientTest {
                 val fixture = ManagedSessionTest.Fixture(storage, peer.port)
                 val session = fixture.open()
                 val client = ServerManagementClient()
-                assertFalse(client.connectManaged(session, Duration.ofMillis(100)))
+                assertFalse(client.connect(ManagedManagementTransport(session), Duration.ofMillis(100)))
                 assertEquals(ManagedSession.State.UNKNOWN, session.state)
                 assertFailsWith<IllegalStateException> { session.close { client.disconnect() } }
                 assertFalse(fixture.commands.any { it.first == "writer-close" })

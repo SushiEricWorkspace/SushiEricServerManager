@@ -140,8 +140,7 @@ object LocalDataUploader {
     }
 
     private fun service(remoteStore: EditorDataStore) =
-        OfflineUploadService(workspaceRoot = (remoteStore as? io.github.sushiericworkspace.sushiericservermanager.editor.store.ManagedEditorDataStore)
-            ?.session?.offlineDirectory ?: FilePath.OFFLINE_DIR.toFile(), remoteStore = remoteStore)
+        OfflineUploadService(workspaceRoot = remoteStore.offlineDirectory ?: FilePath.OFFLINE_DIR.toFile(), remoteStore = remoteStore)
 
     private fun run(task: Task<*>, name: String) {
         Thread(task, name).apply {

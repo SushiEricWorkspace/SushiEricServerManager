@@ -20,7 +20,10 @@ object Launcher {
      * @param args コマンドライン引数
      */
     @JvmStatic
-    fun main(args: Array<String>) {
+    fun main(args: Array<String>) = launch(MainApp::class.java, args)
+
+    /** OSとCommonの初期化を確認して指定したJavaFX入口を起動します。 */
+    fun launch(application: Class<out Application>, args: Array<String>) {
         // GUI起動前のOSチェック
         if (!OS.isSupportedOs()) {
             println("エラー: このソフトはWindowsまたはmacOSでのみ動作します。")
@@ -33,6 +36,6 @@ object Launcher {
         }
 
         // 💡 3. JavaFX アプリケーションを起動
-        Application.launch(MainApp::class.java, *args)
+        Application.launch(application, *args)
     }
 }
