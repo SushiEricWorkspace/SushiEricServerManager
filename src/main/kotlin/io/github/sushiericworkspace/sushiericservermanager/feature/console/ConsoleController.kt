@@ -493,6 +493,7 @@ class ConsoleController : Initializable {
             is ServerManagementResponse.MonitorUpdate -> Unit
             is ServerManagementResponse.MoneyHistorySaveResult -> Unit
             is ServerManagementResponse.AchievementSaveResult -> Unit
+            is ServerManagementResponse.AchievementHistory -> Unit
             is ServerManagementResponse.Error -> {
                 appendOutput(
                     "Management APIエラー: ${message.reason}${message.detail?.let { " ($it)" }.orEmpty()}",

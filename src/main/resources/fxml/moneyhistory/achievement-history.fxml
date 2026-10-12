@@ -32,6 +32,8 @@
         <HBox spacing="8" alignment="CENTER_LEFT">
             <Label text="分類" minWidth="60" styleClass="history-filter-label" />
             <MenuButton fx:id="categoryMenu" text="すべて" minWidth="140" prefWidth="150" maxWidth="150" />
+            <Label text="取得方法" minWidth="75" styleClass="history-filter-label" />
+            <MenuButton fx:id="sourceMenu" text="すべて" minWidth="150" prefWidth="170" maxWidth="170" />
             <Button text="条件をリセット" onAction="#resetFilters" />
         </HBox>
     </VBox>
@@ -41,6 +43,7 @@
             <TableColumn fx:id="timeColumn" text="達成時刻" prefWidth="170" />
             <TableColumn fx:id="nameColumn" text="実績名" prefWidth="320" />
             <TableColumn fx:id="categoryColumn" text="分類" prefWidth="120" />
+            <TableColumn fx:id="sourceColumn" text="取得方法" prefWidth="180" />
         </columns>
     </TableView>
 </VBox>

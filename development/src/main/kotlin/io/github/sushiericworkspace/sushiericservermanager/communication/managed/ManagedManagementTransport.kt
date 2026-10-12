@@ -59,6 +59,7 @@ class ManagedManagementTransport(private val session: ManagedSession) : Manageme
             is ServerManagementRequest.CommandExecute,
             is ServerManagementRequest.MoneyHistorySave,
             is ServerManagementRequest.AchievementSave,
+            is ServerManagementRequest.AchievementHistoryRequest,
             is ServerManagementRequest.Ping,
             is ServerManagementRequest.CommandComplete -> if (session.ssh || request !is ServerManagementRequest.Ping && request !is ServerManagementRequest.CommandComplete) session.enqueueIo(buildJsonObject {
                 put("action", "api"); put("message", Json.parseToJsonElement(ServerManagementMessageCodec.encode(request)))

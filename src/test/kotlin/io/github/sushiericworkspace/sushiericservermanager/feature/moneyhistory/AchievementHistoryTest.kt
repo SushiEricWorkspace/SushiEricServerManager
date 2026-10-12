@@ -19,12 +19,21 @@ class AchievementHistoryTest {
             statistics:
               enemy_kills: 120
             achievements:
-              monster_hunter_1: 2026-10-06T10:15:30Z
-              mining_beginner_1: 2026-10-07T01:00:00Z
+              monster_hunter_1:
+                at: 2026-10-06T10:15:30Z
+                source: natural
+              mining_beginner_1:
+                at: 2026-10-07T01:00:00Z
+                source: admin
+                executor:
+                  uuid: 11111111-1111-1111-1111-111111111111
+                  name: 管理者
             """.trimIndent()
         )
         assertEquals(listOf(AchievementType.MINING_BEGINNER_1, AchievementType.MONSTER_HUNTER_1), entries.map { it.type })
         assertEquals(Instant.parse("2026-10-07T01:00:00Z"), entries.first().achievedAt)
+        assertEquals(AchievementSource.Admin, entries.first().source)
+        assertEquals("管理者", entries.first().executorName)
     }
 
     @Test
@@ -33,9 +42,15 @@ class AchievementHistoryTest {
         val entries = parseAchievementHistory(
             """
             achievements:
-              unknown_id: 2026-10-06T10:15:30Z
-              monster_hunter_1: invalid
-              monster_hunter_2: 2026-10-06T10:15:30Z
+              unknown_id:
+                at: 2026-10-06T10:15:30Z
+                source: natural
+              monster_hunter_1:
+                at: invalid
+                source: natural
+              monster_hunter_2:
+                at: 2026-10-06T10:15:30Z
+                source: natural
             """.trimIndent(),
             skipped::add
         )
@@ -52,23 +67,27 @@ class AchievementHistoryTest {
     @Test
     fun `達成時刻の範囲と分類で絞り込む`() {
         val entries = listOf(
-            AchievementHistoryEntry(AchievementType.MONSTER_HUNTER_1, Instant.parse("2026-10-06T10:00:00Z")),
-            AchievementHistoryEntry(AchievementType.MINING_BEGINNER_1, Instant.parse("2026-10-07T10:00:00Z")),
-            AchievementHistoryEntry(AchievementType.MONSTER_HUNTER_2, Instant.parse("2026-10-08T10:00:00Z"))
+            AchievementHistoryEntry(AchievementType.MONSTER_HUNTER_1, Instant.parse("2026-10-06T10:00:00Z"), AchievementSource.Natural),
+            AchievementHistoryEntry(AchievementType.MINING_BEGINNER_1, Instant.parse("2026-10-07T10:00:00Z"), AchievementSource.Admin, "管理者"),
+            AchievementHistoryEntry(AchievementType.MONSTER_HUNTER_2, Instant.parse("2026-10-08T10:00:00Z"), AchievementSource.Natural)
         )
         val day = historyTimeRange(LocalDate.of(2026, 10, 7), "", LocalDate.of(2026, 10, 8), "")
         val all = AchievementCategory.entries.toSet()
 
         assertEquals(
             listOf(AchievementType.MINING_BEGINNER_1, AchievementType.MONSTER_HUNTER_2),
-            filterAchievementHistory(entries, day, all, utc).map { it.type }
+            filterAchievementHistory(entries, day, all, AchievementSource.entries.toSet(), utc).map { it.type }
         )
         assertEquals(
             listOf(AchievementType.MONSTER_HUNTER_2),
-            filterAchievementHistory(entries, day, setOf(AchievementCategory.Combat), utc).map { it.type }
+            filterAchievementHistory(entries, day, setOf(AchievementCategory.Combat), AchievementSource.entries.toSet(), utc).map { it.type }
         )
-        assertEquals(3, filterAchievementHistory(entries, historyTimeRange(null, "", null, ""), all, utc).size)
-        assertTrue(filterAchievementHistory(entries, day, emptySet(), utc).isEmpty())
+        assertEquals(3, filterAchievementHistory(entries, historyTimeRange(null, "", null, ""), all, AchievementSource.entries.toSet(), utc).size)
+        assertTrue(filterAchievementHistory(entries, day, emptySet(), AchievementSource.entries.toSet(), utc).isEmpty())
+        assertEquals(
+            listOf(AchievementType.MINING_BEGINNER_1),
+            filterAchievementHistory(entries, day, all, setOf(AchievementSource.Admin), utc).map { it.type }
+        )
     }
 
     @Test
