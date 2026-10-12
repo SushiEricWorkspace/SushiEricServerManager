@@ -144,7 +144,7 @@ SSHの正常切断は監視unsubscribe・peer Close、writer-close、SSH子プ�
 終了中はimplicitExitを抑制し、成功後に画面遷移します。終了確認が失敗した場合はprofile切替を許可しません。
 アプリ異常終了時にはwriter-closeを推測して送らず、監督側の登録を保留します。
 
-Registry DBはversion=3です。旧開発DBは保全・拒否するため、新しい使い捨てrootを作成してください。
+Registry DBはversion=4です。旧開発DBは保全・拒否するため、新しい使い捨てrootを作成してください。
 writer終了とJVM保存/終了は別証拠です。cleanEligibleは候補判定だけで、snapshotCleanは常にfalseです。
 snapshot/restore/recoverや非協調的な登録外writerの証明はこの接続の範囲外です。
 
@@ -208,3 +208,7 @@ gradlew verifyPackagedApplication -PpackagedApplicationDirectory=build/windows-i
 
 Editor専用Commonで生成した包装の検査は開発検証です。正式Commonの配布確認と区別してください。
 正式版の検査では、実装と互換性のある正式Common版とリポジトリを指定します。
+
+実Mod二枠の保存・正常切断・snapshot/別枠復元とprivate設定は、
+[統合検証ガイド](../../../SushiEricServerMod/docs/core/manager-integration-guide.md)と
+[OS・方向別の検証記録](../../../SushiEricServerMod/docs/core/manager-integration-results-guide.md)を参照してください。
