@@ -11,11 +11,12 @@ import kotlin.concurrent.thread
 
 internal object ManagedApplicationFlow {
     /** 登録・IPC・socketはバックグラウンドで準備し、失敗をSSH接続へ変換しません。 */
-    fun prepareManaged(stage: Stage, profile: ManagedProfile) {
+    fun prepareManaged(stage: Stage, selection: ManagedConnectionDialog.Selection) {
+        val profile = selection.profile
         ApplicationFlow.showPreparing(stage, "管理writerと起動識別を確認しています...")
         thread(isDaemon = true, name = "managed-connect") {
             try {
-                EditorSession.startConnection(ManagedEditorConnection(profile))
+                EditorSession.startConnection(ManagedEditorConnection(profile, selection.lease))
                 Platform.runLater { stage.close(); Utility.navigateToHome(profile.instanceId) }
             } catch (_: Exception) {
                 Platform.runLater {

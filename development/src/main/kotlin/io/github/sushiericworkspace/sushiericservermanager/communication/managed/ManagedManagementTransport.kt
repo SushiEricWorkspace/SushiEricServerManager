@@ -18,7 +18,15 @@ class ManagedManagementTransport(private val session: ManagedSession) : Manageme
 
     override fun connect(listener: ServerManagementListener, timeout: Duration): Int {
         this.listener = listener
-        val opened = ServerManagementConnection(listener)
+        val guarded = object : ServerManagementListener {
+            override fun onMessage(message: ServerManagementResponse) = listener.onMessage(message)
+            override fun onClosed(statusCode: Int, reason: String) {
+                if (session.state == ManagedSession.State.OPEN) session.holdUnknown()
+                listener.onClosed(statusCode, reason)
+            }
+            override fun onError(error: Throwable) { session.holdUnknown(); listener.onError(error) }
+        }
+        val opened = ServerManagementConnection(guarded)
         connection = opened
         try {
             opened.connect(session.endpointPort, timeout)

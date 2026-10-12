@@ -172,6 +172,32 @@ class ManagedSessionTest {
         }
     }
 
+    @Test fun `引継ぎで受け取ったsessionを維持し旧runへ登録しない`() {
+        withFixture { fixture ->
+            val fixed = buildJsonObject {
+                put("expectedGeneration", "generation-01"); put("runId", "run-01"); put("nonce", "nonce-01"); put("sessionId", "claimed-session")
+            }
+            val session = ManagedSession.open(fixture.profile.copy(fixedBinding = fixed), fixture.storage, fixture)
+            assertEquals("claimed-session", fixture.commands.single { it.first == "writer-open" }.second["sessionId"]?.jsonPrimitive?.content)
+            session.close {}
+            assertFailsWith<IllegalStateException> {
+                ManagedSession.open(fixture.profile.copy(fixedBinding = JsonObject(fixed + ("nonce" to JsonPrimitive("old")))), fixture.storage, fixture)
+            }
+            assertEquals(1, fixture.commands.count { it.first == "writer-open" })
+        }
+    }
+    @Test fun `期限監視が受付を止めた後に保存を送信せずwriterと退避を保全する`() {
+        withFixture { fixture ->
+            var allowed = true
+            val session = ManagedSession.open(fixture.profile, fixture.storage, fixture, admissionGuard = { check(allowed) })
+            allowed = false
+            assertFailsWith<IllegalStateException> { session.io(fixture.write) }
+            assertEquals(ManagedSession.State.UNKNOWN, session.state)
+            assertTrue(session.workspace.isDirectory)
+            assertFalse(fixture.commands.any { it.first == "writer-io" || it.first == "writer-close" })
+        }
+    }
+
     private fun withFixture(test: (Fixture) -> Unit) {
         val root = createTempDirectory("managed-session-test-")
         try { test(Fixture(root)) } finally { root.toFile().deleteRecursively() }
