@@ -22,22 +22,69 @@ gradlew :development:run -PcommonDevelopmentRepository=<Maven絶対パス>
 gradlew :development:installDist -PcommonDevelopmentRepository=<Maven絶対パス>
 ```
 
-## 接続入力
+## プロファイルと枠の選択
 
-開発用モード選択の「管理テスト環境へ接続」から次を入力します。SSHの認証/host key設定は使用せず変更もしません。
+開発用の「管理テスト環境へ接続」でGit外の`profiles/<profileId>.json`を選択します。
+登録・編集は共通契約の`.github/scripts/connection-profile.py`を使用してください。
+形式1の非秘密設定・private権限・対象ホスト・Python 3.12・CLIを正本のConnectionStoreで検査します。
+localプロファイルのhostには`socket.gethostname()`と一致する対象ホスト名を指定します。
+SSHプロファイルは後続のSSH管理接続が必要なため拒否し、localへfallbackしません。
 
-| 入力 | 前提 |
-| --- | --- |
-| 管理root | 初期化済みsupervisorの絶対パス |
-| Python | Python 3.12実行ファイルの絶対パス |
-| CLI | 当該`.github/scripts/dev-server.py`の絶対パス |
-| instanceId | 対象枠のID |
-| leaseId/epoch | 運用者が取得・更新した貸出 |
+選択したプロファイルのパス、貸出owner、受取clientだけをアプリデータの
+`development-connection.properties`へ保存します。root/Python/CLIは登録済みプロファイルを再利用します。
+leaseId/epoch/generation/run/nonce/session・引継ぎIDは固定設定へ保存しません。
+画面にはホスト、root、運用承認の参照と、候補枠の状態・owner・期限切れを表示します。
+承認参照は運用者の既承認の証跡です。JSONを登録するだけでは新しい運用承認を発行しません。
 
-Managerは自動acquire/renewしません。入力は接続中のメモリだけに保持し、profiles.jsonへ保存しません。
-statusのRUNNING・epoch・世代と管理endpointを確認し、generation/runId/nonce/sessionIdを固定します。
-登録では自身のnative PID/開始時刻/cwdも送り、監督が実識別を照合します。
-接続成功後の世代切替、自動reconnect、SSH/SFTP・直接管理rootへのfallbackは行いません。
+「枠状態を更新」は候補枠だけを一覧表示し、貸出tokenを列挙しません。
+AVAILABLE、停止中、RUNNING、他ownerの貸出、期限切れ、RECOVERY_REQUIREDを区別します。
+期限切れや復旧待ちを奪取・自動復旧しません。通常SSHの設定・認証・host keyは使用せず変更もしません。
+
+### Manager自身が借りる場合
+
+1. AVAILABLEの枠と自身のownerを選び、「借りて接続」を押します。
+2. acquireは一度だけ実行し、返されたlease/epoch/枠と現在世代をprivate記録へ固定します。
+   新規貸出は停止・未束縛のため、この操作だけでは起動・writer登録を行いません。
+3. 「別操作：世代を準備」で空枠にはprepare、既存枠にはreset/restoreを明示します。
+   配置済みartifactId、新しいgenerationId、seed/templateId/snapshotIdとEULA同意が必要です。
+   正本CLIが全条件を照合し、成功応答の世代だけを貸出へ固定します。旧世代は削除しません。
+4. 「別操作：サーバーを起動」を明示し、成功後に「保持中の貸出で接続」を押します。
+   貸出検査のRUNNING・owner・epoch・世代とstatusのrun/nonceを照合してwriterを登録します。
+5. Managerだけ切断してもサーバー・貸出は残り、このアプリがrenewを継続します。
+   終了時はwriter切断後に管理画面へ戻り、「別操作：サーバーを正常停止」と
+   「停止確認済みの貸出を返却」を明示します。返却は監督の停止・writer終了証明を必要とします。
+
+貸出は3600秒、監視は10秒ごとです。長い世代準備・起動停止はCLIの独立した応答期限で待ち、
+同じ貸出の世代更新とrenewを直列化します。途中応答不明では再送・kill・releaseしません。
+prepare/reset/restore/start/stopは接続ボタンの暗黙副作用ではありません。
+recover、未知writerの解除、snapshot/GCはこの画面から実行しません。
+
+### 人間用起動スクリプトから引き継ぐ場合
+
+発行元は共通契約の`ConnectionStore.offer`へ現在の正規`lease-check`結果を渡し、
+同じownerと受取client（画面の既定は`manager`）に対する一回限りの引継ぎIDを発行します。
+発行元はrenew・サーバーの継続運転・停止・返却の責任を保持します。
+
+Managerで発行元と同じowner、受取client、明示された引継ぎIDを入力し、
+「引継ぎを受けて接続」を押します。acquireやrenewは行いません。
+正本ConnectionStoreがCLAIMINGを先に耐久化し、同じホストCLIの`lease-check`と再照合します。
+claim期限と接続中の貸出期限を分け、取得後は発行元が更新した正規CLIの現在期限を使用します。
+返されたsessionIdを再生成せず、世代・run・nonceを固定してwriter-openします。
+他owner/client・期限切れ・旧epoch/世代/run/nonce・二重claimを拒否します。
+Manager自身のwriter終了だけを確認し、サーバー停止・貸出返却を発行元から奪いません。
+発行元のrenew失敗・期限切れ・接続喪失では編集を保全して受付を止めます。
+
+### private記録と異常終了
+
+変更要求は送信前に、プロファイルと同じprivateディレクトリの`manager-operations/`へ
+operationId・本文をUNKNOWNとして耐久化し、成功応答を照合した後だけCOMPLETEDへ変更します。
+tokenはstdinとこのprivate記録だけに置き、argv・通常ログ・Gitへ転載しません。
+結果不明・保持中の貸出記録があれば、再起動後も新しいacquireを禁止します。
+監督とprivate記録を運用者が診断してください。記録を消して再取得する手順にはしません。
+
+アプリ終了ではwriter-closeやreleaseを推測して送らず、renew監視を止めて記録を残します。
+切断・timeout・renew失敗・監視socket喪失はwriterをUNKNOWNにし、旧sessionでの保存を拒否します。
+閉鎖成功のときだけ通常のprofile切替を許可します。異常終了のprivate記録と退避は保全してください。
 
 ## 保存と隔離
 
@@ -86,12 +133,24 @@ JDK 21、完全なEditor Common座標とrepositoryで実行します。
 gradlew build verifyReleaseDistribution -PcommonDevelopmentCoordinate=io.github.sushiericworkspace:sushieric-common-editor-dev:<固定dev版> -PcommonDevelopmentRepository=<Maven絶対パス>
 ```
 
-ManagedSession/ManagedManagementClient/ManagedEditorDataStoreの試験はGUI・Minecraftを起動せず、合成監督と使い捨てWebSocketを使用します。
+ManagedSession/ManagedLease/ManagedManagementClient/ManagedEditorDataStoreの試験はGUI・Minecraftを起動せず、合成監督と使い捨てWebSocketを使用します。
 JavaFXの実表示・主要操作・実Mod保存往復・macOS native連携は別確認で、Windows単体の成功へ読み替えません。
+借用経路のKotlinテストでは環境変数`MANAGED_PYTHON`（Python 3.12絶対パス）と
+`MANAGED_CONTRACT_DIRECTORY`（確定した`.github`の絶対パス）も指定します。
+未指定時は当該統合テストをskipし、成功と扱いません。
+
 GUI試験は許可後に専用appdataで起動します。
 Windowsは子プロセスのLOCALAPPDATA/APPDATAを専用ディレクトリへ、macOSは当該JVMのuser.homeを専用ディレクトリへ指定します。
 既存アプリ設定や人間用runを使用しません。
 
+
+Python bridgeはPython 3.12と確定済み共通契約のディレクトリで実行します。
+
+```text
+MANAGED_CONTRACT_DIRECTORY=<.githubの絶対パス> python3.12 -B development/src/test/python/test_connection_bridge.py
+```
+
+合成lease-checkによる引継ぎと使い捨てprivate記録の試験です。実ホスト・Minecraftへ接続しません。
 
 ## 配布検査
 

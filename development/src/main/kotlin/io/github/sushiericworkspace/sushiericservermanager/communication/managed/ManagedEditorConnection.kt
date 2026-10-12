@@ -11,15 +11,16 @@ import io.github.sushiericworkspace.sushiericservermanager.update.evaluateManage
 import kotlinx.serialization.json.*
 
 /** 登録・互換性・監視socketを固定した管理編集接続です。 */
-class ManagedEditorConnection(private val profile: ManagedProfile) : EditorConnection {
+class ManagedEditorConnection(private val profile: ManagedProfile, private val lease: ManagedLease? = null) : EditorConnection {
     private var session: ManagedSession? = null
-    override val contextName = "管理：${profile.instanceId}"
+    override val contextName = "管理：${profile.instanceId}" + (lease?.let { " / " + it.responsibility } ?: "")
     override var compatibility: ManagerCompatibility = ManagerCompatibility.Unchecked
         private set
 
     override fun open(): EditorDataService {
-        val active = ManagedSession.open(profile, FilePath.dataDirectory().toPath())
+        val active = ManagedSession.open(profile, FilePath.dataDirectory().toPath(), admissionGuard = { lease?.ensureActive() }, onUnknown = { lease?.holdUnknown() })
         session = active
+        lease?.watchFailure { active.holdUnknown() }
         compatibility = try {
             val text = active.io(buildJsonObject {
                 put("action", "read"); put("path", SushiEricDataDirectory.ManagerCompat().getRawPath())
@@ -37,7 +38,8 @@ class ManagedEditorConnection(private val profile: ManagedProfile) : EditorConne
 
     override fun close() {
         session?.close { EditorSession.managementClient.disconnect() }
+        lease?.writerClosed()
     }
 
-    override fun abort() { session?.holdUnknown() }
+    override fun abort() { session?.holdUnknown(); lease?.abort() }
 }

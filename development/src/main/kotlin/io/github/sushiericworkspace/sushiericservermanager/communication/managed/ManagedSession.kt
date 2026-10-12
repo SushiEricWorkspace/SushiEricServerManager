@@ -11,7 +11,8 @@ import kotlin.concurrent.withLock
 /** 世代・runを固定したwriter。閉鎖後の古いキューを再接続先へ送信しません。 */
 class ManagedSession private constructor(
     val profile: ManagedProfile, private val client: SupervisorClient,
-    private val binding: JsonObject, val workspace: File, val endpointPort: Int
+    private val binding: JsonObject, val workspace: File, val endpointPort: Int,
+    private val admissionGuard: () -> Unit, private val onUnknown: () -> Unit
 ) {
     enum class State { OPEN, CLOSING, CLOSED, UNKNOWN }
     private val lock = ReentrantLock()
@@ -31,6 +32,7 @@ class ManagedSession private constructor(
     fun enqueueIo(request: JsonObject, executor: Executor, result: (JsonObject) -> Unit, failure: (Exception) -> Unit): Boolean =
         synchronized(admission) {
             if (state != State.OPEN) return@synchronized false
+            try { admissionGuard() } catch (_: Exception) { holdUnknown(); return@synchronized false }
             queued++
             try {
                 executor.execute {
@@ -44,15 +46,16 @@ class ManagedSession private constructor(
     private fun performIo(request: JsonObject, accepted: Boolean): JsonObject = lock.withLock {
         check(state == State.OPEN || (accepted && state == State.CLOSING)) { "管理writerは終了済み・結果不明です。" }
         try {
+            admissionGuard()
             client.request("writer-io", JsonObject(binding + ("request" to request)), operationId())
         } catch (error: Exception) {
-            if (error !is SupervisorFailure || !error.rejectedBeforeEffect) state = State.UNKNOWN
+            if (error !is SupervisorFailure || !error.rejectedBeforeEffect) holdUnknown()
             throw error
         }
     }
 
     /** 接続・キューの終了を証明できないとき、以後の受付と自動解除を禁止します。 */
-    fun holdUnknown() { state = State.UNKNOWN }
+    fun holdUnknown() { if (state != State.UNKNOWN && state != State.CLOSED) { state = State.UNKNOWN; onUnknown() } }
 
     /** 受付を閉じて実行中I/Oを待ち、read-only socketを終了してから登録を閉じます。 */
     fun close(disconnect: () -> Unit) {
@@ -72,26 +75,32 @@ class ManagedSession private constructor(
                 state = State.CLOSED
             }
         } catch (error: Exception) {
-            state = State.UNKNOWN
+            holdUnknown()
             throw error
         }
     }
 
     companion object {
-        /** 照合済みRUNNINGに参加します。自動acquire/renew・世代追従は行いません。 */
-        fun open(profile: ManagedProfile, storage: Path, client: SupervisorClient = CliSupervisorClient(profile)): ManagedSession {
+        /** 照合済みRUNNINGに参加します。固定された引継ぎ識別を再生成・世代追従しません。 */
+        fun open(profile: ManagedProfile, storage: Path, client: SupervisorClient = CliSupervisorClient(profile),
+                 admissionGuard: () -> Unit = {}, onUnknown: () -> Unit = {}): ManagedSession {
             val status = client.request("status", buildJsonObject { put("instanceId", profile.instanceId) }, operationId())
                 .getValue("instances").jsonArray.single().jsonObject
             check(status.getValue("state").jsonPrimitive.content == "RUNNING"
                 && status.getValue("epoch").jsonPrimitive.long == profile.epoch
                 && !status.getValue("leaseExpired").jsonPrimitive.boolean
                 && status.getValue("generationBound").jsonPrimitive.boolean) { "貸出・起動状態が一致しません。" }
+            admissionGuard()
+            profile.fixedBinding?.let { fixed ->
+                check(fixed["expectedGeneration"] == status["generation"] && fixed["runId"] == status["runId"]
+                    && fixed["nonce"] == status["nonce"]) { "固定した世代・起動識別が変わっています。" }
+            }
             val endpoint = status.getValue("managementEndpoint").jsonObject
             check(endpoint["address"]?.jsonPrimitive?.content == "127.0.0.1" && endpoint["protocol"]?.jsonPrimitive?.content == "tcp")
             val binding = buildJsonObject {
                 put("instanceId", profile.instanceId); put("leaseId", profile.leaseId); put("epoch", profile.epoch)
                 put("expectedGeneration", status.getValue("generation")); put("runId", status.getValue("runId"))
-                put("nonce", status.getValue("nonce")); put("sessionId", operationId())
+                put("nonce", status.getValue("nonce")); put("sessionId", profile.fixedBinding?.get("sessionId") ?: JsonPrimitive(operationId()))
             }
             val hash = MessageDigest.getInstance("SHA-256").digest(
                 (profile.root.toString() + "\u0000" + binding.filterKeys { it != "leaseId" }.toString()).toByteArray())
@@ -102,7 +111,7 @@ class ManagedSession private constructor(
             val request = JsonObject(binding + mapOf("pid" to JsonPrimitive(process.pid()),
                 "startMillis" to JsonPrimitive(process.info().startInstant().orElseThrow().toEpochMilli()),
                 "cwd" to JsonPrimitive(Path.of("").toRealPath().toString())))
-            val session = ManagedSession(profile, client, binding, workspace, endpoint.getValue("port").jsonPrimitive.int)
+            val session = ManagedSession(profile, client, binding, workspace, endpoint.getValue("port").jsonPrimitive.int, admissionGuard, onUnknown)
             try {
                 client.request("writer-open", request, operationId())
             } catch (error: Exception) {

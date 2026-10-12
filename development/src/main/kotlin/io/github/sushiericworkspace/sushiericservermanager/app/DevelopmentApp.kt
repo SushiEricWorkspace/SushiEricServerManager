@@ -6,6 +6,10 @@ import javafx.scene.Parent
 
 /** 開発用画面を選び、正式版への自動更新を無効にして通常編集機能を利用します。 */
 class DevelopmentApp : MainApp() {
+    override fun stop() {
+        ManagedConnectionDialog.abort()
+        super.stop()
+    }
     override fun configureStartup() {
         ApplicationFlow.updatesEnabled = false
         ApplicationFlow.modeSelection = { stage ->
