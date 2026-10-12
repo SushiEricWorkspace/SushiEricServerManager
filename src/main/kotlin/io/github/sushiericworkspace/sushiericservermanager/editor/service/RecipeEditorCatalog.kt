@@ -5,7 +5,6 @@ import io.github.sushiericworkspace.common.data.core.validation.SushiEricValidat
 import io.github.sushiericworkspace.common.data.core.validation.SushiEricValidationSeverity
 import io.github.sushiericworkspace.common.data.item.model.ItemBaseDataView
 import io.github.sushiericworkspace.common.data.item.model.ItemInternalId
-import io.github.sushiericworkspace.common.data.item.model.mutable.MutableItemBaseData
 import io.github.sushiericworkspace.common.data.recipe.model.RecipeDataView
 import io.github.sushiericworkspace.common.data.recipe.model.RecipeIngredients
 import io.github.sushiericworkspace.common.data.recipe.model.mutable.MutableRecipeData
@@ -17,10 +16,10 @@ import io.github.sushiericworkspace.sushiericservermanager.editor.store.EditorDa
 import io.github.sushiericworkspace.sushiericservermanager.editor.store.StoreResult
 
 /** 検証用の正式定義。重いI/Oを伴うloadは画面側ではバックグラウンドで呼び出します。 */
-internal data class RecipeEditorCatalog(val items: List<MutableItemBaseData>, val recipes: List<MutableRecipeData>) {
+internal data class RecipeEditorCatalog(val items: List<ItemBaseDataView>, val recipes: List<MutableRecipeData>) {
     companion object {
-        fun load(store: EditorDataStore): StoreResult<RecipeEditorCatalog> {
-            val items = when (val result = loadAll(store, EditorDataDescriptors.item)) {
+        fun load(store: EditorDataStore, cachedItems: List<ItemBaseDataView>? = null): StoreResult<RecipeEditorCatalog> {
+            val items = cachedItems ?: when (val result = loadAll(store, EditorDataDescriptors.item)) {
                 is StoreResult.Success -> result.value
                 is StoreResult.Failure -> return result
             }
