@@ -47,7 +47,9 @@ class ManagedSession private constructor(
         check(state == State.OPEN || (accepted && state == State.CLOSING)) { "管理writerは終了済み・結果不明です。" }
         try {
             admissionGuard()
-            client.request("writer-io", JsonObject(binding + ("request" to request)), operationId())
+            val response = client.request("writer-io", JsonObject(binding + ("request" to request)), operationId())
+            check(state == State.OPEN || state == State.CLOSING) { "結果不明になったsessionの遅延応答は使用できません。" }
+            response
         } catch (error: Exception) {
             if (error !is SupervisorFailure || !error.rejectedBeforeEffect) holdUnknown()
             throw error
@@ -80,13 +82,23 @@ class ManagedSession private constructor(
         }
     }
 
+    internal val ssh: Boolean get() = profile.target is ManagedTarget.Ssh
+
+    /** SSH仲介の監視だけを要求します。閉鎖中のpeer Closeも同じ接続へ固定します。 */
+    internal fun monitor(command: String, payload: JsonObject): JsonObject {
+        check(ssh && state in setOf(State.OPEN, State.CLOSING))
+        try { return client.request(command, JsonObject(payload + ("instanceId" to JsonPrimitive(profile.instanceId))), operationId()) }
+        catch (error: Exception) { holdUnknown(); throw error }
+    }
+
     companion object {
         /** 照合済みRUNNINGに参加します。固定された引継ぎ識別を再生成・世代追従しません。 */
-        fun open(profile: ManagedProfile, storage: Path, client: SupervisorClient = CliSupervisorClient(profile),
+        fun open(profile: ManagedProfile, storage: Path, client: SupervisorClient = profile.client(),
                  admissionGuard: () -> Unit = {}, onUnknown: () -> Unit = {}): ManagedSession {
             val status = client.request("status", buildJsonObject { put("instanceId", profile.instanceId) }, operationId())
                 .getValue("instances").jsonArray.single().jsonObject
-            check(status.getValue("state").jsonPrimitive.content == "RUNNING"
+            check(status["instanceId"]?.jsonPrimitive?.content == profile.instanceId
+                && status.getValue("state").jsonPrimitive.content == "RUNNING"
                 && status.getValue("epoch").jsonPrimitive.long == profile.epoch
                 && !status.getValue("leaseExpired").jsonPrimitive.boolean
                 && status.getValue("generationBound").jsonPrimitive.boolean) { "貸出・起動状態が一致しません。" }
@@ -103,14 +115,19 @@ class ManagedSession private constructor(
                 put("nonce", status.getValue("nonce")); put("sessionId", profile.fixedBinding?.get("sessionId") ?: JsonPrimitive(operationId()))
             }
             val hash = MessageDigest.getInstance("SHA-256").digest(
-                (profile.root.toString() + "\u0000" + binding.filterKeys { it != "leaseId" }.toString()).toByteArray())
+                (profile.target.identity + "\u0000" + binding.filterKeys { it != "leaseId" }.toString()).toByteArray())
                 .joinToString("") { "%02x".format(it) }
             val workspace = storage.resolve("managed").resolve(hash).toFile()
             check(workspace.mkdirs()) { "既存session領域は再利用しません。" }
-            val process = ProcessHandle.current()
-            val request = JsonObject(binding + mapOf("pid" to JsonPrimitive(process.pid()),
-                "startMillis" to JsonPrimitive(process.info().startInstant().orElseThrow().toEpochMilli()),
-                "cwd" to JsonPrimitive(Path.of("").toRealPath().toString())))
+            val request = when (val target = profile.target) {
+                is ManagedTarget.Ssh -> JsonObject(binding + ("owner" to JsonPrimitive(target.owner)))
+                is ManagedTarget.Local -> {
+                    val process = ProcessHandle.current()
+                    JsonObject(binding + mapOf("pid" to JsonPrimitive(process.pid()),
+                        "startMillis" to JsonPrimitive(process.info().startInstant().orElseThrow().toEpochMilli()),
+                        "cwd" to JsonPrimitive(Path.of("").toRealPath().toString())))
+                }
+            }
             val session = ManagedSession(profile, client, binding, workspace, endpoint.getValue("port").jsonPrimitive.int, admissionGuard, onUnknown)
             try {
                 client.request("writer-open", request, operationId())

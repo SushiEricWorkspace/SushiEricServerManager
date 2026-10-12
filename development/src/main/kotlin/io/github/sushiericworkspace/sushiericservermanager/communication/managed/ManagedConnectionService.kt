@@ -31,6 +31,7 @@ class ManagedConnectionService(val profile: ConnectionProfile, private val clien
         try {
             journal("acquire", payload, operation, null)
             val response = client.request("acquire", payload, operation)
+            check(!uncertain) { "キャンセル後の貸出応答は保全します。" }
             journal("acquire", payload, operation, response)
             check(response["instanceId"]?.jsonPrimitive?.content == instance)
             val token = buildJsonObject {
@@ -48,6 +49,7 @@ class ManagedConnectionService(val profile: ConnectionProfile, private val clien
             val claimed = profile.bridge("claim", buildJsonObject {
                 put("handoffId", handoff); put("owner", owner); put("targetClient", targetClient)
             })
+            check(!uncertain) { "キャンセル後の引継ぎ応答は保全します。" }
             val record = claimed.getValue("handoff").jsonObject
             val checked = claimed.getValue("checked").jsonObject
             val token = record.getValue("token").jsonObject
@@ -59,5 +61,5 @@ class ManagedConnectionService(val profile: ConnectionProfile, private val clien
                 fixed, ::journal).also { lease = it; it.startWatching() }
         } catch (error: Exception) { uncertain = true; throw error }
     }
-    fun abort() { lease?.abort() }
+    fun abort() { uncertain = true; lease?.abort(); (client as? SshSupervisorClient)?.abandon() }
 }

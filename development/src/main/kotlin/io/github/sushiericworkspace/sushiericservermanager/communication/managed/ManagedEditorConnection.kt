@@ -13,7 +13,7 @@ import kotlinx.serialization.json.*
 /** 登録・互換性・監視socketを固定した管理編集接続です。 */
 class ManagedEditorConnection(private val profile: ManagedProfile, private val lease: ManagedLease? = null) : EditorConnection {
     private var session: ManagedSession? = null
-    override val contextName = "管理：${profile.instanceId}" + (lease?.let { " / " + it.responsibility } ?: "")
+    override val contextName = "管理：${profile.target.description} / ${profile.instanceId}" + (lease?.let { " / " + it.responsibility } ?: "")
     override var compatibility: ManagerCompatibility = ManagerCompatibility.Unchecked
         private set
 

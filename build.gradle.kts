@@ -547,6 +547,7 @@ val developmentMarkers = listOf(
     "io/github/sushiericworkspace/sushiericservermanager/app/Development",
     "fxml/development/",
     "managed/connection-bridge.py",
+    "managed/ssh-bridge.py",
     "DevelopmentLauncher",
     "ManagedConnectionDialog",
     "ManagedEditorDataStore"

@@ -77,7 +77,9 @@ class ManagedLease internal constructor(
             put("nonce", checked.getValue("nonce")); put("sessionId", operationId())
         }
         connectionTaken = true
-        return ManagedProfile(profile.root, profile.python, profile.cli, instanceId, token.getValue("leaseId").jsonPrimitive.content,
+        val target = if (profile.ssh) ManagedTarget.Ssh(profile, owner, client)
+            else ManagedTarget.Local(profile.root, profile.python, profile.cli)
+        return ManagedProfile(target, instanceId, token.getValue("leaseId").jsonPrimitive.content,
             token.getValue("epoch").jsonPrimitive.long, fixed)
     }
 
@@ -92,6 +94,7 @@ class ManagedLease internal constructor(
     @Synchronized fun holdUnknown() {
         if (state != State.ACTIVE) return
         state = State.UNKNOWN
+        (client as? SshSupervisorClient)?.abandon()
         scheduler.shutdown()
         onFailure()
     }

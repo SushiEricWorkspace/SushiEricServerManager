@@ -198,6 +198,17 @@ class ManagedSessionTest {
         }
     }
 
+    @Test fun `保存中にUNKNOWNとなったsessionの遅延成功を保存完了へ変換しない`() {
+        withFixture { fixture ->
+            val session = fixture.open()
+            fixture.onIo = { session.holdUnknown() }
+            assertFailsWith<IllegalStateException> { session.io(fixture.write) }
+            assertEquals(ManagedSession.State.UNKNOWN, session.state)
+            assertFailsWith<IllegalStateException> { session.close {} }
+            assertFalse(fixture.commands.any { it.first == "writer-close" })
+        }
+    }
+
     private fun withFixture(test: (Fixture) -> Unit) {
         val root = createTempDirectory("managed-session-test-")
         try { test(Fixture(root)) } finally { root.toFile().deleteRecursively() }
@@ -220,7 +231,9 @@ class ManagedSessionTest {
         override fun request(command: String, payload: JsonObject, operationId: String): JsonObject {
             commands += command to payload
             return when (command) {
-                "status" -> status
+                "status" -> buildJsonObject { putJsonArray("instances") {
+                    add(JsonObject(status.getValue("instances").jsonArray.single().jsonObject + ("instanceId" to payload.getValue("instanceId"))))
+                } }
                 "writer-open" -> buildJsonObject { put("closed", false) }
                 "writer-close" -> buildJsonObject { put("closed", true) }
                 else -> { onIo?.invoke(); failure?.let { throw it }; buildJsonObject { put("completed", true) } }

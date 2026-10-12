@@ -5,7 +5,7 @@ import socket
 import sys
 
 
-def execute(request):
+def execute(request, *, lease_check=None):
     cli = Path(request["cli"])
     sys.path.insert(0, str(cli.parent))
     from dev_server.connection_profiles import ConnectionStore, local_request, profile_hash
@@ -17,12 +17,14 @@ def execute(request):
     store = ConnectionStore(Path(request["directory"]))
     profile = store.profile(request["profileId"])
     require(profile == request["expectedProfile"], "PROFILE_CHANGED", "固定プロファイルが変わっています")
-    require(profile["transport"] == "local", "UNAVAILABLE", "SSH管理接続は別機能です")
-    require(profile["targetOs"] == {"win32": "windows", "darwin": "macos"}.get(sys.platform),
-            "UNAVAILABLE", "対象OSが一致しません")
-    require(profile["host"].casefold() == socket.gethostname().casefold(), "UNAVAILABLE", "対象ホストが一致しません")
-    require(Path(profile["python"]).resolve() == Path(sys.executable).resolve() and Path(profile["cli"]).resolve() == cli.resolve(),
-            "PROFILE_CHANGED", "PythonまたはCLIが一致しません")
+    if profile["transport"] == "local":
+        require(profile["targetOs"] == {"win32": "windows", "darwin": "macos"}.get(sys.platform),
+                "UNAVAILABLE", "対象OSが一致しません")
+        require(profile["host"].casefold() == socket.gethostname().casefold(), "UNAVAILABLE", "対象ホストが一致しません")
+        require(Path(profile["python"]).resolve() == Path(sys.executable).resolve() and Path(profile["cli"]).resolve() == cli.resolve(),
+                "PROFILE_CHANGED", "PythonまたはCLIが一致しません")
+    else:
+        require(lease_check is not None, "UNAVAILABLE", "SSH仲介の検査が必要です")
     command = request["command"]
     def pending_manager_operations():
         directory = store.directory / "manager-operations"
@@ -48,11 +50,11 @@ def execute(request):
             return {"profile": profile, "pendingManagerOperation": pending_manager_operations()}
     if command == "claim":
         checked = None
-        def lease_check(payload):
+        def check_lease(payload):
             nonlocal checked
-            checked = local_request(profile, "lease-check", payload, operation_id=request["operationId"])
+            checked = lease_check(payload) if lease_check is not None else local_request(profile, "lease-check", payload, operation_id=request["operationId"])
             return checked
-        record = store.claim(profile, request["handoffId"], owner=request["owner"], target_client=request["targetClient"], lease_check=lease_check)
+        record = store.claim(profile, request["handoffId"], owner=request["owner"], target_client=request["targetClient"], lease_check=check_lease)
         # claim期限と、発行元が更新した接続中の現在期限を分離します。
         return {"handoff": record, "checked": checked}
     require(command in {"journal", "finish"}, "INVALID_INPUT", "未対応の入口です")

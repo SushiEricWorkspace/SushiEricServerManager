@@ -56,6 +56,33 @@ class ManagedConnectionServiceTest {
         val restarted = ManagedConnectionService(reloaded, SupervisorClient { _, _, _ -> error("再送禁止") })
         assertFailsWith<IllegalStateException> { restarted.borrow("persistent-01", "test-owner") }
     }
+    @Test fun `キャンセル後のacquire成功応答を保持貸出へ変換せずprivate結果不明を残す`() = withFixture { profile, _ ->
+        lateinit var service: ManagedConnectionService
+        var acquired = 0
+        service = ManagedConnectionService(profile, SupervisorClient { command, _, _ ->
+            when (command) {
+                "list" -> buildJsonObject { putJsonArray("instances") { add(buildJsonObject {
+                    put("instanceId", "persistent-01"); put("state", "AVAILABLE"); put("owner", JsonNull)
+                }) } }
+                "acquire" -> {
+                    acquired++
+                    service.abort()
+                    buildJsonObject {
+                        put("instanceId", "persistent-01"); put("leaseId", "late-lease"); put("epoch", 1)
+                        put("generation", JsonNull); put("expiresAt", System.currentTimeMillis() / 1000.0 + 3600)
+                    }
+                }
+                else -> error("キャンセル後に自動操作しません")
+            }
+        })
+        assertFailsWith<IllegalStateException> { service.borrow("persistent-01", "test-owner") }
+        assertTrue(service.uncertain)
+        assertNull(service.lease)
+        assertTrue(ConnectionProfile.load(profile.file).pendingManagerOperation)
+        assertFailsWith<IllegalStateException> { service.borrow("persistent-01", "test-owner") }
+        assertEquals(1, acquired)
+    }
+
     private fun withFixture(test: (ConnectionProfile, Path) -> Unit) {
         val python = System.getenv("MANAGED_PYTHON")
         val contract = System.getenv("MANAGED_CONTRACT_DIRECTORY")

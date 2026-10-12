@@ -23,6 +23,7 @@ internal object ManagedConnectionDialog {
     private val settingsFile get() = FilePath.dataDirectory().resolve("development-connection.properties")
     private val settings = Properties()
     private var settingsLoaded = false
+    @Volatile private var busy = false
     fun abort() { service?.abort() }
 
     fun show(ownerStage: Stage): Selection? {
@@ -43,6 +44,11 @@ internal object ManagedConnectionDialog {
         }
         val owner = TextField(settings.getProperty("owner", "")).apply { id = "managed-owner" }
         val targetClient = TextField(settings.getProperty("targetClient", "manager")).apply { id = "managed-target-client" }
+        val clientPython = TextField(settings.getProperty("clientPython", "")).apply { id = "managed-client-python" }
+        val clientCli = TextField(settings.getProperty("clientCli", "")).apply { id = "managed-client-cli" }
+        val knownHosts = TextField(settings.getProperty("knownHosts", "")).apply { id = "managed-known-hosts" }
+        fun clientTools(): ManagedClientTools? = if (listOf(clientPython, clientCli, knownHosts).all { it.text.isNotBlank() })
+            ManagedClientTools(Path.of(clientPython.text), Path.of(clientCli.text), Path.of(knownHosts.text)) else null
         val handoff = TextField().apply { id = "managed-handoff" }
         var result: Selection? = null
         val stage = Stage().apply { initOwner(ownerStage); initModality(Modality.APPLICATION_MODAL); title = "管理プロファイルと枠を選択" }
@@ -55,10 +61,19 @@ internal object ManagedConnectionDialog {
         val prepare = Button("別操作：世代を準備").apply { id = "managed-prepare" }
         val start = Button("別操作：サーバーを起動").apply { id = "managed-start" }
         val stop = Button("別操作：サーバーを正常停止").apply { id = "managed-stop" }
-        val cancel = Button("閉じる").apply { setOnAction { stage.close() } }
+        val cancelled = java.util.concurrent.atomic.AtomicBoolean(false)
+        fun cancelPending() {
+            cancelled.set(true)
+            val current = service
+            if (busy) thread(isDaemon = true, name = "managed-cancel") { current?.abort() }
+        }
+        val cancel = Button("閉じる").apply { setOnAction { cancelPending(); stage.close() } }
+        stage.setOnCloseRequest { cancelPending() }
         val actions = listOf(select, refresh, borrow, take, reconnect, prepare, start, stop, release, cancel)
         fun saveSettings() {
             settings.setProperty("owner", owner.text); settings.setProperty("targetClient", targetClient.text)
+            settings.setProperty("clientPython", clientPython.text); settings.setProperty("clientCli", clientCli.text)
+            settings.setProperty("knownHosts", knownHosts.text)
             settingsFile.parentFile.mkdirs()
             settingsFile.outputStream().use { settings.store(it, "development connection (non-secret)") }
         }
@@ -76,19 +91,23 @@ internal object ManagedConnectionDialog {
             release.isDisable = loan?.source != ManagedLease.Source.MANAGER || loan.state != ManagedLease.State.ACTIVE || EditorSession.connection != null
             listOf(prepare, start, stop).forEach { it.isDisable = loan?.source != ManagedLease.Source.MANAGER || loan.state != ManagedLease.State.ACTIVE || EditorSession.connection != null }
             refresh.isDisable = current == null
+            if (busy) actions.filter { it != cancel }.forEach { it.isDisable = true }
+            listOf(clientPython, clientCli, knownHosts).forEach { it.isDisable = busy || current?.uncertain == true || loan != null }
         }
         fun background(action: () -> (() -> Unit)) {
-            actions.forEach { it.isDisable = true }
+            check(!busy) { "前の接続操作が終了していません。" }
+            busy = true
+            actions.filter { it != cancel }.forEach { it.isDisable = true }
             thread(isDaemon = true, name = "managed-profile-action") {
                 try {
                     val complete = action()
-                    Platform.runLater { complete(); display() }
+                    Platform.runLater { if (!cancelled.get()) { complete(); display() } else { val current = service; thread(isDaemon = true) { current?.abort() } } }
                 } catch (error: Exception) {
                     Platform.runLater {
                         status.text = "${(error as? SupervisorFailure)?.code ?: "接続条件を確認してください"}：記録・未保存編集を保全し、監督の状態を確認してください。自動再送・復旧は行いません。"
                         display()
                     }
-                } finally { Platform.runLater { cancel.isDisable = false } }
+                } finally { Platform.runLater { busy = false; display(); cancel.isDisable = false } }
             }
         }
         fun refreshRows(): () -> Unit {
@@ -105,8 +124,10 @@ internal object ManagedConnectionDialog {
         select.setOnAction {
             val chooser = FileChooser().apply { title = "登録済みprofiles/<ID>.jsonを選択"; extensionFilters.add(FileChooser.ExtensionFilter("プロファイル", "*.json")) }
             val file = chooser.showOpenDialog(stage) ?: return@setOnAction
+            val tools = clientTools()
             background {
-                val profile = ConnectionProfile.load(file.toPath().toAbsolutePath())
+                val profile = ConnectionProfile.load(file.toPath().toAbsolutePath(), tools)
+                service?.profile?.closeUnused()
                 service = ManagedConnectionService(profile)
                 return@background { settings.setProperty("profile", file.absolutePath); if (owner.text.isBlank()) owner.text = profile.operator; saveSettings(); status.text = "プロファイルを検査しました。枠状態を更新してください。" }
             }
@@ -133,19 +154,25 @@ internal object ManagedConnectionDialog {
         stop.setOnAction { background { service!!.lease!!.runtime("stop"); refreshRows() } }
         release.setOnAction { background {
             service!!.lease!!.release()
-            service = ManagedConnectionService(service!!.profile)
+            val profile = service!!.profile
+            profile.closeUnused()
+            service = ManagedConnectionService(ConnectionProfile.load(profile.file, profile.tools))
             return@background { status.text = "停止証明を照合して返却しました。" }
         } }
-        val form = VBox(8.0, select, profileLabel, Label("枠 / 起動状態 / 貸出owner / 期限・復旧状態"), instance, refresh,
+        val sshSettings = TitledPane("SSH用：このPCの設定（接続先のパスとは別）", VBox(6.0,
+            Label("このPCのPython 3.12 / 管理CLIの絶対パス"), clientPython, clientCli,
+            Label("別途確認済みknown_hostsの絶対パス。鍵の自動登録は行いません"), knownHosts).apply { styleClass.add("common-root"); padding = Insets(8.0) }).apply { isExpanded = false }
+        val form = VBox(8.0, sshSettings, select, profileLabel, Label("枠 / 起動状態 / 貸出owner / 期限・復旧状態"), instance, refresh,
             Label("貸出owner（借用時は自分の識別、引継ぎ時は発行元と同一）"), owner, borrow,
             Label("発行元から受け取った引継ぎID / 受取client"), handoff, targetClient, take, reconnect, prepare, start, stop, release,
             responsibility, status, cancel).apply { styleClass.add("common-root"); padding = Insets(16.0) }
         stage.scene = Utility.createScene(AppScreen.WIDGETS_ONLY, 720.0, 760.0, customRoot = ScrollPane(form).apply { isFitToWidth = true })
         display()
-        if (service == null && settings.getProperty("profile") != null) {
+        if (!busy && service == null && settings.getProperty("profile") != null) {
             val remembered = Path.of(settings.getProperty("profile"))
+            val tools = clientTools()
             background {
-                service = ManagedConnectionService(ConnectionProfile.load(remembered))
+                service = ManagedConnectionService(ConnectionProfile.load(remembered, tools))
                 refreshRows()
             }
         }

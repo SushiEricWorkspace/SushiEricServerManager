@@ -54,6 +54,7 @@ class BridgeTests(unittest.TestCase):
         with patch("socket.gethostname", return_value="other-host"):
             with self.assertRaises(RegistryError): self.request("profile")
         self.profile["transport"] = "ssh"
+        self.profile["sshUser"] = "test-user"
         self.store.save_profile(self.profile, replace=True)
         with self.assertRaises(RegistryError): self.request("profile")
 
