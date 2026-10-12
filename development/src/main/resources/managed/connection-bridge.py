@@ -3,12 +3,13 @@ import json
 from pathlib import Path
 import socket
 import sys
+import time
 
 
 def execute(request, *, lease_check=None):
     cli = Path(request["cli"])
     sys.path.insert(0, str(cli.parent))
-    from dev_server.connection_profiles import ConnectionStore, local_request, profile_hash
+    from dev_server.connection_profiles import ConnectionStore, local_request, profile_hash, validate_handoff, check_handoff
     from dev_server.local_ipc import decode, encode, require_private
     from dev_server.registry import RegistryError, require, identifier
     from dev_server.build_lock import build_lock
@@ -48,6 +49,47 @@ def execute(request, *, lease_check=None):
     if command == "profile":
         with build_lock(store.directory / "handoffs.lock"):
             return {"profile": profile, "pendingManagerOperation": pending_manager_operations()}
+    if command == "offers":
+        candidates = {row["instanceId"] for row in profile["instances"]}
+        offered = []
+        with build_lock(store.directory / "handoffs.lock"):
+            for path in sorted((store.directory / "handoffs").iterdir()):
+                # 不完全な記録は上書きせず、診断対象として拒否します。
+                record = store._read(path)
+                validate_handoff(record)
+                require(path.name == record["handoffId"] + ".json", "INVALID_INPUT", "引継ぎ記録のIDが一致しません")
+                if (record["profileHash"] == profile_hash(profile) and record["targetClient"] == "manager"
+                        and record["state"] == "OFFERED" and record["expiresAt"] > time.time()
+                        and record["token"]["instanceId"] in candidates):
+                    offered.append({key: record[key] for key in ("handoffId", "owner", "sourceClient", "expiresAt", "runId", "nonce")}
+                                   | {key: record["token"][key] for key in ("instanceId", "epoch", "expectedGeneration")})
+        return {"offers": offered}
+    if command == "reoffer":
+        operation = identifier(request["operationId"], "operationId")
+        with build_lock(store.directory / "handoffs.lock"):
+            journal = store._read(store.directory / "manager-operations" / (operation + ".json"))
+            payload = {key: request[key] for key in ("handoffId", "owner")}
+            require(journal["profileHash"] == profile_hash(profile) and journal["command"] == "reconnect"
+                    and journal["state"] == "UNKNOWN" and journal["payload"] == payload and not journal.get("reofferStarted"),
+                    "JOURNAL_MISMATCH", "送信前の再接続記録が必要です")
+            record = store._read(store._path("handoffs", request["handoffId"]))
+            validate_handoff(record)
+            require(record["handoffId"] == request["handoffId"] and record["state"] == "CLAIMED",
+                    "HANDOFF_PENDING", "取得済み引継ぎだけを再発行できます")
+            require(record["profileHash"] == profile_hash(profile) and record["owner"] == request["owner"]
+                    and record["targetClient"] == "manager", "OWNER_MISMATCH", "同じプロファイル・ownerの引継ぎが必要です")
+            journal["reofferStarted"] = True
+            store._write(store.directory / "manager-operations" / (operation + ".json"), journal, replace=True)
+        token = dict(record["token"], owner=record["owner"])
+        checked = lease_check(token) if lease_check is not None else local_request(profile, "lease-check", token, operation_id=operation)
+        # claim期限を再使用せず、同じ貸出の現在期限と正常終了済みwriterを照合する。
+        check_handoff(profile, dict(record, expiresAt=checked["expiresAt"]), checked,
+                      owner=record["owner"], target_client="manager", now=time.time())
+        require(bool(checked["writerSessions"]) and all(row["status"] == "CLOSED" for row in checked["writerSessions"]),
+                "WRITER_PENDING", "writerの正常終了を確認してから再接続してください")
+        handoff = store.offer(profile, record["token"], checked, owner=record["owner"],
+                              source_client=record["sourceClient"], target_client="manager")
+        return {"handoffId": handoff}
     if command == "claim":
         checked = None
         def check_lease(payload):
@@ -65,7 +107,7 @@ def execute(request, *, lease_check=None):
     path = directory / (request["operationId"] + ".json")
     with build_lock(store.directory / "handoffs.lock"):
         if command == "journal":
-            if request["operation"] == "acquire":
+            if request["operation"] in {"acquire", "reconnect"}:
                 require(not pending_manager_operations(), "HANDOFF_PENDING", "保持中・結果不明の貸出操作が残っています")
             record = {"profileId": profile["profileId"], "profileHash": profile_hash(profile), "command": request["operation"], "payload": request["payload"],
                       "operationId": request["operationId"], "state": "UNKNOWN"}

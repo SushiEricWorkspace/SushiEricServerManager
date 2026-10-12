@@ -51,7 +51,7 @@ class ManagerSshBridge:
         from dev_server.registry import require
         from dev_server.connection_profiles import TOKEN_FIELDS
         require(self.store.profile(self.profile["profileId"]) == self.profile, "PROFILE_CHANGED", "プロファイルが変わっています")
-        if command in {"profile", "journal", "finish", "claim"}:
+        if command in {"profile", "journal", "finish", "claim", "offers", "reoffer"}:
             request = dict(self.configuration, **payload, command=command, operationId=operation)
             return self.private_bridge.execute(request, lease_check=lambda token:
                 self.result(self.connection(token["instanceId"]), "lease-check", token, operation))
