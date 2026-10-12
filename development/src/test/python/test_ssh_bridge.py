@@ -80,6 +80,34 @@ class SshBridgeTests(unittest.TestCase):
         with self.assertRaises(RegistryError): self.call("status", {"instanceId": "other-slot"})
         self.assertEqual("/別 PC/root", FakeConnection.created[0].profile["managementRoot"])
 
+    def test_handoff_candidates_stay_in_local_private_store_without_remote_io(self):
+        checked = {"instanceId": "persistent-01", "owner": "test-owner", "epoch": 1, "generation": "generation-01",
+                   "generationBound": True, "runId": "run-01", "nonce": "nonce-01", "expiresAt": time.time() + 3600,
+                   "state": "RUNNING", "pending": 0, "writerSessions": []}
+        token = {key: self.binding[key] for key in ("instanceId", "leaseId", "epoch", "expectedGeneration")}
+        handoff = self.store.offer(self.profile, token, checked, owner="test-owner", source_client="human-script", target_client="manager")
+        offered = self.call("offers")["offers"]
+        self.assertEqual([handoff], [row["handoffId"] for row in offered])
+        self.assertFalse(FakeConnection.created)
+        self.assertNotIn("private-lease", str(offered))
+
+    def test_reconnect_uses_same_remote_lease_and_new_private_handoff(self):
+        checked = {"instanceId": "persistent-01", "owner": "test-owner", "epoch": 1, "generation": "generation-01",
+                   "generationBound": True, "runId": "run-01", "nonce": "nonce-01", "expiresAt": time.time() + 3600,
+                   "state": "RUNNING", "pending": 0, "writerSessions": [{"status": "CLOSED"}]}
+        token = {key: self.binding[key] for key in ("instanceId", "leaseId", "epoch", "expectedGeneration")}
+        handoff = self.store.offer(self.profile, token, checked, owner="test-owner", source_client="human-script", target_client="manager")
+        connection = self.manager.connection("persistent-01")
+        connection.checked = checked
+        self.call("claim", {"handoffId": handoff, "owner": "test-owner", "targetClient": "manager"})
+        payload = {"handoffId": handoff, "owner": "test-owner"}
+        self.manager.execute("journal", {"operation": "reconnect", "payload": payload}, "reconnect-probe")
+        fresh = self.manager.execute("reoffer", payload, "reconnect-probe")
+        self.assertNotEqual(handoff, fresh["handoffId"])
+        self.assertEqual(["lease-check", "lease-check"], [call[0] for call in connection.calls])
+        self.assertNotIn("private-lease", str(fresh))
+        self.assertFalse(self.manager.writers)
+
     def test_server_native_writer_receives_no_remote_manager_pid(self):
         connection = self.opened()
         self.assertEqual(dict(self.binding, owner="test-owner"), connection.calls[0][1])

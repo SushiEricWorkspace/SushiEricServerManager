@@ -7,7 +7,7 @@
 ## モジュールと起動
 
 通常Managerはルートプロジェクトの`Launcher`で起動し、`development`へ依存しません。
-管理接続の入力画面、ManagedSession、SupervisorClient、ManagedEditorDataStore、管理送信経路は
+管理接続の選択画面、ManagedSession、SupervisorClient、ManagedEditorDataStore、管理送信経路は
 `development`モジュールだけに配置します。通常側との境界はEditorConnection、ManagementTransport、
 EditorDataStoreのオフライン領域です。Commonモデルや通常SSH/SFTPのライブラリは通常側に残します。
 
@@ -22,67 +22,88 @@ gradlew :development:run -PcommonDevelopmentRepository=<Maven絶対パス>
 gradlew :development:installDist -PcommonDevelopmentRepository=<Maven絶対パス>
 ```
 
-## プロファイルと枠の選択
+## 初回設定
 
-開発用の「管理テスト環境へ接続」でGit外の`profiles/<profileId>.json`を選択します。
-登録・編集は共通契約の`.github/scripts/connection-profile.py`を使用してください。
+開発用の「管理テスト環境へ接続」で「初回設定・環境情報」を開きます。
+「環境を登録・変更」からGit外の`profiles/<profileId>.json`を選択してください。
+登録・編集は共通契約の`.github/scripts/connection-profile.py`を使用します。
 形式1の非秘密設定・private権限・対象ホスト・Python 3.12・CLIを正本のConnectionStoreで検査します。
-localプロファイルのhostには`socket.gethostname()`と一致する対象ホスト名を指定します。
-SSHプロファイルには`transport: ssh`、対象ホストの`host`・`targetOs`・`sshUser`と
-対象ホスト上の絶対パスを登録します。画面の「SSH用：このPCの設定」で、このPCの
-Python 3.12、確定した管理CLI、別途確認済みknown_hostsの絶対パスを指定してください。
-プロファイル読み込みでは正本を検査し、「枠状態を更新」などの明示操作からSSH接続します。
-対象ホストのroot/Python/CLIをこのPCのファイルとして開きません。local・SFTPへfallbackしません。
+登録した環境は日常画面の一覧から選択でき、前回の環境と枠を再利用します。
 
-選択したプロファイルのパス、貸出owner、受取client、このPCのツール・known_hostsのパスをアプリデータの
-`development-connection.properties`へ保存します。root/Python/CLIは登録済みプロファイルを再利用します。
-leaseId/epoch/generation/run/nonce/session・引継ぎIDは固定設定へ保存しません。
-画面にはホスト、root、運用承認の参照と、候補枠の状態・owner・期限切れを表示します。
-承認参照は運用者の既承認の証跡です。JSONを登録するだけでは新しい運用承認を発行しません。
+Managerから起動する環境は、初回だけ次を設定して保存します。
 
-「枠状態を更新」は候補枠だけを一覧表示し、貸出tokenを列挙しません。
-AVAILABLE、停止中、RUNNING、他ownerの貸出、期限切れ、RECOVERY_REQUIREDを区別します。
-期限切れや復旧待ちを奪取・自動復旧しません。SSH仲介は正本SshConnectionのOpenSSHを使用します。
-既存の非対話公開鍵認証と厳密なknown_hosts検証を使い、未確認・変更済みの鍵を拒否します。
-SSH設定や鍵の自動登録・更新、agent/port forwarding、APIの外部公開は行いません。
-通常ManagerのSSHJ/SFTP設定・認証処理は変更しません。
+- 借用時のowner。
+- そのホストに配置済みの固定bundleのartifactId。
+- 空枠を初めて準備するseed。
+- 既存枠の初期化・リセットに使う承認済みtemplateId。空欄では既存枠の新規借用起動・リセットを行えません。
+- 起動条件の承認とMinecraft EULAへの同意。
 
-Windowsの監督は、SSH仲介のnative開始識別・cwd・OS ownerを照合できる権限状態で起動してください。
-同一ユーザーでも監督と仲介の昇格状態が異なるとアクセス拒否になるため、承認済みの同じSSH経路から監督を起動するなど、照合できる状態を揃えます。
+環境の登録だけで、新ホスト・root・bundle・templateの運用許可を発行しません。
+起動条件はプロファイル全体のhashに束縛して保存し、root等を変更したプロファイルへ流用しません。
+接続だけの場合は起動条件の設定を必要としません。
+`development-connection.properties`には非秘密のプロファイルパス・表示名・初回設定・選択枠だけを保存します。
+秘密token・引継ぎID・sessionを固定設定へ保存しません。
+
+localプロファイルのhostは`socket.gethostname()`と一致させます。
+SSHプロファイルは`transport: ssh`、対象ホストの`host`・`targetOs`・`sshUser`と対象ホスト上の絶対パスを登録します。
+「SSHの初回設定」に、このPCのPython 3.12、確定した管理CLI、別途確認済みknown_hostsを指定します。
+対象ホストのroot/Python/CLIをこのPCのファイルとして開かず、local・SFTPへfallbackしません。
+環境の選択・画面の表示・更新で承認済みホストへ接続して枠状態を照合します。
+
+SSH仲介は正本SshConnectionのOpenSSH、既存の非対話公開鍵認証、厳密なknown_hosts検証を使用します。
+未確認・変更済みの鍵を拒否し、SSH設定・鍵の自動登録、agent/port forwarding、APIの外部公開を行いません。
+Windowsでは監督と仲介のnative開始識別・cwd・OS ownerを照合できる、承認済みの同じ昇格状態で起動してください。
 照合できない場合はwriter登録を拒否し、PID照合やOS owner検査を省略しません。
 
-### Manager自身が借りる場合
+## 日常のボタン操作
 
-1. AVAILABLEの枠と自身のownerを選び、「借りて接続」を押します。
-2. acquireは一度だけ実行し、返されたlease/epoch/枠と現在世代をprivate記録へ固定します。
-   新規貸出は停止・未束縛のため、この操作だけでは起動・writer登録を行いません。
-3. 「別操作：世代を準備」で空枠にはprepare、既存枠にはreset/restoreを明示します。
-   配置済みartifactId、新しいgenerationId、seed/templateId/snapshotIdとEULA同意が必要です。
-   正本CLIが全条件を照合し、成功応答の世代だけを貸出へ固定します。旧世代は削除しません。
-4. 「別操作：サーバーを起動」を明示し、成功後に「保持中の貸出で接続」を押します。
-   貸出検査のRUNNING・owner・epoch・世代とstatusのrun/nonceを照合してwriterを登録します。
-5. Managerだけ切断してもサーバー・貸出は残り、このアプリがrenewを継続します。
-   終了時はwriter切断後に管理画面へ戻り、「別操作：サーバーを正常停止」と
-   「停止確認済みの貸出を返却」を明示します。返却は監督の停止・writer終了証明を必要とします。
+環境と枠を選び、実行可能なボタンを押します。owner・引継ぎID・受取client・世代IDの入力は不要です。
+画面を開くたびに枠一覧を照合し、「更新」で再照合できます。
+空き・停止中・起動中・期限切れ・復旧待ちを区別し、貸出tokenを一覧表示しません。
+一覧の照合で借用・引継ぎ消費・貸出更新・サーバー起動停止を行いません。
 
-貸出は3600秒、監視は10秒ごとです。長い世代準備・起動停止はCLIの独立した応答期限で待ち、
-同じ貸出の世代更新とrenewを直列化します。途中応答不明では再送・kill・releaseしません。
-prepare/reset/restore/start/stopは接続ボタンの暗黙副作用ではありません。
-recover、未知writerの解除、snapshot/GCはこの画面から実行しません。
+### Managerから起動する場合
+
+操作中は工程完了率の％・ゲージと処理内容を表示します。起動は環境照合・貸出確認・世代準備・起動の4工程、
+resetは貸出照合・世代準備・新世代照合の3工程です。コピー量や残り時間の推定値ではありません。
+世代の初期化・リセットには数分かかる場合があります。失敗時は最後に完了した工程率を保持し、100％へ変更しません。
+変更操作が完了するまで「閉じる」と接続画面の閉じるボタンは使用できません。
+アプリ全体の異常終了は結果不明として保全し、成功へ変更しません。
+
+1. AVAILABLEの枠で「借りて初期化・起動」を押し、表示された枠と条件を確認してボタンで確定します。
+   明示acquireの返値からlease/epochを固定し、空枠は保存済みseedからprepare、既存枠は保存済みtemplateからresetします。
+   新しい世代IDは自動生成し、旧世代は保持します。既存データを直接再利用せず、初期化することを確認画面へ表示します。
+2. 起動成功後に「接続」を押して編集します。接続ボタンだけで起動は行いません。
+3. 編集・保存後、Managerを正常切断します。切断だけではサーバー・貸出は残り、Managerがrenewを継続します。
+4. 「停止」で正常保存・writer終了・JVM/child終了を照合します。同じ保持貸出の「起動」はその世代を再起動し、再借用・再初期化しません。
+5. リセットする場合は停止後に「リセット」を押し、元templateを確認してボタンで確定します。
+   新しい世代IDを生成してresetし、旧世代を保持します。起動は別の「起動」ボタンから行います。
+6. 作業を終了する場合は停止後に「返却」を押します。監督が停止証明とwriter終了を照合した後だけreleaseします。
+
+貸出は3600秒、監視は10秒ごとです。世代準備・起動停止とrenewを直列化し、正本が返した世代・期限だけを使用します。
+他owner・復旧待ち・期限切れ・結果不明を奪取せず、prepare/reset/startの失敗から新しいacquireを行いません。
+writer接続中の起動・停止・リセット・返却は受け付けません。
+recover、未知writerの解除、snapshot/GCは日常画面から実行しません。
+アプリ異常終了後の保持貸出は診断対象であり、初回設定から自動復元・再取得しません。
 
 ### 人間用起動スクリプトから引き継ぐ場合
 
-発行元は共通契約の`ConnectionStore.offer`へ現在の正規`lease-check`結果を渡し、
-同じownerと受取client（画面の既定は`manager`）に対する一回限りの引継ぎIDを発行します。
-発行元はrenew・サーバーの継続運転・停止・返却の責任を保持します。
+起動側は同じprivate保存先へ、`manager`宛ての引継ぎを明示発行します。
+Managerは同一プロファイル・枠・owner・epoch・世代・run/nonce、期限内OFFEREDの記録だけを接続候補にします。
+CLAIMED・UNKNOWN・別client・変更済みプロファイル・古い起動を候補にしません。秘密tokenを画面へ渡しません。
 
-Managerで発行元と同じowner、受取client、明示された引継ぎIDを入力し、
-「引継ぎを受けて接続」を押します。acquireやrenewは行いません。
-正本ConnectionStoreがCLAIMINGを先に耐久化し、同じホストCLIの`lease-check`と再照合します。
-claim期限と接続中の貸出期限を分け、取得後は発行元が更新した正規CLIの現在期限を使用します。
+枠を選んで「接続」を押すと、候補のowner・IDで既存claimを実行します。IDのコピーや受取clientの入力は不要です。
+候補が複数ある場合は発行記録と期限から選択します。最新記録を勝手に消費しません。
+正本ConnectionStoreがCLAIMINGを耐久化した後に同じホストCLIのlease-checkと照合します。
+claim期限と接続中の貸出期限を分け、発行元が更新した正規CLIの現在期限を使用します。
 返されたsessionIdを再生成せず、世代・run・nonceを固定してwriter-openします。
-他owner/client・期限切れ・旧epoch/世代/run/nonce・二重claimを拒否します。
-Manager自身のwriter終了だけを確認し、サーバー停止・貸出返却を発行元から奪いません。
+
+取得・renew・サーバー停止・返却の責任は発行元に残ります。引継ぎではacquireやrenewを行いません。
+画面は取得元を表示し、Manager取得分だけを起動・停止・リセット・返却の対象にします。
+正常切断ではManager自身のwriterだけを終了し、引継ぎsessionを再使用しません。
+同じアプリで正常切断後に「接続」を押すと、同じ貸出・世代・起動識別と全writerのCLOSEDを照合し、
+新しい引継ぎをprivateへ発行して一度だけ受領します。旧引継ぎ・sessionを再使用せず、発行元の責任は変わりません。
+アプリ再起動後は保持記録から再接続を推測せず、発行元の新しい引継ぎが必要です。
 発行元のrenew失敗・期限切れ・接続喪失では編集を保全して受付を止めます。
 
 ### private記録と異常終了
@@ -212,3 +233,19 @@ Editor専用Commonで生成した包装の検査は開発検証です。正式Co
 実Mod二枠の保存・正常切断・snapshot/別枠復元とprivate設定は、
 [統合検証ガイド](../../../SushiEricServerMod/docs/core/manager-integration-guide.md)と
 [OS・方向別の検証記録](../../../SushiEricServerMod/docs/core/manager-integration-results-guide.md)を参照してください。
+
+## #201のWindows実機確認（2026-10-13）
+
+ServerMod #548で承認された使い捨てroot・専用appdata、固定bundle
+`4051b6a4c2a12cb4f36166f69246cfeb05a65f818f49ae5f006a0fcdaa49b305`で確認しました。
+
+- 配色、再表示時の枠照合、手入力なし接続、編集・保存、正常切断後のボタン再接続を人間が確認しました。
+  新しい引継ぎ・session、全writerのCLOSED、再接続journalの完了を正本CLIの記録と照合しています。
+- 承認済みtemplateを使う初期化・起動とresetで、工程完了率の％・ゲージ・処理内容を確認しました。
+  Manager取得分の接続・編集保存・正常切断、停止→同世代起動→停止、reset→起動準備済み→新世代起動、正常停止・返却まで、文字入力なしで操作できました。
+- 同世代の2 runは別nonceで正常保存・JVM/child終了を確認し、reset後のfixture・ファイルhashは元templateと一致しました。
+  全貸出返却・writer終了・private操作完了、旧世代保持、監督正常終了と6portの空きを照合しています。
+
+macOSのGUI・今回の修正後の実SSH・installer/dmgは再実行していません。
+自動検証の合成監督・SSH仲介試験や既存の統合検証結果を、これらの実機成功へ読み替えません。
+秘密を含み得る原本は試験rootのprivate記録とinstance診断へ保全し、Gitへ追加していません。

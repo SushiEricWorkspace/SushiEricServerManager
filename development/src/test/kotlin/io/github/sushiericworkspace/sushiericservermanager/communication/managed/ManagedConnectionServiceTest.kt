@@ -83,6 +83,132 @@ class ManagedConnectionServiceTest {
         assertEquals(1, acquired)
     }
 
+    @Test fun `引継ぎの形式不正は送信前に拒否し入力訂正まで貸出と結果不明を残さない`() = withFixture { profile, _ ->
+        val service = ManagedConnectionService(profile, SupervisorClient { _, _, _ -> error("入力拒否で監督へ送信しません") })
+        val invalid = listOf(
+            Triple("invalid id", "test-owner", "manager"),
+            Triple("test-handoff", "invalid owner", "manager"),
+            Triple("test-handoff", "test-owner", "client manager")
+        )
+        invalid.forEach { (handoff, owner, client) ->
+            assertFailsWith<IllegalArgumentException> { service.claim(handoff, owner, client) }
+            assertFalse(service.uncertain)
+            assertNull(service.lease)
+            assertFalse(ConnectionProfile.load(profile.file).pendingManagerOperation)
+        }
+        // 形式を訂正した明示要求はbridgeへ進み、存在しない引継ぎの失敗を保全します。
+        assertFailsWith<SupervisorFailure> { service.claim("test-handoff", "test-owner", "manager") }
+        assertTrue(service.uncertain)
+        assertNull(service.lease)
+    }
+
+    @Test fun `設定済みボタン起動は借用準備起動を一度ずつ行い停止後は同じ貸出で再起動する`() = withFixture { profile, _ ->
+        val fixture = ButtonFixture(profile)
+        val preset = ManagedServerPreset("test-owner", "a".repeat(64), 123L, "trial")
+        try {
+            val progress = mutableListOf<Int>()
+            fixture.service.start("persistent-01", preset) { completed, total, _ ->
+                assertEquals(4, total); progress += completed
+            }
+            assertEquals(listOf(0, 1, 2, 3, 4), progress)
+            val first = fixture.generation
+            assertEquals(listOf("acquire", "prepare", "start"), fixture.mutations())
+            assertEquals(123L, fixture.commands.single { it.first == "prepare" }.second["seed"]?.jsonPrimitive?.long)
+            assertEquals(first, fixture.service.lease!!.token["expectedGeneration"])
+            fixture.service.lease!!.runtime("stop")
+            fixture.service.start("persistent-01", preset)
+            assertEquals(first, fixture.generation)
+            assertEquals(listOf("acquire", "prepare", "start", "stop", "start"), fixture.mutations())
+            assertSame(fixture.service.lease, fixture.service.connect("persistent-01", null))
+            fixture.service.lease!!.runtime("stop")
+            progress.clear()
+            fixture.service.reset("persistent-01", preset) { completed, total, _ ->
+                assertEquals(3, total); progress += completed
+            }
+            assertEquals(listOf(0, 1, 2, 3), progress)
+            assertNotEquals(first, fixture.generation)
+            assertEquals("trial", fixture.commands.single { it.first == "reset" }.second["templateId"]?.jsonPrimitive?.content)
+            assertEquals("reset", fixture.mutations().last())
+            assertEquals("READY", fixture.state)
+            val resetGeneration = fixture.generation
+            fixture.service.start("persistent-01", preset)
+            assertEquals(resetGeneration, fixture.generation)
+            assertEquals(listOf("reset", "start"), fixture.mutations().takeLast(2))
+            assertEquals(1, fixture.mutations().count { it == "acquire" })
+        } finally { fixture.service.lease?.abort() }
+    }
+
+    @Test fun `既存枠の起動はtemplate未設定なら借用前に拒否し設定済みtemplateだけを使う`() = withFixture { profile, _ ->
+        val fixture = ButtonFixture(profile).apply { generation = JsonPrimitive("old-generation") }
+        assertFailsWith<IllegalArgumentException> { fixture.service.start("persistent-01", ManagedServerPreset("test-owner", "a".repeat(64), 1, "")) }
+        assertNull(fixture.service.lease)
+        assertTrue(fixture.mutations().isEmpty())
+        assertFalse(fixture.service.uncertain)
+        try {
+            fixture.service.start("persistent-01", ManagedServerPreset("test-owner", "a".repeat(64), 1, "trial"))
+            assertEquals(listOf("acquire", "reset", "start"), fixture.mutations())
+            assertEquals("old-generation", fixture.commands.single { it.first == "reset" }.second["expectedGeneration"]?.jsonPrimitive?.content)
+        } finally { fixture.service.lease?.abort() }
+    }
+
+    @Test fun `他ownerと復旧待ちの起動は貸出を取得せず世代準備の応答喪失では取り直さない`() = withFixture { profile, _ ->
+        val preset = ManagedServerPreset("test-owner", "a".repeat(64), 1, "trial")
+        for (state in listOf("RUNNING", "RECOVERY_REQUIRED")) {
+            val fixture = ButtonFixture(profile).apply { this.state = state }
+            assertFailsWith<IllegalStateException> { fixture.service.start("persistent-01", preset) }
+            assertTrue(fixture.mutations().isEmpty())
+        }
+        val fixture = ButtonFixture(profile).apply { failPrepare = true }
+        val progress = mutableListOf<Int>()
+        assertFailsWith<SupervisorFailure> { fixture.service.start("persistent-01", preset) { completed, _, _ -> progress += completed } }
+        assertEquals(listOf(0, 1, 2), progress)
+        assertEquals(ManagedLease.State.UNKNOWN, fixture.service.lease!!.state)
+        assertTrue(ConnectionProfile.load(profile.file).pendingManagerOperation)
+        assertFailsWith<IllegalStateException> { fixture.service.start("persistent-01", preset) }
+        assertEquals(listOf("acquire", "prepare"), fixture.mutations())
+    }
+
+    private class ButtonFixture(profile: ConnectionProfile) {
+        var state = "AVAILABLE"
+        var generation: JsonElement = JsonNull
+        var bound = false
+        var failPrepare = false
+        val commands = mutableListOf<Pair<String, JsonObject>>()
+        fun mutations() = commands.map { it.first }.filter { it != "list" && it != "lease-check" }
+        val service = ManagedConnectionService(profile, SupervisorClient { command, payload, _ ->
+            commands += command to payload
+            val expires = System.currentTimeMillis() / 1000.0 + 3600
+            when (command) {
+                "list" -> buildJsonObject { putJsonArray("instances") { add(buildJsonObject {
+                    put("instanceId", "persistent-01"); put("state", state); put("generation", generation)
+                    put("owner", if (state == "AVAILABLE") JsonNull else JsonPrimitive("test-owner")); put("leaseExpired", false)
+                }) } }
+                "acquire" -> { state = "LEASED_STOPPED"; buildJsonObject {
+                    put("instanceId", "persistent-01"); put("leaseId", "test-private-lease"); put("epoch", 1)
+                    put("generation", generation); put("expiresAt", expires); put("generationBound", false)
+                } }
+                "prepare", "reset" -> {
+                    if (failPrepare) throw SupervisorFailure("RESULT_UNKNOWN")
+                    generation = payload.getValue("generationId"); bound = true; state = "READY"
+                    buildJsonObject { put("instanceId", "persistent-01"); put("generation", generation); put("prepared", true) }
+                }
+                "lease-check" -> buildJsonObject {
+                    put("instanceId", "persistent-01"); put("owner", "test-owner"); put("epoch", 1)
+                    put("generation", generation); put("generationBound", bound); put("expiresAt", expires); put("state", state)
+                    put("runId", "test-run"); put("nonce", "test-nonce"); putJsonArray("writerSessions") {}
+                }
+                "start" -> { state = "RUNNING"; buildJsonObject {
+                    put("instanceId", "persistent-01"); put("generation", generation); put("running", true)
+                } }
+                "stop" -> { state = "LEASED_STOPPED"; buildJsonObject {
+                    put("instanceId", "persistent-01"); put("generation", generation); put("runtimeStopped", true)
+                    put("modSaveCompleted", true); put("jvmAndChildrenExited", true); put("exitCode", 0)
+                } }
+                else -> error("暗黙操作：$command")
+            }
+        })
+    }
+
     private fun withFixture(test: (ConnectionProfile, Path) -> Unit) {
         val python = System.getenv("MANAGED_PYTHON")
         val contract = System.getenv("MANAGED_CONTRACT_DIRECTORY")

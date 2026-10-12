@@ -58,6 +58,69 @@ class BridgeTests(unittest.TestCase):
         self.store.save_profile(self.profile, replace=True)
         with self.assertRaises(RegistryError): self.request("profile")
 
+    def test_offers_return_only_live_same_profile_manager_candidates_without_secrets(self):
+        from dev_server import storage
+        ids = [self.offer() for _ in range(2)]
+        for change in ({"targetClient": "other-client"}, {"state": "CLAIMED"}, {"state": "UNKNOWN"}, {"expiresAt": 1}, {"profileHash": "a" * 64}):
+            handoff = self.offer()
+            path = self.directory / "handoffs" / (handoff + ".json")
+            record = json.loads(path.read_bytes())
+            record.update(change)
+            self.store._write(path, record, replace=True)
+        with patch("dev_server.connection_profiles.local_request") as callback:
+            offered = self.request("offers")["offers"]
+            callback.assert_not_called()
+        self.assertEqual(set(ids), {row["handoffId"] for row in offered})
+        self.assertNotIn("secret-lease", json.dumps(offered))
+        self.assertTrue(all("token" not in row and "leaseId" not in row and "sessionId" not in row for row in offered))
+        self.assertTrue(all(row["state"] == "OFFERED" for row in (json.loads((self.directory / "handoffs" / (value + ".json")).read_bytes()) for value in ids)))
+        # 不完全な記録を候補として無視して正常扱いしません。
+        storage.write(self.directory / "handoffs/interrupted.json.writing", b"partial")
+        with self.assertRaises(RegistryError): self.request("offers")
+
+    def test_normal_reconnect_creates_new_handoff_and_session_without_reusing_or_renewing(self):
+        handoff = self.offer()
+        with patch("dev_server.connection_profiles.local_request", return_value=self.checked):
+            self.request("claim", handoffId=handoff, owner="test-owner", targetClient="manager")
+        old = self.store._read(self.directory / "handoffs" / (handoff + ".json"))
+        old["expiresAt"] = 1
+        self.store._write(self.directory / "handoffs" / (handoff + ".json"), old, replace=True)
+        payload = {"handoffId": handoff, "owner": "test-owner"}
+        self.request("journal", "reconnect-probe", operation="reconnect", payload=payload)
+        checked = dict(self.checked, writerSessions=[{"status": "CLOSED"}])
+        with patch("dev_server.connection_profiles.local_request", return_value=checked) as callback:
+            result = self.request("reoffer", "reconnect-probe", **payload)
+            with self.assertRaises(RegistryError): self.request("reoffer", "reconnect-probe", **payload)
+            self.assertEqual(1, callback.call_count)
+            self.assertEqual("lease-check", callback.call_args.args[1])
+        fresh = self.store._read(self.directory / "handoffs" / (result["handoffId"] + ".json"))
+        self.assertNotEqual(handoff, fresh["handoffId"])
+        self.assertNotEqual(old["sessionId"], fresh["sessionId"])
+        self.assertEqual(old["token"], fresh["token"])
+        self.assertEqual(old["sourceClient"], fresh["sourceClient"])
+        self.assertEqual("OFFERED", fresh["state"])
+        self.assertNotIn("secret-lease", json.dumps(result))
+        self.assertEqual(old, self.store._read(self.directory / "handoffs" / (handoff + ".json")))
+        self.request("finish", "reconnect-probe", result=result)
+        with patch("dev_server.connection_profiles.local_request", return_value=checked):
+            self.request("claim", handoffId=fresh["handoffId"], owner="test-owner", targetClient="manager")
+        self.assertFalse(self.request("profile")["pendingManagerOperation"])
+
+    def test_reconnect_unknown_writer_is_preserved_without_new_handoff_or_retry(self):
+        handoff = self.offer()
+        with patch("dev_server.connection_profiles.local_request", return_value=self.checked):
+            self.request("claim", handoffId=handoff, owner="test-owner", targetClient="manager")
+        payload = {"handoffId": handoff, "owner": "test-owner"}
+        self.request("journal", "reconnect-probe", operation="reconnect", payload=payload)
+        checked = dict(self.checked, writerSessions=[{"status": "UNKNOWN"}])
+        with patch("dev_server.connection_profiles.local_request", return_value=checked) as callback:
+            with self.assertRaises(RegistryError): self.request("reoffer", "reconnect-probe", **payload)
+            with self.assertRaises(RegistryError): self.request("reoffer", "reconnect-probe", **payload)
+            self.assertEqual(1, callback.call_count)
+        self.assertEqual(1, len(list((self.directory / "handoffs").glob("*.json"))))
+        self.assertTrue(self.request("profile")["pendingManagerOperation"])
+        with self.assertRaises(RegistryError): self.request("journal", "another-reconnect", operation="reconnect", payload=payload)
+
     def test_once_only_claim_preserves_shared_session_and_does_not_acquire_or_renew(self):
         handoff = self.offer()
         with patch("dev_server.connection_profiles.local_request", return_value=self.checked) as callback:
