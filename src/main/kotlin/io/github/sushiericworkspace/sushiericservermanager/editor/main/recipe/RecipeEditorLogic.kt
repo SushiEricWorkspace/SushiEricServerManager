@@ -7,9 +7,11 @@ import io.github.sushiericworkspace.common.data.recipe.model.RecipeSize
 import io.github.sushiericworkspace.common.data.recipe.model.mutable.MutableRecipeData
 import io.github.sushiericworkspace.common.stats.player.AchievementType
 import io.github.sushiericworkspace.common.stats.player.SkillType
+import io.github.sushiericworkspace.sushiericservermanager.editor.component.ItemReferenceBinding
 import io.github.sushiericworkspace.sushiericservermanager.editor.component.SearchableComboBox
 import io.github.sushiericworkspace.sushiericservermanager.editor.controller.MainController
 import io.github.sushiericworkspace.sushiericservermanager.editor.service.EditorDataService
+import io.github.sushiericworkspace.sushiericservermanager.editor.service.ItemReferenceStatus
 import io.github.sushiericworkspace.sushiericservermanager.editor.service.RecipeEditorCatalog
 import io.github.sushiericworkspace.sushiericservermanager.editor.service.validateRecipeForEditor
 import io.github.sushiericworkspace.sushiericservermanager.editor.store.StoreResult
@@ -49,6 +51,20 @@ internal class RecipeEditorLogic(main: MainController, dataService: EditorDataSe
     private val ingredientFields = mutableMapOf<Int, Button>()
     private val itemButtons = mutableMapOf<Button, () -> ItemInternalId?>()
 
+    private val availableItems get() = dataService.itemReferences.snapshot.items
+    private val itemsLoaded get() = dataService.itemReferences.snapshot.status == ItemReferenceStatus.READY
+    private val itemBinding = ItemReferenceBinding(dataService.itemReferences, {
+        refreshItemButtons()
+        sidebarButtons.keys.forEach(::refreshButtonVisual)
+        refreshContent?.invoke()
+    }, { error ->
+        logger.warn("レシピ用のアイテム一覧を取得できませんでした。", error.cause)
+        CustomDialog.error().title("アイテム一覧の読込エラー")
+            .header("アイテムを選択できません")
+            .content("一覧を読み込めませんでした。接続状態とデータを確認してください。")
+            .owner(main.currentStage).show()
+    })
+
     override fun setupSidebar(container: VBox, selectId: String?) {
         super.setupSidebar(container, selectId)
         if (catalog == null && catalogTask == null) loadCatalog()
@@ -59,7 +75,7 @@ internal class RecipeEditorLogic(main: MainController, dataService: EditorDataSe
         val refreshButton = Button("参照アイテム・レシピを更新")
         fun refresh() {
             warnings.children.clear()
-            if (catalog == null || catalogTask != null || catalogFailed) {
+            if (!itemsLoaded || catalog == null || catalogTask != null || catalogFailed) {
                 warnings.children += Label(if (catalogFailed) "参照一覧を取得できませんでした。更新を押して再試行してください。"
                     else "参照アイテム・レシピを読み込み中...").apply { styleClass.add("warning-label"); isWrapText = true }
             }
@@ -69,12 +85,12 @@ internal class RecipeEditorLogic(main: MainController, dataService: EditorDataSe
                     isWrapText = true
                 }
             }
-            refreshButton.isDisable = catalogTask != null
+            refreshButton.isDisable = catalogTask != null || dataService.itemReferences.snapshot.status == ItemReferenceStatus.LOADING
             refreshItemButtons()
             sidebarButtons.keys.forEach(::refreshButtonVisual)
         }
         refreshContent = ::refresh
-        refreshButton.setOnAction { loadCatalog() }
+        refreshButton.setOnAction { loadCatalog(force = true) }
         focusTargets.clear()
         ingredientFields.clear()
         itemButtons.clear()
@@ -186,9 +202,9 @@ internal class RecipeEditorLogic(main: MainController, dataService: EditorDataSe
         itemButtons[this] = current
         setOnAction {
             val button = this
-            loadCatalog {
-                if (button.scene == null) return@loadCatalog
-                when (val selection = ItemTreeSelectionDialog.show(main.currentStage, catalog?.items.orEmpty(), current())) {
+            itemBinding.load {
+                if (button.scene == null) return@load
+                when (val selection = ItemTreeSelectionDialog.show(main.currentStage, availableItems, current())) {
                     is ItemTreeSelection.Selected -> changed(selection.id)
                     ItemTreeSelection.Cleared -> changed(null)
                     null -> Unit
@@ -199,10 +215,10 @@ internal class RecipeEditorLogic(main: MainController, dataService: EditorDataSe
 
     private fun refreshItemButtons() {
         itemButtons.forEach { (button, current) ->
-            button.isDisable = catalogTask != null
+            button.isDisable = dataService.itemReferences.snapshot.status == ItemReferenceStatus.LOADING
             val id = current()
-            button.text = if (id == null) "アイテムを選択..." else catalog?.items?.firstOrNull { it.internalId == id }?.id
-                ?: if (catalog == null) "参照確認中: ${id.value}" else "参照先不明: ${id.value}"
+            button.text = if (id == null) "アイテムを選択..." else dataService.itemReferences.snapshot.byInternalId[id]?.id
+                ?: if (!itemsLoaded) "参照確認中: ${id.value}" else "参照先不明: ${id.value}"
             button.tooltip = AppTooltip.create(button.text)
         }
     }
@@ -219,13 +235,13 @@ internal class RecipeEditorLogic(main: MainController, dataService: EditorDataSe
         val stored = currentCatalog?.recipes.orEmpty().associateBy { it.id }
         val ids = mergeSidebarIdsWithPending(remoteDataIds)
         val candidates = ids.filterNot(::isPendingStoreDeletion).mapNotNull { editingDataMap[it] ?: stored[it] }
-        return validateRecipeForEditor(data, currentCatalog?.items.orEmpty(), candidates)
-            .filterNot { currentCatalog == null && it.isWarning }
+        return validateRecipeForEditor(data, availableItems, candidates)
+            .filterNot { !itemsLoaded && it.isWarning }
     }
 
-    override fun availableItemInternalIds(): Set<ItemInternalId> = catalog?.items?.mapTo(mutableSetOf()) { it.internalId }.orEmpty()
+    override fun availableItemInternalIds(): Set<ItemInternalId> = dataService.itemReferences.snapshot.byInternalId.keys
 
-    override fun itemDisplayText(id: ItemInternalId): String = catalog?.items?.firstOrNull { it.internalId == id }?.id ?: id.value
+    override fun itemDisplayText(id: ItemInternalId): String = dataService.itemReferences.snapshot.byInternalId[id]?.id ?: id.value
 
     override fun focusValidationError(error: SushiEricValidationError): Boolean {
         val target = if (error.property.name == "ingredients") ingredientFields[error.key as? Int] ?: focusTargets["ingredients"]
@@ -245,20 +261,27 @@ internal class RecipeEditorLogic(main: MainController, dataService: EditorDataSe
     override fun saveStoreData(dataId: String, data: MutableRecipeData): StoreResult<Unit> =
         RecipeSaveProgressDialog.save(main.currentStage, dataId) { dataAccess.saveStore(dataId, data) }
 
-    private fun loadCatalog(onLoaded: (() -> Unit)? = null) {
+    private fun loadCatalog(force: Boolean = false) {
         if (catalogTask != null || disposed) return
         catalogFailed = false
+        val items = dataService.itemReferences.load(force)
         val task = object : Task<RecipeEditorCatalog>() {
-            override fun call(): RecipeEditorCatalog = when (val result = RecipeEditorCatalog.load(dataService.store)) {
-                is StoreResult.Success -> result.value
-                is StoreResult.Failure -> error("参照一覧を読み込めません: ${result.error.code} ${result.error.dataId}")
+            override fun call(): RecipeEditorCatalog {
+                val cachedItems = when (val result = items.get()) {
+                    is StoreResult.Success -> result.value
+                    is StoreResult.Failure -> error("参照アイテムを読み込めません: ${result.error.code}")
+                }
+                return when (val result = RecipeEditorCatalog.load(dataService.store, cachedItems)) {
+                    is StoreResult.Success -> result.value
+                    is StoreResult.Failure -> error("参照一覧を読み込めません: ${result.error.code} ${result.error.dataId}")
+                }
             }
         }
         catalogTask = task
         refreshContent?.invoke()
         task.setOnSucceeded {
             catalogTask = null
-            if (!disposed) { catalog = task.value; refreshContent?.invoke(); onLoaded?.invoke() }
+            if (!disposed) { catalog = task.value; refreshContent?.invoke() }
         }
         task.setOnFailed {
             catalogTask = null
@@ -266,12 +289,6 @@ internal class RecipeEditorLogic(main: MainController, dataService: EditorDataSe
                 catalogFailed = true
                 logger.warn("レシピ検証用の参照一覧を取得できませんでした。", task.exception)
                 refreshContent?.invoke()
-                if (onLoaded != null) {
-                    CustomDialog.error().title("アイテム一覧の読込エラー")
-                        .header("アイテムを選択できません")
-                        .content("一覧を読み込めませんでした。接続状態とデータを確認してください。")
-                        .owner(main.currentStage).show()
-                }
             }
         }
         Thread(task, "recipe-editor-catalog").apply { isDaemon = true; start() }
@@ -280,6 +297,7 @@ internal class RecipeEditorLogic(main: MainController, dataService: EditorDataSe
     override fun onClose(): Boolean {
         if (!super.onClose()) return false
         disposed = true
+        itemBinding.close()
         catalogTask?.cancel()
         return true
     }

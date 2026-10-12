@@ -91,7 +91,7 @@ object EditorSession {
     fun startOnlineSession() {
         check(connection == null)
         mode = AppMode.ONLINE
-        dataService = EditorDataService(sshManager)
+        dataService = EditorDataService(sshManager).also { it.itemReferences.load() }
 
         autoReconnectEnabled = true
         reconnectPolicy.reset()
@@ -248,7 +248,7 @@ object EditorSession {
     fun startOfflineSession(store: EditorDataStore) {
         check(connection == null)
         mode = AppMode.OFFLINE
-        dataService = EditorDataService(store)
+        dataService = EditorDataService(store).also { it.itemReferences.load() }
     }
 
     fun disconnect() {
@@ -256,6 +256,7 @@ object EditorSession {
          * 利用者が切断を選んだ場合は、以降の状態変化で再接続を予約しない。
          */
         autoReconnectEnabled = false
+        dataService?.itemReferences?.close()
         val active = connection
         if (active != null) {
             active.close()
@@ -296,7 +297,7 @@ object EditorSession {
         check(this.connection == null && dataService == null && !sshManager.isConnected)
         autoReconnectEnabled = false
         this.connection = connection
-        dataService = connection.open()
+        dataService = connection.open().also { it.itemReferences.load() }
         mode = AppMode.ONLINE
         serverMonitor.start(AppSettingsManager.load().resolvedMonitorIntervalTicks())
     }

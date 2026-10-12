@@ -52,6 +52,7 @@ class EditorDataService(
     }
 
     val items: DataAccess<MutableItemBaseData> = DataAccess(EditorDataDescriptors.item)
+    internal val itemReferences = ItemReferenceCache(this)
     val ores: DataAccess<MutableOreBaseData> = DataAccess(EditorDataDescriptors.ore)
     val shops = DataAccess(EditorDataDescriptors.shop)
     val recipes = DataAccess(EditorDataDescriptors.recipe)
@@ -152,7 +153,7 @@ class EditorDataService(
         fun loadStore(id: String): StoreResult<T> = store.load(descriptor, id)
 
         fun save(fileName: String, data: T): SaveResult {
-            return when (val result = store.save(descriptor, fileName, data)) {
+            return when (val result = saveStore(fileName, data)) {
                 is StoreResult.Success -> SaveResult.SUCCESS
                 is StoreResult.Failure -> {
                     logger.error(
@@ -171,7 +172,11 @@ class EditorDataService(
         fun save(data: T): SaveResult = save(data.id, data)
 
         fun saveStore(id: String, data: T): StoreResult<Unit> =
-            store.save(descriptor, id, data)
+            store.save(descriptor, id, data).also { result ->
+                if (result is StoreResult.Success && data is MutableItemBaseData) {
+                    itemReferences.saved(id, data.freeze())
+                }
+            }
 
         fun merge(base: T, local: T, remote: T): ThreeWayMergeResult<T> =
             descriptor.merger.merge(base, local, remote)
@@ -253,6 +258,7 @@ class EditorDataService(
         fun delete(fileName: String): DeleteResult {
             return when (val result = store.delete(descriptor, fileName)) {
                 is StoreResult.Success -> {
+                    if (descriptor == EditorDataDescriptors.item) itemReferences.deleted(fileName)
                     deleteLocalBackup(fileName)
                     DeleteResult.SUCCESS
                 }
@@ -313,12 +319,15 @@ class EditorDataService(
             val oldDirectory = PublicId.directoryOf(oldId)
             val newDirectory = PublicId.directoryOf(newId)
             val newName = PublicId.nameOf(newId)
+            var renamedFrom = oldId
             val result = if (oldDirectory == newDirectory) {
                 store.rename(descriptor, oldId, newName)
             } else {
                 when (val moved = store.move(descriptor, oldId, newDirectory.joinToString("."))) {
                     is StoreResult.Failure -> moved
                     is StoreResult.Success -> {
+                        if (descriptor == EditorDataDescriptors.item) itemReferences.renamed(oldId, moved.value)
+                        renamedFrom = moved.value
                         if (moved.value == newId) {
                             StoreResult.Success(Unit)
                         } else {
@@ -329,6 +338,7 @@ class EditorDataService(
             }
             return when (result) {
                 is StoreResult.Success -> {
+                    if (descriptor == EditorDataDescriptors.item) itemReferences.renamed(renamedFrom, newId)
                     renameBackup(oldId, newId)
                     RenameResult.SUCCESS
                 }
@@ -348,6 +358,7 @@ class EditorDataService(
         fun move(id: String, targetDirectory: String): StoreResult<String> {
             return when (val result = store.move(descriptor, id, targetDirectory)) {
                 is StoreResult.Success -> {
+                    if (descriptor == EditorDataDescriptors.item) itemReferences.renamed(id, result.value)
                     renameBackup(id, result.value)
                     result
                 }

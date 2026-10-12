@@ -3,24 +3,23 @@ package io.github.sushiericworkspace.sushiericservermanager.editor.main.ore
 import io.github.sushiericworkspace.common.data.core.identity.VanillaBlockId
 import io.github.sushiericworkspace.common.data.core.validation.SushiEricValidationError
 import io.github.sushiericworkspace.common.data.item.model.ItemInternalId
-import io.github.sushiericworkspace.common.data.item.model.mutable.MutableItemBaseData
 import io.github.sushiericworkspace.common.data.ore.model.OreBaseDataView
 import io.github.sushiericworkspace.common.data.ore.model.mutable.MutableOreBaseData
 import io.github.sushiericworkspace.common.registry.VanillaIdRegistry
 import io.github.sushiericworkspace.common.stats.player.SkillType
+import io.github.sushiericworkspace.sushiericservermanager.editor.component.ItemReferenceBinding
 import io.github.sushiericworkspace.sushiericservermanager.editor.component.DropItemEditorDialog
 import io.github.sushiericworkspace.sushiericservermanager.editor.component.EditorSpinnerFactory
 import io.github.sushiericworkspace.sushiericservermanager.editor.component.SearchableComboBox
 import io.github.sushiericworkspace.sushiericservermanager.editor.controller.MainController
 import io.github.sushiericworkspace.sushiericservermanager.editor.service.EditorDataService
-import io.github.sushiericworkspace.sushiericservermanager.editor.store.StoreResult
+import io.github.sushiericworkspace.sushiericservermanager.editor.service.ItemReferenceStatus
 import io.github.sushiericworkspace.sushiericservermanager.editor.view.ManagedDataEditorView
 import io.github.sushiericworkspace.sushiericservermanager.editor.view.createPublicIdDisplay
 import io.github.sushiericworkspace.sushiericservermanager.editor.validation.ValidationRepairRegistry
 import io.github.sushiericworkspace.sushiericservermanager.editor.validation.ValidationRepairResult
 import io.github.sushiericworkspace.sushiericservermanager.ui.dialog.CustomDialog
 import io.github.sushiericworkspace.sushiericservermanager.ui.dialog.MergeConflictDialog
-import javafx.concurrent.Task
 import javafx.event.EventHandler
 import javafx.geometry.Insets
 import javafx.geometry.Pos
@@ -156,24 +155,30 @@ internal class OreEditorLogic(
 ) {
     override val validationRepairRegistry = createOreValidationRepairRegistry()
 
-    private var availableItems: List<MutableItemBaseData> = emptyList()
-    private var itemCatalogState = ItemCatalogState.LOADING
-    private var itemCatalogRequested = false
+    private val availableItems get() = dataService.itemReferences.snapshot.items
+    private val itemCatalogState get() = when (dataService.itemReferences.snapshot.status) {
+        ItemReferenceStatus.READY -> ItemCatalogState.LOADED
+        ItemReferenceStatus.FAILED -> ItemCatalogState.FAILED
+        else -> ItemCatalogState.LOADING
+    }
     private var refreshCurrentValidation: (() -> Unit)? = null
-    private var dropItemEditorButton: Button? = null
     private val validationFocusTargets = mutableMapOf<String, Node>()
     private val skillExperienceFields = mutableMapOf<SkillType, TextField>()
 
+    private val itemBinding = ItemReferenceBinding(dataService.itemReferences, {
+        sidebarButtons.keys.forEach(::refreshButtonVisual)
+        refreshCurrentValidation?.invoke()
+    }, { error ->
+        logger.error("ドロップ参照用のアイテム一覧を読み込めませんでした", error.cause)
+        CustomDialog.error().title("アイテム一覧の読込エラー")
+            .header("ドロップアイテムを編集できません")
+            .content("アイテム一覧を読み込めませんでした。接続状態とデータを確認してください。")
+            .owner(main.currentStage).show()
+    })
+
     override fun setupSidebar(container: VBox, selectId: String?) {
-        val shouldLoad = !itemCatalogRequested || itemCatalogState == ItemCatalogState.FAILED
-
-        if (shouldLoad) {
-            itemCatalogState = ItemCatalogState.LOADING
-        }
-
         super.setupSidebar(container, selectId)
-
-        if (shouldLoad) loadAvailableItems()
+        itemBinding.load()
     }
 
     override fun setupMainContent(selectData: MutableOreBaseData) {
@@ -184,9 +189,12 @@ internal class OreEditorLogic(
             isFocusTraversable = false
             styleClass.add("btn-secondary")
         }
-        dropItemEditorButton = dropItemButton
 
+        val refreshItems = Button("参照アイテムを更新").apply {
+            setOnAction { itemBinding.load(force = true) }
+        }
         fun refreshValidation() {
+            refreshItems.isDisable = itemCatalogState == ItemCatalogState.LOADING
             dropItemButton.text = formatDropItemCount(selectData.mutableDropItems.size)
             dropItemButton.isDisable = itemCatalogState == ItemCatalogState.LOADING
 
@@ -268,9 +276,7 @@ internal class OreEditorLogic(
         }
         dropItemButton.onAction = EventHandler {
             val owner = main.currentStage ?: return@EventHandler
-            itemCatalogState = ItemCatalogState.LOADING
-            refreshValidation()
-            loadAvailableItems {
+            itemBinding.load {
                 DropItemEditorDialog.show(
                     owner = owner,
                     dropItems = selectData.mutableDropItems,
@@ -302,7 +308,7 @@ internal class OreEditorLogic(
             add(magicPowerAmountField, 1, 6)
         }
 
-        val content = VBox(16.0, inputGrid, validationBox).apply {
+        val content = VBox(16.0, inputGrid, refreshItems, validationBox).apply {
             styleClass.add("ore-editor-content")
             padding = Insets(20.0)
             maxWidth = Double.MAX_VALUE
@@ -325,7 +331,7 @@ internal class OreEditorLogic(
     }
 
     override fun availableItemInternalIds(): Set<ItemInternalId> =
-        availableItems.mapTo(mutableSetOf()) { it.internalId }
+        dataService.itemReferences.snapshot.byInternalId.keys
 
     /**
      * アイテム一覧を読み込めていない間は、ドロップの参照に関する警告を保留します。
@@ -480,47 +486,9 @@ internal class OreEditorLogic(
         }
     }
 
-    private fun loadAvailableItems(onLoaded: (() -> Unit)? = null) {
-        itemCatalogRequested = true
-
-        val task = object : Task<List<MutableItemBaseData>>() {
-            override fun call(): List<MutableItemBaseData> {
-                return when (val listed = dataService.items.listStoreResources()) {
-                    is StoreResult.Failure -> throw IllegalStateException(
-                        listed.error.detail ?: listed.error.code.name,
-                        listed.error.cause
-                    )
-                    is StoreResult.Success -> listed.value.mapNotNull { resource ->
-                        when (val loaded = dataService.items.loadStore(resource.id)) {
-                            is StoreResult.Success -> loaded.value
-                            is StoreResult.Failure -> null
-                        }
-                    }
-                }
-            }
-        }
-        task.setOnSucceeded {
-            availableItems = task.value
-            itemCatalogState = ItemCatalogState.LOADED
-            sidebarButtons.keys.forEach(::refreshButtonVisual)
-            refreshCurrentValidation?.invoke()
-            onLoaded?.invoke()
-        }
-        task.setOnFailed {
-            itemCatalogState = ItemCatalogState.FAILED
-            sidebarButtons.keys.forEach(::refreshButtonVisual)
-            refreshCurrentValidation?.invoke()
-            logger.error("ドロップ参照用のアイテム一覧を読み込めませんでした", task.exception)
-            CustomDialog.error()
-                .title("アイテム一覧の読込エラー")
-                .header("ドロップアイテムを編集できません")
-                .content("アイテム一覧を読み込めませんでした。接続状態とデータを確認してください。")
-                .owner(main.currentStage)
-                .show()
-        }
-        Thread(task, "ore-editor-item-catalog").apply {
-            isDaemon = true
-            start()
-        }
+    override fun onClose(): Boolean {
+        if (!super.onClose()) return false
+        itemBinding.close()
+        return true
     }
 }

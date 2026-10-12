@@ -5,12 +5,12 @@ import io.github.sushiericworkspace.common.data.item.model.ItemInternalId
 import io.github.sushiericworkspace.common.data.shop.model.mutable.MutableShopProductData
 import io.github.sushiericworkspace.sushiericservermanager.editor.controller.MainController
 import io.github.sushiericworkspace.sushiericservermanager.editor.service.EditorDataService
-import io.github.sushiericworkspace.sushiericservermanager.editor.store.StoreResult
 import io.github.sushiericworkspace.sushiericservermanager.editor.view.ManagedDataEditorView
 import io.github.sushiericworkspace.sushiericservermanager.editor.view.createPublicIdDisplay
 import io.github.sushiericworkspace.sushiericservermanager.ui.dialog.MergeConflictDialog
 import io.github.sushiericworkspace.sushiericservermanager.ui.dialog.CustomDialog
-import javafx.concurrent.Task
+import io.github.sushiericworkspace.sushiericservermanager.editor.service.ItemReferenceStatus
+import io.github.sushiericworkspace.sushiericservermanager.editor.component.ItemReferenceBinding
 import javafx.geometry.Insets
 import javafx.geometry.Pos
 import javafx.geometry.VPos
@@ -31,24 +31,38 @@ import io.github.sushiericworkspace.sushiericservermanager.app.AppScreen
 /** 商品入力と参照アイテムの検証を提供し、階層・保存・履歴は共通基盤へ委譲します。 */
 internal class ShopEditorLogic(main: MainController, dataService: EditorDataService) :
     ManagedDataEditorView<MutableShopProductData>(main, dataService, dataService.shops) {
-    private var itemIds = emptySet<ItemInternalId>()
-    private var itemPublicIds = emptyMap<ItemInternalId, String>()
-    private var catalogLoaded = false
-    private var catalogRequested = false
-    private var catalogFailed = false
-    private var catalogLoading = false
+    private val itemIds get() = dataService.itemReferences.snapshot.byInternalId.keys
+    private val catalogLoaded get() = dataService.itemReferences.snapshot.status == ItemReferenceStatus.READY
+    private val catalogFailed get() = dataService.itemReferences.snapshot.status == ItemReferenceStatus.FAILED
+    private val catalogLoading get() = dataService.itemReferences.snapshot.status == ItemReferenceStatus.LOADING
     private var itemSelectionButton: Button? = null
     private var refreshValidation: (() -> Unit)? = null
     private val focusTargets = mutableMapOf<String, Node>()
 
+    private val itemBinding = ItemReferenceBinding(dataService.itemReferences, {
+        itemSelectionButton?.isDisable = catalogLoading
+        sidebarButtons.keys.forEach(::refreshButtonVisual)
+        refreshValidation?.invoke()
+    }, { error ->
+        logger.warn("ショップの対象アイテム一覧を取得できませんでした。", error.cause)
+        CustomDialog.error().title("アイテム一覧の読込エラー")
+            .header("対象アイテムを選択できません")
+            .content("アイテム一覧を読み込めませんでした。接続状態とデータを確認してください。")
+            .owner(main.currentStage).show()
+    })
+
     override fun setupSidebar(container: VBox, selectId: String?) {
         super.setupSidebar(container, selectId)
-        if (!catalogRequested || catalogFailed) loadItemCatalog()
+        itemBinding.load()
     }
 
     override fun setupMainContent(selectData: MutableShopProductData) {
         val warnings = VBox(5.0)
+        val refreshItems = Button("参照アイテムを更新").apply {
+            setOnAction { itemBinding.load(force = true) }
+        }
         fun refresh() {
+            refreshItems.isDisable = catalogLoading
             val messages = mutableListOf<Node>()
             if (!catalogLoaded) messages += Label(
                 if (catalogFailed) "アイテム一覧を取得できませんでした。対象アイテムの存在は確認できません。"
@@ -73,8 +87,8 @@ internal class ShopEditorLogic(main: MainController, dataService: EditorDataServ
             itemSelectionButton = this
             isDisable = catalogLoading
             setOnAction {
-                loadItemCatalog {
-                    val choices = itemPublicIds.keys.sortedBy { itemPublicIds[it] }
+                itemBinding.load {
+                    val choices = dataService.itemReferences.snapshot.items.sortedBy { it.id }.map { it.internalId }
                     val selector = SearchableComboBox(choices, selectData.itemInternalId, "公開IDで検索",
                         ::itemDisplayText, onSelected = {})
                     val selected = Dialog<ItemInternalId>().apply {
@@ -122,7 +136,7 @@ internal class ShopEditorLogic(main: MainController, dataService: EditorDataServ
             add(increaseStock, 1, 6)
             children.forEach { GridPane.setValignment(it, VPos.CENTER) }
         }
-        main.mainContentContainer.children.setAll(VBox(16.0, grid, warnings).apply { padding = Insets(20.0) })
+        main.mainContentContainer.children.setAll(VBox(16.0, grid, refreshItems, warnings).apply { padding = Insets(20.0) })
         refresh()
     }
 
@@ -144,7 +158,7 @@ internal class ShopEditorLogic(main: MainController, dataService: EditorDataServ
 
     override fun availableItemInternalIds(): Set<ItemInternalId> = itemIds
 
-    override fun itemDisplayText(id: ItemInternalId): String = itemPublicIds[id] ?: "参照先不明"
+    override fun itemDisplayText(id: ItemInternalId): String = dataService.itemReferences.snapshot.byInternalId[id]?.id ?: "参照先不明"
 
     override fun isHiddenValidationError(data: MutableShopProductData, error: SushiEricValidationError): Boolean =
         !catalogLoaded && error.property.name == "itemInternalId" && data.itemInternalId != null
@@ -159,51 +173,9 @@ internal class ShopEditorLogic(main: MainController, dataService: EditorDataServ
         return merge.resolveWithLocal(local)
     }
 
-    private fun loadItemCatalog(onLoaded: (() -> Unit)? = null) {
-        if (catalogLoading) return
-        catalogRequested = true
-        catalogLoading = true
-        catalogLoaded = false
-        catalogFailed = false
-        itemSelectionButton?.isDisable = true
-        refreshValidation?.invoke()
-        val task = object : Task<Map<ItemInternalId, String>>() {
-            override fun call(): Map<ItemInternalId, String> {
-                val resources = when (val result = dataService.items.listStoreResources()) {
-                    is StoreResult.Success -> result.value
-                    is StoreResult.Failure -> error("アイテム一覧を読み込めません: ${result.error.code}")
-                }
-                return resources.associate { resource ->
-                    when (val result = dataService.items.loadStore(resource.id)) {
-                        is StoreResult.Success -> result.value.internalId to result.value.id
-                        is StoreResult.Failure -> error("アイテムを読み込めません: ${resource.id}")
-                    }
-                }
-            }
-        }
-        task.setOnSucceeded {
-            catalogLoading = false
-            itemSelectionButton?.isDisable = false
-            itemPublicIds = task.value
-            itemIds = itemPublicIds.keys
-            catalogLoaded = true
-            sidebarButtons.keys.forEach(::refreshButtonVisual)
-            refreshValidation?.invoke()
-            onLoaded?.invoke()
-        }
-        task.setOnFailed {
-            catalogLoading = false
-            itemSelectionButton?.isDisable = false
-            catalogFailed = true
-            logger.warn("ショップの対象アイテム一覧を取得できませんでした。", task.exception)
-            refreshValidation?.invoke()
-            CustomDialog.error()
-                .title("アイテム一覧の読込エラー")
-                .header("対象アイテムを選択できません")
-                .content("アイテム一覧を読み込めませんでした。接続状態とデータを確認してください。")
-                .owner(main.currentStage)
-                .show()
-        }
-        Thread(task, "shop-editor-item-catalog").apply { isDaemon = true; start() }
+    override fun onClose(): Boolean {
+        if (!super.onClose()) return false
+        itemBinding.close()
+        return true
     }
 }
