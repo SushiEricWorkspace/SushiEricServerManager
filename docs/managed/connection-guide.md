@@ -127,6 +127,7 @@ SSHのwriter登録は仲介自身のnative PID・開始識別・cwdです。外�
 EditorDataDescriptorのSerializer/Validator・レシピの最新ストア検証を再利用し、CommonモデルやYAMLを再実装しません。
 cacheは取得本文のSerializer用コピーであり、管理rootをLocalStoreとして開きません。
 rename/moveはファイル内IDも再出力し、監督の1操作で移動します。途中失敗は再試行・rollback削除せず保留します。
+鉱石の魔力量は`magic-power-amount`キーで保存します。既存の開発用鉱石データは自動移行されないため、魔力量を再設定するかデータを再生成してください。
 
 アプリデータの`managed/<session hash>/`へautosave/offline/cacheを隔離します。
 hashにはtransport・接続先（SSHは固定非秘密プロファイル全体）、instance、generation、run、nonce、sessionを含み、

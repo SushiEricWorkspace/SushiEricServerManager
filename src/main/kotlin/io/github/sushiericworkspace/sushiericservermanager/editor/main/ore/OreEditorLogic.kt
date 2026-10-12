@@ -44,7 +44,7 @@ internal fun parseHardnessInput(text: String): Double? =
  * 空欄は既定値の0として扱い、数値として解釈できない入力や有限でない値では`null`を返します。
  * 負数は解釈できる値として返し、範囲の検証はCommonの検証結果として表示します。
  */
-internal fun parseManaAmountInput(text: String): Double? {
+internal fun parseMagicPowerAmountInput(text: String): Double? {
     val normalized = text.trim()
     if (normalized.isEmpty()) {
         return 0.0
@@ -241,7 +241,7 @@ internal class OreEditorLogic(
             selectData.requiredTier = value
             refreshValidation()
         }
-        val manaAmountField = createManaAmountField(selectData) {
+        val magicPowerAmountField = createMagicPowerAmountField(selectData) {
             refreshValidation()
         }
         skillExperienceFields.clear()
@@ -262,7 +262,7 @@ internal class OreEditorLogic(
         validationFocusTargets["hardness"] = hardnessField
         validationFocusTargets["requiredTier"] = requiredTierSpinner
         validationFocusTargets["dropItems"] = dropItemButton
-        validationFocusTargets[OreBaseDataView::manaAmount.name] = manaAmountField
+        validationFocusTargets[OreBaseDataView::magicPowerAmount.name] = magicPowerAmountField
         skillExperienceFields.values.firstOrNull()?.let { field ->
             validationFocusTargets[OreBaseDataView::skillExperienceMap.name] = field
         }
@@ -299,7 +299,7 @@ internal class OreEditorLogic(
             add(Label("スキル経験値:"), 0, 5)
             add(skillExperienceGrid, 1, 5)
             add(Label("魔力量:"), 0, 6)
-            add(manaAmountField, 1, 6)
+            add(magicPowerAmountField, 1, 6)
         }
 
         val content = VBox(16.0, inputGrid, validationBox).apply {
@@ -413,10 +413,10 @@ internal class OreEditorLogic(
         }
     }
 
-    private fun createManaAmountField(
+    private fun createMagicPowerAmountField(
         ore: MutableOreBaseData,
         onChanged: () -> Unit
-    ): TextField = TextField(ore.manaAmount.toString()).apply {
+    ): TextField = TextField(ore.magicPowerAmount.toString()).apply {
         prefWidth = 180.0
         maxWidth = 180.0
         textFormatter = TextFormatter<String> { change ->
@@ -424,12 +424,12 @@ internal class OreEditorLogic(
         }
 
         fun commitValue() {
-            val parsed = parseManaAmountInput(text)
+            val parsed = parseMagicPowerAmountInput(text)
             if (parsed == null) {
-                text = ore.manaAmount.toString()
+                text = ore.magicPowerAmount.toString()
                 return
             }
-            ore.manaAmount = parsed
+            ore.magicPowerAmount = parsed
             text = parsed.toString()
             onChanged()
         }
