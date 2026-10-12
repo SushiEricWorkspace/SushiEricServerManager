@@ -2,6 +2,7 @@ package io.github.sushiericworkspace.sushiericservermanager.editor.controller
 
 import io.github.sushiericworkspace.common.data.core.ManagedData
 import io.github.sushiericworkspace.sushiericservermanager.app.AppScreen
+import io.github.sushiericworkspace.sushiericservermanager.app.ApplicationFlow
 import io.github.sushiericworkspace.sushiericservermanager.app.AppMode
 import io.github.sushiericworkspace.sushiericservermanager.communication.management.ServerManagementState
 import io.github.sushiericworkspace.sushiericservermanager.monitor.ServerMonitorSnapshot
@@ -177,7 +178,7 @@ class HomeController : Initializable {
     override fun initialize(location: URL?, resources: ResourceBundle?) {
         val mode = EditorSession.mode
         modeLabel.text = when (mode) {
-            AppMode.ONLINE -> EditorSession.managedSession?.let { "管理：${it.profile.instanceId}" }
+            AppMode.ONLINE -> EditorSession.connection?.contextName
                 ?: "オンライン：${EditorSession.sshManager.currentProfile?.name.orEmpty()}"
             AppMode.OFFLINE -> "オフライン"
             null -> "モード未選択"
@@ -200,12 +201,12 @@ class HomeController : Initializable {
         }
 
         val online = mode == AppMode.ONLINE
-        val compatibility = if (EditorSession.managedSession != null) EditorSession.managedCompatibility else sshManager.compatibility
+        val compatibility = EditorSession.connection?.compatibility ?: sshManager.compatibility
         compatibilityLabel.text = compatibility.message
         compatibilityLabel.isVisible = online
         compatibilityLabel.isManaged = online
         applyConnectionStyle(compatibilityLabel, compatibility.writable)
-        val updateRequired = online && compatibility is ManagerCompatibility.UpdateRequired
+        val updateRequired = online && ApplicationFlow.updatesEnabled && compatibility is ManagerCompatibility.UpdateRequired
         updateButton.isVisible = updateRequired
         updateButton.isManaged = updateRequired
         consoleButton.isManaged = online
@@ -214,8 +215,8 @@ class HomeController : Initializable {
         historyButton.isVisible = online
         dashboardButton.isManaged = online
         dashboardButton.isVisible = online
-        serverControlButton.isManaged = online && EditorSession.managedSession == null
-        serverControlButton.isVisible = online && EditorSession.managedSession == null
+        serverControlButton.isManaged = online && EditorSession.connection == null
+        serverControlButton.isVisible = online && EditorSession.connection == null
         modConfigButton.isManaged = online
         modConfigButton.isVisible = online
         onlineToolsPane.isManaged = online
@@ -230,9 +231,9 @@ class HomeController : Initializable {
         javafx.application.Platform.runLater {
             val stage = rootPane.scene?.window as? javafx.stage.Stage
             stage?.setOnCloseRequest {
-                if (EditorSession.managedSession != null) {
+                if (EditorSession.connection != null) {
                     it.consume()
-                    Utility.closeManagedSession { Platform.exit() }
+                    Utility.closeConnection { Platform.exit() }
                     return@setOnCloseRequest
                 }
                 // 親が閉じられたら、エディタウィンドウをすべて閉じる
@@ -253,7 +254,8 @@ class HomeController : Initializable {
      */
     @FXML
     private fun onRequiredUpdate() {
-        val compatibility = (if (EditorSession.managedSession != null) EditorSession.managedCompatibility else sshManager.compatibility) as? ManagerCompatibility.UpdateRequired ?: return
+        if (!ApplicationFlow.updatesEnabled) return
+        val compatibility = (EditorSession.connection?.compatibility ?: sshManager.compatibility) as? ManagerCompatibility.UpdateRequired ?: return
         updateButton.isDisable = true
         val task = object : Task<UpdateCheckResult>() {
             override fun call() = UpdateChecker().check()
@@ -269,8 +271,8 @@ class HomeController : Initializable {
                     update, openUrl = { java.awt.Desktop.getDesktop().browse(java.net.URI(it)) }, required = true
                 )
                 if (outcome == UpdateDialog.Outcome.EXIT) {
-                    if (EditorSession.managedSession != null) {
-                        Utility.closeManagedSession { Platform.exit() }
+                    if (EditorSession.connection != null) {
+                        Utility.closeConnection { Platform.exit() }
                         return@setOnSucceeded
                     }
                     EditorSession.disconnect()

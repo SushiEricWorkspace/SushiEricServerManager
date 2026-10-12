@@ -25,10 +25,4 @@
         <Button fx:id="offlineButton" maxWidth="1.7976931348623157E308" onAction="#selectOffline"
                 styleClass="button, btn-secondary, mode-select-button" text="オフラインモード"/>
     </VBox>
-    <VBox maxWidth="500.0" styleClass="mode-card">
-        <Label styleClass="mode-card-title" text="管理テスト環境"/>
-        <Label styleClass="mode-card-description" text="取得済みの貸出へ接続し、世代・sessionを分離して編集します。SSH/SFTPは使用しません。" wrapText="true"/>
-        <Button fx:id="managedButton" maxWidth="1.7976931348623157E308" onAction="#selectManaged"
-                styleClass="button, btn-secondary, mode-select-button" text="管理テスト環境へ接続"/>
-    </VBox>
 </VBox>

@@ -2,6 +2,8 @@ rootProject.name = "SushiEricServerManager"
 
 enableFeaturePreview("TYPESAFE_PROJECT_ACCESSORS")
 
+include(":development")
+
 dependencyResolutionManagement {
     repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
 
@@ -18,7 +20,7 @@ dependencyResolutionManagement {
         }
         maven {
             name = "commonRelease"
-            url = uri("../.common-release-repository")
+            url = uri(providers.gradleProperty("commonReleaseRepository").orElse("../.common-release-repository").get())
             content {
                 includeModule(
                     "io.github.sushiericworkspace",

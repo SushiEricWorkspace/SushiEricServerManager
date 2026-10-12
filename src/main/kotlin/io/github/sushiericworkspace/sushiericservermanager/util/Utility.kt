@@ -39,7 +39,7 @@ object Utility {
      * 必要であればSSH接続を切断し、サーバー選択画面へ遷移します。
      */
     fun navigateToServerSelect() {
-        if (EditorSession.managedSession != null) {
+        if (EditorSession.connection != null) {
             navigateToModeSelect()
             return
         }
@@ -66,8 +66,8 @@ object Utility {
     }
 
     fun navigateToModeSelect() {
-        if (EditorSession.managedSession != null) {
-            closeManagedSession { ApplicationFlow.showModeSelection(Stage()) }
+        if (EditorSession.connection != null) {
+            closeConnection { ApplicationFlow.showModeSelection(Stage()) }
             return
         }
         EditorWindowManager.closeAll()
@@ -78,14 +78,14 @@ object Utility {
         ApplicationFlow.showModeSelection(Stage())
     }
 
-    /** ローカル退避は画面側、管理queue/socket終了待ちはUIスレッド外で行います。 */
-    fun closeManagedSession(afterClose: () -> Unit) {
+    /** ローカル退避は画面側、接続の終了待ちはUIスレッド外で行います。 */
+    fun closeConnection(afterClose: () -> Unit) {
         val stage = Stage.getWindows().filterIsInstance<Stage>().first { it.isShowing }
         val implicitExit = Platform.isImplicitExit()
         Platform.setImplicitExit(false)
         EditorWindowManager.closeAll()
         stage.setOnCloseRequest { it.consume() }
-        ApplicationFlow.finishManaged(stage) {
+        ApplicationFlow.finishConnection(stage) {
             Stage.getWindows().toList().filterIsInstance<Stage>().forEach { it.close() }
             afterClose()
             Platform.setImplicitExit(implicitExit)

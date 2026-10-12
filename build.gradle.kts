@@ -3,12 +3,14 @@ import java.nio.file.Files
 import java.net.URI
 import java.util.Locale
 import java.util.UUID
+import java.util.zip.ZipFile
 
 plugins {
     alias(libs.plugins.kotlin.jvm)
     alias(libs.plugins.kotlin.serialization)
     alias(libs.plugins.javafx)
     application
+    `java-library`
 }
 
 group = "io.github.sushiericworkspace.sushiericservermanager"
@@ -47,7 +49,7 @@ val commonDependency = commonDevelopmentCoordinate ?: if (commonReleaseVersion =
 }
 
 dependencies {
-    implementation(commonDependency)
+    api(commonDependency)
 
     // GUI 関連ライブラリ
     implementation("org.controlsfx:controlsfx:11.2.1")
@@ -55,12 +57,12 @@ dependencies {
     implementation("org.kordamp.ikonli:ikonli-fontawesome5-pack:12.3.1")
 
     // データ・通信関連
-    implementation("com.hierynomus:sshj:0.39.0")
+    api("com.hierynomus:sshj:0.39.0")
     implementation("org.yaml:snakeyaml:2.2")
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.6.3")
 
     // ロギング
-    implementation("org.slf4j:slf4j-api:2.0.12")
+    api("org.slf4j:slf4j-api:2.0.12")
     implementation("ch.qos.logback:logback-classic:1.5.3")
 
     implementation("org.bouncycastle:bcprov-jdk18on:1.78")
@@ -248,7 +250,7 @@ tasks.register<Delete>("cleanAppImageOutput") {
     group = "release"
     description = "現在のアプリ名のapp-image出力を削除します"
 
-    delete("$appImageOutputDir/$appName")
+    delete("$appImageOutputDir/$appName", "$appImageOutputDir/$appName.app")
 }
 
 /**
@@ -535,3 +537,99 @@ packageMacAppImage
 MacでGitHub Release用dmgを作る:
 releaseMacDmg
  */
+
+
+val developmentMarkers = listOf(
+    "io/github/sushiericworkspace/sushiericservermanager/communication/managed/",
+    "io/github/sushiericworkspace/sushiericservermanager/editor/store/ManagedEditorDataStore",
+    "io/github/sushiericworkspace/sushiericservermanager/app/ManagedConnectionDialog",
+    "io/github/sushiericworkspace/sushiericservermanager/app/ManagedApplicationFlow",
+    "io/github/sushiericworkspace/sushiericservermanager/app/Development",
+    "fxml/development/",
+    "DevelopmentLauncher",
+    "ManagedConnectionDialog",
+    "ManagedEditorDataStore"
+)
+
+fun verifyDistributionFiles(files: Collection<File>) {
+    val jars = files.filter { it.extension == "jar" }
+    check(jars.isNotEmpty()) { "検査対象にJARがありません。" }
+    files.forEach { file ->
+        check(!file.name.contains("Development", ignoreCase = true) && file.name != "development.jar") {
+            "配布対象へ開発成果物が混入しています: $file"
+        }
+    }
+    files.filter { it.extension == "cfg" }.forEach { config ->
+        check(!config.readText().contains("DevelopmentLauncher")) { "開発入口を含む設定です: $config" }
+    }
+    jars.forEach { file ->
+        ZipFile(file).use { zip ->
+            zip.entries().asSequence().forEach { entry ->
+                check(developmentMarkers.none { entry.name.contains(it) }) {
+                    "配布JARへ開発機能が混入しています: $file!${entry.name}"
+                }
+                if (entry.name.endsWith(".class")) {
+                    val body = zip.getInputStream(entry).use { it.readBytes().toString(Charsets.ISO_8859_1) }
+                    check(developmentMarkers.none { body.contains(it) }) {
+                        "配布クラスに開発型への参照があります: $file!${entry.name}"
+                    }
+                }
+            }
+        }
+    }
+}
+
+val verifyReleaseContents = tasks.register("verifyReleaseContents") {
+    group = "verification"
+    description = "通常JARとruntime依存に管理接続の実装・resource・型参照が含まれないことを検査します"
+    dependsOn(tasks.jar)
+    val runtime = configurations.runtimeClasspath
+    inputs.files(tasks.jar.flatMap { it.archiveFile }, runtime)
+    doLast {
+        check(runtime.get().allDependencies.none { it is ProjectDependency && it.dependencyProject.path == ":development" }) {
+            "通常runtimeがdevelopmentモジュールへ依存しています。"
+        }
+        verifyDistributionFiles(runtime.get().files + tasks.jar.get().archiveFile.get().asFile)
+        if (commonReleaseVersion != null) {
+            check(runtime.get().files.none { it.name.startsWith("sushieric-common-editor-dev-") }) {
+                "正式配布へ開発Commonが混入しています。"
+            }
+        }
+    }
+}
+
+tasks.check { dependsOn(verifyReleaseContents) }
+
+val verifyReleaseDistribution = tasks.register("verifyReleaseDistribution") {
+    group = "verification"
+    description = "installDistの配布用libを検査します"
+    dependsOn("installDist", verifyReleaseContents)
+    val libs = layout.buildDirectory.dir("install/$appName/lib")
+    inputs.dir(libs)
+    doLast { verifyDistributionFiles(libs.get().asFile.walkTopDown().filter { it.isFile }.toList()) }
+}
+
+// すべてのOS包装は、検査した通常配布だけを入力にします。
+listOf("packageWindowsAppImage", "packageWindowsInstaller", "packageMacAppImage", "packageMacDmg").forEach { name ->
+    tasks.named(name) { dependsOn(verifyReleaseDistribution) }
+}
+listOf("packageWindowsAppImage", "packageMacAppImage").forEach { name ->
+    tasks.named(name) {
+        doLast {
+            verifyDistributionFiles(file(appImageOutputDir).walkTopDown().filter { it.isFile }.toList())
+        }
+    }
+}
+
+tasks.register("verifyPackagedApplication") {
+    group = "verification"
+    description = "展開済みinstaller/dmgまたはapp imageのJAR・設定を検査します"
+    doLast {
+        val location = providers.gradleProperty("packagedApplicationDirectory").orNull
+            ?: throw GradleException("-PpackagedApplicationDirectory=<展開済みアプリの絶対パス>を指定してください。")
+        val directory = file(location)
+        check(directory.isDirectory) { "展開済みアプリがありません: $directory" }
+        val files = directory.walkTopDown().filter { it.isFile }.toList()
+        verifyDistributionFiles(files)
+    }
+}

@@ -31,8 +31,12 @@ sealed interface ManagerCompatibility {
     }
 }
 
-/** 厳密な数値版だけを評価します。不正なファイルは呼び出し側で警告付きの許可状態へ変換します。 */
-internal fun evaluateManagerCompatibility(text: String, currentVersion: String = AppVersion.CURRENT): ManagerCompatibility {
+/**
+ * サーバー互換ファイルの最低Manager版を現在版と比較します。
+ * @throws IllegalArgumentException 必須項目や数値版の形式が不正な場合。
+ * @throws kotlinx.serialization.SerializationException JSONを解釈できない場合。
+ */
+fun evaluateManagerCompatibility(text: String, currentVersion: String = AppVersion.CURRENT): ManagerCompatibility {
     val root = Json.parseToJsonElement(text).jsonObject
     val minimumValue = requireNotNull(root["minManagerVersion"]).jsonPrimitive
     val modValue = requireNotNull(root["modVersion"]).jsonPrimitive

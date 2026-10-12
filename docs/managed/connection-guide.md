@@ -4,9 +4,27 @@
 非管理のSSH/オフライン接続は維持します。CommonやModの保存形式・#504互換判定を複製しません。
 監督側のCLIと終了証明は、兄弟`.github`の`scripts/dev_server/writer-guide.md`を参照してください。
 
+## モジュールと起動
+
+通常Managerはルートプロジェクトの`Launcher`で起動し、`development`へ依存しません。
+管理接続の入力画面、ManagedSession、SupervisorClient、ManagedEditorDataStore、管理送信経路は
+`development`モジュールだけに配置します。通常側との境界はEditorConnection、ManagementTransport、
+EditorDataStoreのオフライン領域です。Commonモデルや通常SSH/SFTPのライブラリは通常側に残します。
+
+開発用は`DevelopmentLauncher`から通常の編集機能と開発モジュールを組み合わせます。
+正式版への起動時更新・必須更新操作・前回更新結果処理は利用しません。
+開発配布は`development/build/install/SushiEricServerManager-Development/`へ生成され、
+正式更新の配布・jpackage・リリースタスクへ渡しません。
+
+```text
+gradlew :run -PcommonDevelopmentRepository=<Maven絶対パス>
+gradlew :development:run -PcommonDevelopmentRepository=<Maven絶対パス>
+gradlew :development:installDist -PcommonDevelopmentRepository=<Maven絶対パス>
+```
+
 ## 接続入力
 
-モード選択の「管理接続」から次を入力します。SSHの認証/host key設定は使用せず変更もしません。
+開発用モード選択の「管理テスト環境へ接続」から次を入力します。SSHの認証/host key設定は使用せず変更もしません。
 
 | 入力 | 前提 |
 | --- | --- |
@@ -65,7 +83,7 @@ snapshot/restore/recoverや非協調的な登録外writerの証明はこの接�
 JDK 21、完全なEditor Common座標とrepositoryで実行します。
 
 ```text
-gradlew test build -PcommonDevelopmentCoordinate=io.github.sushiericworkspace:sushieric-common-editor-dev:<固定dev版> -PcommonDevelopmentRepository=<Maven絶対パス>
+gradlew build verifyReleaseDistribution -PcommonDevelopmentCoordinate=io.github.sushiericworkspace:sushieric-common-editor-dev:<固定dev版> -PcommonDevelopmentRepository=<Maven絶対パス>
 ```
 
 ManagedSession/ManagedManagementClient/ManagedEditorDataStoreの試験はGUI・Minecraftを起動せず、合成監督と使い捨てWebSocketを使用します。
@@ -73,3 +91,36 @@ JavaFXの実表示・主要操作・実Mod保存往復・macOS native連携は�
 GUI試験は許可後に専用appdataで起動します。
 Windowsは子プロセスのLOCALAPPDATA/APPDATAを専用ディレクトリへ、macOSは当該JVMのuser.homeを専用ディレクトリへ指定します。
 既存アプリ設定や人間用runを使用しません。
+
+
+## 配布検査
+
+`build`のcheckで通常JARとruntime classpathのクラス・型参照・resourceを検査します。
+`verifyReleaseDistribution`は通常installDistのlibも検査します。管理固有の外部ライブラリは現在なく、
+SSH/SFTP・JSON・ロギングなど既存機能にも必要な依存を通常側に維持しています。
+正式Commonを指定した場合はEditor専用Commonの混入も拒否します。
+
+Windows installer・macOS dmg・各app imageの作成は、検査済み通常installDistだけを入力にします。
+app imageは生成後のJARも検査します。OS包装は当該OS上で、依頼された場合だけ実行します。
+installer/dmgは専用の検証環境で展開し、アプリ領域を指定して実成果物を検査します。
+
+```text
+gradlew verifyPackagedApplication -PpackagedApplicationDirectory=<展開済みアプリの絶対パス>
+```
+
+通常・開発構成のGUI表示と主要操作、Windows installer展開検査、macOS dmg展開検査、
+実supervisorへの接続・保存・writer終了はそれぞれ独立して記録します。
+JAR検査や合成監督テストの成功をOS包装・GUI・実機の成功として扱いません。
+
+
+WindowsのJDK 21製exeは、インストールせずに内包MSIを取り出して検査できます。
+Pythonと既存の7-Zip・WiX 3を使い、まだ存在しない出力先を指定します。
+出力先へMSI、WiX定義、展開ログ、ハッシュ、`application/`を保全します。
+
+```text
+python scripts/extract-windows-installer.py --installer build/installer/SushiEricServerManager-<packageVersion>.exe --output build/windows-installer-inspection --seven-zip "<7z.exeの絶対パス>" --dark "<WiX 3のdark.exeの絶対パス>"
+gradlew verifyPackagedApplication -PpackagedApplicationDirectory=build/windows-installer-inspection/application
+```
+
+Editor専用Commonで生成した包装の検査は開発検証です。正式Commonの配布確認と区別してください。
+正式版の検査では、実装と互換性のある正式Common版とリポジトリを指定します。

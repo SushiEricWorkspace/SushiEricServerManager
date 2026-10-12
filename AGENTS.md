@@ -185,7 +185,7 @@ commitとpushを依頼された場合は、次を簡潔に報告する。
 
 ## プロジェクト構成
 
-- このリポジトリは`SushiEricServerManager`の単一Gradleプロジェクトで構成する。
+- 通常ManagerはルートGradleプロジェクト、管理接続は`development`サブプロジェクトで構成する。通常Managerから`development`への依存や型参照を追加しない。
 - `Common`は独立したリポジトリ・Gradleプロジェクトとして管理し、ローカルでは`../Common`の`publishDevelopment`で発行されたEditor専用artifactを兄弟共通の`.common-dev-repository`から参照する。
 - データモデル、データ種別、Manager、Validator、Serializer、共通RegistryはCommon側を正とし、ServerManager側へ重複定義しない。
 - JavaFXなどEditor固有の依存をCommonへ持ち込まない。

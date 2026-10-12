@@ -15,7 +15,7 @@ import io.github.sushiericworkspace.sushiericservermanager.editor.session.Editor
  * JavaFX アプリケーションのメインライフサイクルを管理するクラス。
  * ウィンドウの初期化、シーンのロード、およびテーマの適用を行います。
  */
-class MainApp : Application() {
+open class MainApp : Application() {
 
     /**
      * JavaFX アプリケーションの開始点。
@@ -37,15 +37,20 @@ class MainApp : Application() {
             return
         }
 
-        ApplicationFlow.showUpdate = ::showUpdateDialog
-        reportPreviousUpdate()
+        configureStartup()
         ApplicationFlow.showModeSelection(stage)
     }
 
     override fun stop() {
         val session = EditorSession
-        if (session.managedSession != null) session.managedSession?.holdUnknown() else session.disconnect()
+        if (session.connection != null) session.connection?.abort() else session.disconnect()
         SingleAppLock.release()
+    }
+
+    /** 通常起動では正式更新経路を設定し、前回の更新結果を表示します。 */
+    protected open fun configureStartup() {
+        ApplicationFlow.showUpdate = ::showUpdateDialog
+        reportPreviousUpdate()
     }
 
     private fun showUpdateDialog(update: UpdateCheckResult.Update): UpdateDialog.Outcome =

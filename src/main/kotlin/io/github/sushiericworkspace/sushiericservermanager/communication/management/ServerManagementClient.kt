@@ -7,19 +7,11 @@ import org.slf4j.LoggerFactory
 import java.time.Duration
 import java.util.UUID
 import java.util.concurrent.CopyOnWriteArrayList
-import java.util.concurrent.Executors
-import java.util.concurrent.ExecutorService
-import java.util.concurrent.TimeUnit
-import io.github.sushiericworkspace.sushiericservermanager.communication.managed.ManagedSession
-import io.github.sushiericworkspace.sushiericservermanager.communication.managed.SupervisorFailure
-import io.github.sushiericworkspace.sushiericservermanager.communication.management.codec.ServerManagementMessageCodec
-import io.github.sushiericworkspace.sushiericservermanager.communication.management.codec.ServerManagementDecodeResult
-import kotlinx.serialization.json.*
 
 /**
  * Management APIへの接続を管理します。
  *
- * SSH Tunnelの作成からWebSocket接続までをまとめて扱い、接続状態を公開します。
+ * SSH Tunnel経由または指定された通信経路へ接続し、接続状態を公開します。
  *
  * Management APIへ接続できない場合も例外を投げません。
  * SSHとSFTPだけを利用する状態を維持するため、失敗は状態として表します。
@@ -37,8 +29,7 @@ class ServerManagementClient(
 
     private var tunnel: SshTunnel? = null
     private var connection: ServerManagementConnection? = null
-    private var managed: ManagedSession? = null
-    private var managedSender: ExecutorService? = null
+    private var transport: ManagementTransport? = null
     @Volatile private var connectionId = UUID.randomUUID()
 
     /** 現在の接続状態です。 */
@@ -156,14 +147,10 @@ class ServerManagementClient(
      * 接続していない場合も安全に呼び出せます。
      */
     fun disconnect() {
-        if (managed != null) {
-            managedSender?.shutdown()
-            check(managedSender?.awaitTermination(20, TimeUnit.SECONDS) != false) { "管理APIのキューが終了していません。" }
-            connection?.closeVerified()
+        transport?.let {
+            it.disconnect()
             connectionId = UUID.randomUUID()
-            connection = null
-            managedSender = null
-            managed = null
+            transport = null
             updateState(ServerManagementState.Disconnected)
             return
         }
@@ -201,57 +188,24 @@ class ServerManagementClient(
     fun send(
         request: ServerManagementRequest
     ): Boolean {
-        val session = managed ?: return connection?.send(request) == true
-        if (session.state != ManagedSession.State.OPEN) return false
-        val id = connectionId
-        return when (request) {
-            is ServerManagementRequest.CommandExecute,
-            is ServerManagementRequest.MoneyHistorySave,
-            is ServerManagementRequest.AchievementSave -> session.enqueueIo(buildJsonObject {
-                put("action", "api"); put("message", Json.parseToJsonElement(ServerManagementMessageCodec.encode(request)))
-                put("timeoutSeconds", 5)
-            }, managedSender!!, result = { result ->
-                    try {
-                        check(result["completed"]?.jsonPrimitive?.booleanOrNull == true)
-                        val response = result["apiResponse"] ?: error("管理API応答がありません。")
-                        check(id == connectionId) { "管理APIの接続識別が変わりました。" }
-                        val decoded = ServerManagementMessageCodec.decode(response.toString())
-                        check(decoded is ServerManagementDecodeResult.Success) { "管理API応答を解釈できません。" }
-                        Listener(id).onMessage(decoded.message)
-                    } catch (_: Exception) {
-                        session.holdUnknown()
-                        if (id == connectionId) updateState(ServerManagementState.Failed("管理APIの完了が不明です。writer登録は保留されています。"))
-                    }
-            }, failure = { error ->
-                if (error !is SupervisorFailure || !error.rejectedBeforeEffect) session.holdUnknown()
-                if (id == connectionId) updateState(ServerManagementState.Failed("管理API要求を完了できませんでした。監督statusを確認してください。"))
-            })
-            // 監視socketでは状態を変更する要求を送信しません。
-            is ServerManagementRequest.Ping,
-            is ServerManagementRequest.CommandComplete,
-            is ServerManagementRequest.MonitorSubscribe,
-            is ServerManagementRequest.MonitorUnsubscribe,
-            ServerManagementRequest.ConsoleSubscribe,
-            ServerManagementRequest.ConsoleUnsubscribe -> connection?.send(request) == true
-        }
+        return transport?.send(request) ?: (connection?.send(request) == true)
     }
 
-    /** statusから得た固定endpointへ監視専用socketを張ります。SSH・自動再接続は利用しません。 */
-    fun connectManaged(session: ManagedSession, timeout: Duration = DEFAULT_TIMEOUT): Boolean {
+    /**
+     * 指定された通信経路で接続します。失敗しても経路を保持し、切断失敗を握り潰しません。
+     * @return 接続に成功した場合はtrue。
+     */
+    fun connect(transport: ManagementTransport, timeout: Duration = DEFAULT_TIMEOUT): Boolean {
         disconnect()
         val id = UUID.randomUUID().also { connectionId = it }
-        managed = session
-        managedSender = Executors.newSingleThreadExecutor { Thread(it, "managed-api-write").apply { isDaemon = true } }
+        this.transport = transport
         updateState(ServerManagementState.Connecting)
-        val opened = ServerManagementConnection(Listener(id))
-        connection = opened
         return try {
-            opened.connect(session.endpointPort, timeout)
-            updateState(ServerManagementState.Connected(session.endpointPort))
+            val port = transport.connect(Listener(id), timeout)
+            updateState(ServerManagementState.Connected(port))
             true
-        } catch (_: Exception) {
-            session.holdUnknown()
-            updateState(ServerManagementState.Failed("管理監視socketへ接続できません。writer登録は保留されています。"))
+        } catch (error: Exception) {
+            updateState(ServerManagementState.Failed(error.message ?: "Management APIへ接続できません。"))
             false
         }
     }
@@ -294,7 +248,7 @@ class ServerManagementClient(
 
         override fun onClosed(statusCode: Int, reason: String) {
             if (id != connectionId) return
-            if (managed != null) {
+            if (transport != null) {
                 updateState(ServerManagementState.Disconnected)
                 return
             }
@@ -310,8 +264,8 @@ class ServerManagementClient(
 
         override fun onError(error: Throwable) {
             if (id != connectionId) return
-            if (managed != null) {
-                updateState(ServerManagementState.Failed("管理監視socketの終了が未確認です。"))
+            if (transport != null) {
+                updateState(ServerManagementState.Failed(error.message ?: "Management APIの終了が未確認です。"))
                 return
             }
             logger.warn("Management APIの接続でエラーが発生しました。", error)
@@ -350,14 +304,14 @@ sealed interface ServerManagementState {
     /**
      * 接続済みです。
      *
-     * @property localPort SSH Tunnelのローカル側ポート。
+     * @property localPort 接続先のループバック上のポート。
      */
     data class Connected(
         val localPort: Int
     ) : ServerManagementState
 
     /**
-     * 接続に失敗しました。SSHとSFTPは利用できます。
+     * 接続に失敗しました。SSH経由の場合はSSHとSFTPを維持します。
      *
      * @property reason 失敗した理由。
      */

@@ -13,6 +13,7 @@ import java.nio.file.Files
 class ManagedEditorDataStore(val session: ManagedSession, private val compatibility: ManagerCompatibility) : EditorDataStore {
     override val kind = EditorDataStoreKind.REMOTE
     override val identity = "managed-${session.identity}"
+    override val offlineDirectory get() = session.offlineDirectory
     override val isAvailable get() = session.state == ManagedSession.State.OPEN
 
     private fun request(action: String, path: String, extra: Map<String, JsonElement> = emptyMap()): JsonObject =
