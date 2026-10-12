@@ -1,7 +1,9 @@
 package io.github.sushiericworkspace.sushiericservermanager.feature.moneyhistory
 
 import io.github.sushiericworkspace.common.stats.player.AchievementCategory
+import io.github.sushiericworkspace.common.stats.player.AchievementType
 import io.github.sushiericworkspace.sushiericservermanager.communication.management.ServerManagementClient
+import io.github.sushiericworkspace.sushiericservermanager.communication.management.AchievementHistoryRecord
 import io.github.sushiericworkspace.sushiericservermanager.communication.management.ServerManagementRequest
 import io.github.sushiericworkspace.sushiericservermanager.communication.management.ServerManagementResponse
 import io.github.sushiericworkspace.sushiericservermanager.config.AppSettingsManager
@@ -27,6 +29,7 @@ import javafx.scene.control.TextField
 import javafx.scene.control.ToggleButton
 import javafx.scene.layout.VBox
 import org.slf4j.LoggerFactory
+import java.time.Instant
 import java.time.LocalDate
 import java.time.LocalDateTime
 import java.time.ZoneId
@@ -51,23 +54,25 @@ class AchievementHistoryController {
     @FXML private lateinit var fromTime: TextField
     @FXML private lateinit var toTime: TextField
     @FXML private lateinit var categoryMenu: MenuButton
+    @FXML private lateinit var sourceMenu: MenuButton
     @FXML private lateinit var statusLabel: Label
     @FXML private lateinit var historyTable: TableView<AchievementHistoryRow>
     @FXML private lateinit var timeColumn: TableColumn<AchievementHistoryRow, String>
     @FXML private lateinit var nameColumn: TableColumn<AchievementHistoryRow, String>
     @FXML private lateinit var categoryColumn: TableColumn<AchievementHistoryRow, String>
+    @FXML private lateinit var sourceColumn: TableColumn<AchievementHistoryRow, String>
 
     private lateinit var store: EditorDataStore
     private lateinit var managementClient: ServerManagementClient
     private var initialized = false
     private var allEntries: List<AchievementHistoryEntry> = emptyList()
-    private var saveWarning: String? = null
     private var changingFilters = false
     private var loadGeneration = 0
     private var selectedPlayer: AchievementHistoryPlayer? = null
     private var playerSearchField: TextField? = null
     private var playerSelector: SearchableComboBox<AchievementHistoryPlayer>? = null
     private val categoryItems = mutableMapOf<AchievementCategory, CheckBox>()
+    private val sourceItems = mutableMapOf<AchievementSource, CheckBox>()
     private val playerNameLookup = PlayerNameLookup()
 
     /** 画面にストアとManagement APIを接続してプレイヤー一覧を読み込みます。2回目以降の呼び出しは何もしません。 */
@@ -80,6 +85,7 @@ class AchievementHistoryController {
         playerDisplayToggle.isSelected = AppSettingsManager.load().showPlayerUuidInHistory
         updatePlayerDisplay()
         initializeCategoryMenu()
+        initializeSourceMenu()
         fromDate.valueProperty().addListener { _, _, _ -> applyFilters() }
         toDate.valueProperty().addListener { _, _, _ -> applyFilters() }
         fromTime.textProperty().addListener { _, _, _ -> applyFilters() }
@@ -98,6 +104,7 @@ class AchievementHistoryController {
         timeColumn.setCellValueFactory { SimpleStringProperty(it.value.timeText) }
         nameColumn.setCellValueFactory { SimpleStringProperty(it.value.name) }
         categoryColumn.setCellValueFactory { SimpleStringProperty(it.value.category) }
+        sourceColumn.setCellValueFactory { SimpleStringProperty(it.value.source) }
         timeColumn.apply {
             isReorderable = false
             setCellFactory {
@@ -107,7 +114,7 @@ class AchievementHistoryController {
                 )
             }
         }
-        listOf(nameColumn, categoryColumn).forEach { column ->
+        listOf(nameColumn, categoryColumn, sourceColumn).forEach { column ->
             column.isReorderable = false
             column.setCellFactory { HistoryTextCell() }
         }
@@ -143,6 +150,32 @@ class AchievementHistoryController {
             0 -> "未選択"
             1 -> selected.first().displayName
             else -> "${selected.size}種類を選択"
+        }
+    }
+
+    private fun initializeSourceMenu() {
+        AchievementSource.entries.forEach { source ->
+            val item = CheckBox(source.displayName).apply {
+                isSelected = true
+                maxWidth = Double.MAX_VALUE
+            }
+            item.selectedProperty().addListener { _, _, _ ->
+                updateSourceMenuText()
+                applyFilters()
+            }
+            sourceItems[source] = item
+            sourceMenu.items.add(CustomMenuItem(item, false))
+        }
+        updateSourceMenuText()
+    }
+
+    private fun updateSourceMenuText() {
+        val selected = sourceItems.filterValues { it.isSelected }.keys
+        sourceMenu.text = when (selected.size) {
+            sourceItems.size -> "すべて"
+            0 -> "未選択"
+            1 -> selected.first().displayName
+            else -> "取得方法を選択"
         }
     }
 
@@ -195,43 +228,55 @@ class AchievementHistoryController {
         selectedPlayer = player
         val generation = ++loadGeneration
         runTask("achievement-history-load", "${player.displayName}の達成履歴を読み込み中...") {
-            val warning = if (managementClient.isConnected) requestSave(player.uuid) else null
-            warning to readHistory(player.uuid)
+            if (managementClient.isConnected) requestHistory(player.uuid) else readHistory(player.uuid)
         }.also { task ->
             task.setOnSucceeded {
                 if (generation != loadGeneration) return@setOnSucceeded
-                saveWarning = task.value.first
-                allEntries = task.value.second
+                allEntries = task.value
                 applyFilters()
             }
         }
     }
 
-    /** サーバーへ保存を要求します。失敗した場合は、保存済みファイルを表示する旨の警告文を返します。 */
-    private fun requestSave(uuid: String): String? {
+    /** Management APIから対象プレイヤーの実績履歴を取得します。 */
+    private fun requestHistory(uuid: String): List<AchievementHistoryEntry> {
         val nonce = UUID.randomUUID().toString()
-        val result = CompletableFuture<ServerManagementResponse.AchievementSaveResult>()
+        val result = CompletableFuture<ServerManagementResponse.AchievementHistory>()
         val listener: (ServerManagementResponse) -> Unit = { message ->
             when {
-                message is ServerManagementResponse.AchievementSaveResult && message.nonce == nonce -> result.complete(message)
+                message is ServerManagementResponse.AchievementHistory && message.nonce == nonce -> result.complete(message)
                 message is ServerManagementResponse.Error ->
                     result.completeExceptionally(IllegalStateException(message.detail ?: message.reason))
             }
         }
         managementClient.addMessageListener(listener)
         return try {
-            check(managementClient.send(ServerManagementRequest.AchievementSave(uuid, nonce))) {
-                "実績保存要求を送信できませんでした。"
+            check(managementClient.send(ServerManagementRequest.AchievementHistoryRequest(uuid, nonce))) {
+                "実績履歴要求を送信できませんでした。"
             }
             val response = result.get(SAVE_TIMEOUT_SECONDS, TimeUnit.SECONDS)
-            check(response.success) { response.detail ?: "サーバーが実績データを保存できませんでした。" }
-            null
-        } catch (e: Exception) {
-            logger.warn("サーバーでの実績データの保存に失敗しました。保存済みのファイルを表示します。", e)
-            "サーバーでの保存に失敗したため、保存済みのファイルを表示しています。"
+            check(response.success) { response.detail ?: "サーバーが実績履歴を取得できませんでした。" }
+            response.entries.mapNotNull(::toHistoryEntry)
         } finally {
             managementClient.removeMessageListener(listener)
         }
+    }
+
+    private fun toHistoryEntry(record: AchievementHistoryRecord): AchievementHistoryEntry? {
+        val type = AchievementType.fromIdOrNull(record.achievementId)
+        val source = when (record.source) {
+            "natural" -> AchievementSource.Natural
+            "admin" -> AchievementSource.Admin
+            else -> null
+        }
+        val achievedAt = runCatching { Instant.parse(record.achievedAt) }.getOrNull()
+        if (type == null || source == null || achievedAt == null ||
+            (source == AchievementSource.Admin && record.executor == null)
+        ) {
+            logger.warn("実績履歴の項目を読み飛ばしました: {}", record.achievementId)
+            return null
+        }
+        return AchievementHistoryEntry(type, achievedAt, source, record.executor?.name)
     }
 
     private fun readHistory(uuid: String): List<AchievementHistoryEntry> {
@@ -279,6 +324,8 @@ class AchievementHistoryController {
             fromTime.clear()
             toTime.clear()
             categoryItems.values.forEach { it.isSelected = true }
+            sourceItems.values.forEach { it.isSelected = true }
+            updateSourceMenuText()
             playerSearchField?.clear()
         }
     }
@@ -323,17 +370,23 @@ class AchievementHistoryController {
                 return
             }
         val selectedCategories = categoryItems.filterValues { it.isSelected }.keys
+        val selectedSources = sourceItems.filterValues { it.isSelected }.keys
         val zone = ZoneId.systemDefault()
-        val rows = filterAchievementHistory(allEntries, range, selectedCategories, zone).map { entry ->
+        val rows = filterAchievementHistory(allEntries, range, selectedCategories, selectedSources, zone).map { entry ->
             AchievementHistoryRow(
                 timeText = TIME_FORMAT.format(entry.achievedAt.atZone(zone)),
                 name = entry.type.display,
-                category = entry.type.category.displayName
+                category = entry.type.category.displayName,
+                source = if (entry.source == AchievementSource.Admin) {
+                    "${entry.source.displayName}（${entry.executorName}）"
+                } else {
+                    entry.source.displayName
+                }
             )
         }
         historyTable.items.setAll(rows)
         val count = if (allEntries.isEmpty()) "達成履歴はありません。" else "${rows.size}件 / ${allEntries.size}件"
-        statusLabel.text = listOfNotNull(count, saveWarning).joinToString(" ")
+        statusLabel.text = count
     }
 
     private fun <T> runTask(name: String, message: String, block: () -> T): Task<T> {
@@ -370,4 +423,4 @@ private data class AchievementHistoryPlayer(val uuid: String, val displayName: S
 }
 
 /** 表に表示する達成履歴1行です。 */
-internal data class AchievementHistoryRow(val timeText: String, val name: String, val category: String)
+internal data class AchievementHistoryRow(val timeText: String, val name: String, val category: String, val source: String)

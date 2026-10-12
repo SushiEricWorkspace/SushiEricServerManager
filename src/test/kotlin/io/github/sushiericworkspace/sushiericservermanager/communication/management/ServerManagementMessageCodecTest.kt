@@ -55,6 +55,26 @@ class ServerManagementMessageCodecTest {
     }
 
     @Test
+    fun `実績履歴要求と取得方法を含む応答を変換できる`() {
+        val request = ServerManagementMessageCodec.encode(
+            ServerManagementRequest.AchievementHistoryRequest(
+                playerUuid = "11111111-1111-1111-1111-111111111111",
+                nonce = "history-1"
+            )
+        )
+        assertTrue(request.contains("\"type\":\"achievement_history_request\""), request)
+
+        val result = ServerManagementMessageCodec.decode(
+            """{"type":"achievement_history","success":true,"playerUuid":"11111111-1111-1111-1111-111111111111","entries":[{"achievementId":"monster_hunter_1","achievedAt":"2026-10-13T01:00:00Z","source":"admin","executor":{"uuid":"22222222-2222-2222-2222-222222222222","name":"管理者"}}],"nonce":"history-1"}"""
+        )
+        val response = assertIs<ServerManagementDecodeResult.Success>(result).message
+        val history = assertIs<ServerManagementResponse.AchievementHistory>(response)
+        assertEquals("history-1", history.nonce)
+        assertEquals("admin", history.entries.single().source)
+        assertEquals("管理者", history.entries.single().executor?.name)
+    }
+
+    @Test
     fun `pongを復号できる`() {
         val result =
             ServerManagementMessageCodec.decode(

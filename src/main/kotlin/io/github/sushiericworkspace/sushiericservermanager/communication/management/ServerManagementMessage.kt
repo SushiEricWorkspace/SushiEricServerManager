@@ -66,6 +66,11 @@ sealed interface ServerManagementRequest : ServerManagementMessage {
     @SerialName("achievement_save")
     data class AchievementSave(val playerUuid: String? = null, val nonce: String? = null) : ServerManagementRequest
 
+    /** 指定プレイヤーの達成履歴を読み取る要求です。 */
+    @Serializable
+    @SerialName("achievement_history_request")
+    data class AchievementHistoryRequest(val playerUuid: String, val nonce: String? = null) : ServerManagementRequest
+
     /**
      * コマンドの実行要求です。
      *
@@ -230,7 +235,31 @@ sealed interface ServerManagementResponse : ServerManagementMessage {
         val detail: String? = null,
         val nonce: String? = null
     ) : ServerManagementResponse
+
+    /** 指定プレイヤーの達成履歴です。 */
+    @Serializable
+    @SerialName("achievement_history")
+    data class AchievementHistory(
+        val success: Boolean,
+        val playerUuid: String,
+        val entries: List<AchievementHistoryRecord> = emptyList(),
+        val detail: String? = null,
+        val nonce: String? = null
+    ) : ServerManagementResponse
 }
+
+/** Management APIから返される実績の達成記録です。 */
+@Serializable
+data class AchievementHistoryRecord(
+    val achievementId: String,
+    val achievedAt: String,
+    val source: String,
+    val executor: AchievementHistoryExecutor? = null
+)
+
+/** 管理者付与を実行したプレイヤーです。 */
+@Serializable
+data class AchievementHistoryExecutor(val uuid: String, val name: String)
 
 /**
  * サーバーのBrigadierが返した補完候補です。
