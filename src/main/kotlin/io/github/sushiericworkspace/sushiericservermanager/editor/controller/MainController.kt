@@ -46,9 +46,35 @@ class MainController {
         setTopLabel("")
     }
 
+    var loadingRunning: Boolean = false
+        private set
+
+    /** 読み込みの工程を表示します。選択取得中もサイドバーから別のデータを選べます。 */
+    fun showLoading(phase: String, lockSidebar: Boolean = false) {
+        clearTopLabelTimer()
+        loadingRunning = true
+        operationProgress.isVisible = true
+        operationProgress.isManaged = true
+        actionButtonContainer.isDisable = true
+        sidebarContainer.isDisable = lockSidebar
+        mainContentContainer.isDisable = true
+        setTopLabel(phase)
+    }
+
+    fun finishLoading() {
+        if (!loadingRunning) return
+        loadingRunning = false
+        operationProgress.isVisible = false
+        operationProgress.isManaged = false
+        actionButtonContainer.isDisable = false
+        sidebarContainer.isDisable = false
+        mainContentContainer.isDisable = false
+        setTopLabel("")
+    }
+
     /** 背景退避の状態を非モーダルに表示し、編集中の操作を維持します。 */
     fun showBackupStatus(text: String, color: Color = Color.WHITE) {
-        if (operationRunning) return
+        if (operationRunning || loadingRunning) return
         clearTopLabelTimer()
         setTopLabel(text, color)
     }
@@ -65,7 +91,7 @@ class MainController {
         setTopLabel("")
 
         logic.setupActions(actionButtonContainer)
-        logic.setupSidebar(sidebarContainer)
+        logic.start()
 
         if (mainContentContainer.scene != null) {
             setupEditorShortcuts(logic)
@@ -94,7 +120,7 @@ class MainController {
     }
 
     fun showTimedTopLabel(text: String, textColor: Color = Color.WHITE, delaySeconds: Double = 2.0) {
-        if (operationRunning) return
+        if (operationRunning || loadingRunning) return
         setTopLabel(text, textColor)
         topLabelTimer?.stop()
         topLabelTimer = PauseTransition(Duration.seconds(delaySeconds)).apply {
@@ -151,8 +177,8 @@ class MainController {
         }
         ShortcutManager.registerHistoryShortcuts(
             scene = scene,
-            onUndo = { !logic.saveRunning && logic.onUndo() },
-            onRedo = { !logic.saveRunning && logic.onRedo() }
+            onUndo = { !logic.storeOperationBlocked && logic.onUndo() },
+            onRedo = { !logic.storeOperationBlocked && logic.onRedo() }
         )
     }
 

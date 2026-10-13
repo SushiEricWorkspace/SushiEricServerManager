@@ -176,8 +176,7 @@ internal class OreEditorLogic(
             .owner(main.currentStage).show()
     })
 
-    override fun setupSidebar(container: VBox, selectId: String?) {
-        super.setupSidebar(container, selectId)
+    override fun loadEditorReferences() {
         itemBinding.load()
     }
 

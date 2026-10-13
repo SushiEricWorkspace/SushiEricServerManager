@@ -502,22 +502,30 @@ class EditorSingleSaveTest {
             assertEquals(listOf("最新の編集"), pair.first.editorMeta.comment)
             assertTrue(pair.second.editorMeta.comment.isEmpty())
             val closed = CompletableFuture<Boolean>()
-            val stage = fx {
+            val reopened = fx {
                 val loader = FXMLLoader(javaClass.getResource(AppScreen.BASE.fxml!!))
                 val root = loader.load<Parent>()
                 val main = loader.getController<MainController>()
                 val stage = Stage().apply { scene = Scene(root); show() }
                 val restored = TestView(main, reopenedService, access)
-                restored.seed(pair.second, pair.first)
-                restored.injectAutoSaveCaches(mapOf(fixture.id to pair.first), mapOf(fixture.id to pair.second))
-                assertTrue(restored.pending())
-                assertEquals(listOf("最新の編集"), restored.current().editorMeta.comment)
-                restored.onClose { closed.complete(it) }
-                stage
+                main.switchView(restored)
+                Triple(stage, main, restored)
             }
-            try { assertTrue(closed.get(10, TimeUnit.SECONDS)) }
-            finally {
-                fx { stage.close() }
+            try {
+                val deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(10)
+                while (fx { reopened.second.loadingRunning }) {
+                    assertTrue(System.nanoTime() < deadline, "復元が完了しません")
+                    Thread.sleep(20)
+                }
+                fx {
+                    reopened.third.selectTab(fixture.id)
+                    assertTrue(reopened.third.pending())
+                    assertEquals(listOf("最新の編集"), reopened.third.current().editorMeta.comment)
+                    reopened.third.onClose { closed.complete(it) }
+                }
+                assertTrue(closed.get(10, TimeUnit.SECONDS))
+            } finally {
+                fx { reopened.first.close() }
                 reopenedService.closeIo()
             }
         }
@@ -713,9 +721,9 @@ class EditorSingleSaveTest {
         override fun setupSidebar(container: VBox, selectId: String?) {
             assertTrue(Platform.isFxApplicationThread())
             sidebarRefreshes++
-            assertTrue(sidebarResources().second)
-            assertIs<StoreResult.Success<*>>(sidebarDirectoryList())
-            selectId?.let(::selectTab)
+            loadSidebar(onFailed = { error("一覧の取得に失敗しました") }) { _, _ ->
+                selectId?.let(::selectTab)
+            }
         }
         override fun setupMainContent(selectData: T) { main.mainContentContainer.children.setAll(Label(selectData.id)) }
         override fun resolveSaveConflict(dataId: String, originalData: T, currentData: T, serverData: T): T = currentData

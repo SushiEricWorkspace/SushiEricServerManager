@@ -66,8 +66,7 @@ internal class RecipeEditorLogic(main: MainController, dataService: EditorDataSe
             .owner(main.currentStage).show()
     })
 
-    override fun setupSidebar(container: VBox, selectId: String?) {
-        super.setupSidebar(container, selectId)
+    override fun loadEditorReferences() {
         if (catalog == null && catalogTask == null) loadCatalog()
     }
 

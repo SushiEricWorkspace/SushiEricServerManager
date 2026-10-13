@@ -85,10 +85,29 @@ class ItemReferenceEditorsTest {
                     root.applyCss(); root.layout()
                     return stage
                 }
-                val shop = open { ShopEditorLogic(it, service) }
-                val recipe = open { RecipeEditorLogic(it, service) }
-                val ore = open { OreEditorLogic(it, service) }
-                val secondShop = open { ShopEditorLogic(it, service) }
+                open { ShopEditorLogic(it, service) }
+                open { RecipeEditorLogic(it, service) }
+                open { OreEditorLogic(it, service) }
+                open { ShopEditorLogic(it, service) }
+            }
+            val deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(10)
+            var ready = false
+            while (!ready) {
+                onFxThread {
+                    ready = opened[0].first.scene.root.lookupAll(".button").filterIsInstance<Button>().any { it.text == "アイテムを選択..." } &&
+                        opened[2].first.scene.root.lookupAll(".button").filterIsInstance<Button>().any { it.text.startsWith("ドロップ") } &&
+                        opened[3].first.scene.root.lookupAll(".label").filterIsInstance<Label>().any { it.text == "items.first" } &&
+                        opened[1].first.scene.lookup("#recipe-result") != null &&
+                        !(opened[1].first.scene.lookup("#recipe-result") as Button).isDisable
+                }
+                assertTrue(System.nanoTime() < deadline, "エディターの初期読み込みが完了しません")
+                if (!ready) Thread.sleep(20)
+            }
+            onFxThread {
+                val shop = opened[0].first
+                val recipe = opened[1].first
+                val ore = opened[2].first
+                val secondShop = opened[3].first
                 assertFalse(assertIs<Button>(recipe.scene.lookup("#recipe-result")).isDisable)
                 assertTrue(secondShop.scene.root.lookupAll(".label").filterIsInstance<Label>().any { it.text == "items.first" }, secondShop.scene.root.lookupAll(".label").filterIsInstance<Label>().map { it.text }.toString())
                 assertEquals(2, reads.get())

@@ -9,6 +9,7 @@ import io.github.sushiericworkspace.sushiericservermanager.editor.store.StoreRes
 import io.github.sushiericworkspace.sushiericservermanager.ui.dialog.CustomDialog
 import javafx.event.EventHandler
 import javafx.geometry.Insets
+import javafx.scene.control.Label
 import javafx.scene.control.ContextMenu
 import javafx.scene.control.MenuItem
 import javafx.scene.control.TextField
@@ -71,44 +72,29 @@ internal abstract class ManagedDataEditorView<T : ManagedData<T, *>>(
         sidebarDataIds = emptyList()
         sidebarResults.showRows(emptyList())
 
-        val (fileResources, isSuccess) = sidebarResources()
-        if (!isSuccess) {
-            CustomDialog.error()
-                .title("取得失敗")
-                .header("ファイルリストの取得に失敗しました。")
-                .owner(main.currentStage)
-                .show()
-            handleForceBackToSelect()
-            return
-        }
+        sidebarResults.placeholder = Label("一覧を読み込み中...")
+        loadSidebar(onFailed = {
+            sidebarResults.placeholder = Label("一覧の取得に失敗しました")
+        }) { ids, directories ->
+            sidebarResults.placeholder = Label("該当する${dataAccess.displayName}がありません")
+            sidebarDataIds = ids
+            sidebarDirectories = directories
+            registerSidebar(ids, sidebarResults)
+            renderSidebarResults()
 
-        val remoteIds = fileResources.map { it.name.removeSuffix(".yml") }
-        remoteDataIds = remoteIds.toSet()
-        val ids = mergeSidebarIdsWithPending(remoteIds)
-        sidebarDataIds = ids
-        sidebarDirectories = when (val result = sidebarDirectoryList()) {
-            is StoreResult.Success -> result.value
-            is StoreResult.Failure -> emptyList()
-        }
-        registerSidebar(ids, sidebarResults)
-        renderSidebarResults()
+            val selectableIds = ids.filterNot(::isPendingStoreDeletion)
+            if (selectableIds.isEmpty()) {
+                currentSelectedDataId = null
+                main.mainContentContainer.children.clear()
+            } else {
+                val requestedId = selectId?.removeSuffix(".yml")
+                val targetId = requestedId?.takeIf { it in selectableIds } ?: selectableIds.first()
+                selectTab(targetId)
+            }
+            ids.forEach(::refreshSidebarState)
+            preloadSidebarDataForVisualStates(ids)
+            startAutoSaveTimer()
 
-        val selectableIds = ids.filterNot(::isPendingStoreDeletion)
-        if (selectableIds.isEmpty()) {
-            currentSelectedDataId = null
-            main.mainContentContainer.children.clear()
-        } else {
-            val requestedId = selectId?.removeSuffix(".yml")
-            val targetId = requestedId?.takeIf { it in selectableIds } ?: selectableIds.first()
-            selectTab(targetId)
-        }
-        ids.forEach(::refreshSidebarState)
-        preloadSidebarDataForVisualStates(ids)
-        startAutoSaveTimer()
-
-        if (restoredCacheCount > 0) {
-            main.showTimedTopLabel("自動保存から $restoredCacheCount 件のデータを復元しました", Color.GREENYELLOW)
-            restoredCacheCount = 0
         }
     }
 

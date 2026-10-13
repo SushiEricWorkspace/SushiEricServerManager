@@ -48,43 +48,56 @@ class EditorSidebarIntegrationTest {
         val store = InMemoryEditorDataStore("sidebar-test")
         listOf("group.one", "group.two").forEach { id -> store.save(descriptor, id, descriptor.createDefault(id)) }
         val service = EditorDataService(store, directory)
-        val closed = CompletableFuture<Boolean>()
+        lateinit var stage: Stage
+        lateinit var root: Parent
+        lateinit var main: MainController
+        lateinit var logic: EditorView<T>
         try {
             fx {
                 val loader = FXMLLoader(javaClass.getResource(AppScreen.BASE.fxml!!))
-                val root = loader.load<Parent>()
-                val main = loader.getController<MainController>()
-                val stage = Stage().apply {
+                root = loader.load<Parent>()
+                main = loader.getController<MainController>()
+                stage = Stage().apply {
                     scene = Scene(root, 1560.0, 720.0).apply {
                         stylesheets.add(assertNotNull(javaClass.getResource(AppScreen.BASE.css)).toExternalForm())
                     }
                     show()
                 }
-                val logic = factory(main, service)
-                try {
-                    logic.setupSidebar(main.sidebarContainer, "group.one")
-                    root.applyCss(); root.layout()
-                    val sidebar = root.lookup(".sidebar-list") as EditorSidebar
-                    val search = root.lookup(".sidebar-search-field") as TextField
-                    assertEquals(2, sidebar.items.filterIsInstance<SidebarRow.Data>().size)
-                    search.text = "TWO"
-                    root.layout()
-                    assertEquals(listOf("group.two"), sidebar.items.filterIsInstance<SidebarRow.Data>().map { it.fullId })
-                    val button = root.lookupAll(".button").filterIsInstance<Button>().single { it.id == "group.two" } as Button
-                    button.fire()
-                    assertTrue(logic.sidebarState("group.two").selected)
-                    search.text = "absent"
-                    root.layout()
-                    assertTrue(sidebar.items.isEmpty())
-                    assertTrue(logic.sidebarState("group.two").selected)
-                    search.text = ""
-                    root.layout()
-                    assertTrue(logic.sidebarState("group.two").selected)
-                    assertTrue((root.lookupAll(".button").filterIsInstance<Button>().single { it.id == "group.two" } as Button).styleClass.contains("button-selected"))
-                } finally { logic.onClose { success -> stage.close(); closed.complete(success) } }
+                logic = factory(main, service)
+                logic.setupSidebar(main.sidebarContainer, "group.one")
+            }
+            val deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(10)
+            var ready = false
+            while (!ready) {
+                fx { ready = !main.loadingRunning && (root.lookup(".sidebar-list") as EditorSidebar).items.filterIsInstance<SidebarRow.Data>().size == 2 }
+                assertTrue(System.nanoTime() < deadline, "一覧の読み込みが完了しません")
+                if (!ready) Thread.sleep(20)
+            }
+            fx {
+                root.applyCss(); root.layout()
+                val sidebar = root.lookup(".sidebar-list") as EditorSidebar
+                val search = root.lookup(".sidebar-search-field") as TextField
+                assertEquals(2, sidebar.items.filterIsInstance<SidebarRow.Data>().size)
+                search.text = "TWO"
+                root.layout()
+                assertEquals(listOf("group.two"), sidebar.items.filterIsInstance<SidebarRow.Data>().map { it.fullId })
+                val button = root.lookupAll(".button").filterIsInstance<Button>().single { it.id == "group.two" }
+                button.fire()
+                assertTrue(logic.sidebarState("group.two").selected)
+                search.text = "absent"
+                root.layout()
+                assertTrue(sidebar.items.isEmpty())
+                assertTrue(logic.sidebarState("group.two").selected)
+                search.text = ""
+                root.layout()
+                assertTrue(logic.sidebarState("group.two").selected)
+                assertTrue(root.lookupAll(".button").filterIsInstance<Button>().single { it.id == "group.two" }.styleClass.contains("button-selected"))
             }
         } finally {
+            val closed = CompletableFuture<Boolean>()
+            fx { logic.onClose { success -> stage.close(); closed.complete(success) } }
             assertTrue(closed.get(10, TimeUnit.SECONDS))
+            service.submitIo {}.get(10, TimeUnit.SECONDS)
             service.itemReferences.close()
             service.closeIo()
             directory.deleteRecursively()

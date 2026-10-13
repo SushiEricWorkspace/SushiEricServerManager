@@ -71,8 +71,9 @@ class ManagedEditorDataStoreTest {
                 }
                 override fun setupSidebar(container: VBox, selectId: String?) {
                     assertTrue(Platform.isFxApplicationThread())
-                    assertTrue(sidebarResources().second)
-                    assertIs<StoreResult.Success<*>>(sidebarDirectoryList())
+                    loadSidebar(onFailed = { error("一覧の取得に失敗しました") }) { ids, _ ->
+                        assertEquals(setOf("first", "second"), ids.toSet())
+                    }
                 }
                 override fun setupMainContent(selectData: MutableItemBaseData) = Unit
                 override fun resolveSaveConflict(dataId: String, originalData: MutableItemBaseData, currentData: MutableItemBaseData, serverData: MutableItemBaseData) = currentData
