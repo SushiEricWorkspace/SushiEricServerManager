@@ -29,6 +29,10 @@ import kotlinx.serialization.SerializationException
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import org.slf4j.LoggerFactory
+import java.util.concurrent.CompletableFuture
+import java.util.concurrent.Executors
+import javafx.beans.property.ReadOnlyIntegerProperty
+import javafx.beans.property.ReadOnlyIntegerWrapper
 import java.io.File
 import java.nio.file.AtomicMoveNotSupportedException
 import java.nio.file.Files
@@ -40,10 +44,33 @@ import java.nio.file.StandardCopyOption
  * 既存のDataAccess APIは維持し、実際のI/Oだけを[EditorDataStore]へ委譲します。
  */
 class EditorDataService(
-    val store: EditorDataStore,
+    store: EditorDataStore,
     val autoSaveDirectory: File = FilePath.AUTOSAVE_DIR.toFile()
 ) {
     constructor(ssh: SshManager) : this(RemoteEditorDataStore(ssh))
+
+    private val ioLock = Any()
+    val store: EditorDataStore = SerializedEditorDataStore(store, ioLock)
+    private val ioExecutor = Executors.newSingleThreadExecutor { runnable ->
+        Thread(runnable, "editor-store-io").apply { isDaemon = true }
+    }
+    private val saves = ReadOnlyIntegerWrapper(0)
+    val activeSaves: Int get() = saves.get()
+    internal val activeSavesProperty: ReadOnlyIntegerProperty get() = saves.readOnlyProperty
+
+    internal fun beginSave() { saves.set(activeSaves + 1) }
+    internal fun endSave() { saves.set(activeSaves - 1) }
+
+    /**
+     * この接続のストアI/Oを順番に背景実行します。複合操作も1つの工程として渡します。
+     * 処理内から別の工程を投入して待機せず、完了後の画面更新はUIスレッドへ戻してください。
+     */
+    fun <R> submitIo(operation: () -> R): CompletableFuture<R> =
+        CompletableFuture.supplyAsync({ synchronized(ioLock) { operation() } }, ioExecutor)
+
+    internal fun executeIo(task: Runnable) { ioExecutor.execute { synchronized(ioLock) { task.run() } } }
+
+    internal fun closeIo() { ioExecutor.shutdown() }
 
     private val logger = LoggerFactory.getLogger(javaClass)
     private val pendingOperationJson = Json {
@@ -234,13 +261,16 @@ class EditorDataService(
             }
         }
 
-        fun deleteLocalBackup(fileName: String) {
+        fun deleteLocalBackup(fileName: String): Boolean {
+            var deleted = true
             listOf("editing", "original").forEach { subDirectory ->
                 val file = resolveBackupFile(dataType.categoryDirName, subDirectory, fileName)
                 if (file.exists() && !file.delete()) {
                     logger.warn("自動保存ファイルを削除できませんでした: {}", file)
+                    deleted = false
                 }
             }
+            return deleted
         }
 
         fun clearLocalBackupsExcept(idsToKeep: Set<String> = emptySet()) {
@@ -315,7 +345,13 @@ class EditorDataService(
             }
         }
 
-        fun renameTo(oldId: String, newId: String): RenameResult {
+        fun renameTo(oldId: String, newId: String): RenameResult = renameTo(oldId, newId, updateBackup = true)
+
+        /** 保存工程用のID変更。保存待ちバックアップは確定後の整理まで動かしません。 */
+        internal fun renameStoreTo(oldId: String, newId: String): RenameResult =
+            renameTo(oldId, newId, updateBackup = false)
+
+        private fun renameTo(oldId: String, newId: String, updateBackup: Boolean): RenameResult {
             val oldDirectory = PublicId.directoryOf(oldId)
             val newDirectory = PublicId.directoryOf(newId)
             val newName = PublicId.nameOf(newId)
@@ -331,7 +367,19 @@ class EditorDataService(
                         if (moved.value == newId) {
                             StoreResult.Success(Unit)
                         } else {
-                            store.rename(descriptor, moved.value, newName)
+                            val renamed = store.rename(descriptor, moved.value, newName)
+                            if (renamed is StoreResult.Failure) {
+                                when (val rollback = store.move(descriptor, moved.value, oldDirectory.joinToString("."))) {
+                                    is StoreResult.Success -> {
+                                        if (descriptor == EditorDataDescriptors.item) itemReferences.renamed(moved.value, rollback.value)
+                                    }
+                                    is StoreResult.Failure -> {
+                                        logger.error("ID変更失敗後に移動を元へ戻せませんでした: id={}, error={}", moved.value, rollback.error)
+                                        return RenameResult.FAILED
+                                    }
+                                }
+                            }
+                            renamed
                         }
                     }
                 }
@@ -339,7 +387,7 @@ class EditorDataService(
             return when (result) {
                 is StoreResult.Success -> {
                     if (descriptor == EditorDataDescriptors.item) itemReferences.renamed(renamedFrom, newId)
-                    renameBackup(oldId, newId)
+                    if (updateBackup) renameBackup(oldId, newId)
                     RenameResult.SUCCESS
                 }
                 is StoreResult.Failure -> result.error.code.toRenameResult()

@@ -39,6 +39,7 @@ object Utility {
      * 必要であればSSH接続を切断し、サーバー選択画面へ遷移します。
      */
     fun navigateToServerSelect() {
+        if (EditorWindowManager.hasRunningSave) return
         if (EditorSession.connection != null) {
             navigateToModeSelect()
             return
@@ -66,6 +67,7 @@ object Utility {
     }
 
     fun navigateToModeSelect() {
+        if (EditorWindowManager.hasRunningSave) return
         if (EditorSession.connection != null) {
             closeConnection { ApplicationFlow.showModeSelection(Stage()) }
             return
@@ -80,6 +82,7 @@ object Utility {
 
     /** ローカル退避は画面側、接続の終了待ちはUIスレッド外で行います。 */
     fun closeConnection(afterClose: () -> Unit) {
+        if (EditorWindowManager.hasRunningSave) return
         val stage = Stage.getWindows().filterIsInstance<Stage>().first { it.isShowing }
         val implicitExit = Platform.isImplicitExit()
         Platform.setImplicitExit(false)

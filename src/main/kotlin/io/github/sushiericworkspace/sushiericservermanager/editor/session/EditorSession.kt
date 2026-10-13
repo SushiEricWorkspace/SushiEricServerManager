@@ -252,6 +252,7 @@ object EditorSession {
     }
 
     fun disconnect() {
+        check(dataService?.activeSaves == null || dataService?.activeSaves == 0) { "保存中の接続は切断できません。" }
         /*
          * 利用者が切断を選んだ場合は、以降の状態変化で再接続を予約しない。
          */
@@ -262,6 +263,7 @@ object EditorSession {
             active.close()
             serverMonitor.stop()
             connection = null
+            dataService?.closeIo()
             dataService = null
             return
         }
@@ -284,6 +286,7 @@ object EditorSession {
             managementClient.disconnect()
             sshManager.disconnect()
         }
+        dataService?.closeIo()
         dataService = null
     }
 

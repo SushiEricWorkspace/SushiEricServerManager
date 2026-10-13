@@ -71,16 +71,20 @@ class ItemReferenceCacheTest {
         try {
             assertTrue(entered.await(5, TimeUnit.SECONDS))
             data.itemDetail.maxStackSize = 2
-            service.items.saveStore(data.id, data)
-            assertEquals(RenameResult.SUCCESS, service.items.renameTo("original", "renamed"))
+            val writing = service.submitIo {
+                service.items.saveStore(data.id, data)
+                service.items.renameTo("original", "renamed")
+            }
+            assertFalse(writing.isDone)
         } finally { release.countDown() }
         assertIs<StoreResult.Success<*>>(loading.get(5, TimeUnit.SECONDS))
+        service.submitIo {}.get(5, TimeUnit.SECONDS)
         assertEquals("renamed", service.itemReferences.snapshot.items.single().id)
         assertEquals(2, service.itemReferences.snapshot.items.single().itemDetail.maxStackSize)
     }
 
     @Test
-    fun `一覧取得後に削除されたファイルは変更後の一覧から読み直す`() = withService { service, store ->
+    fun `一覧取得中の削除を直列実行し削除後の参照を維持する`() = withService { service, store ->
         store.memory.save(EditorDataDescriptors.item, "deleted", item("deleted"))
         val entered = CountDownLatch(1)
         val release = CountDownLatch(1)
@@ -88,12 +92,14 @@ class ItemReferenceCacheTest {
         val loading = service.itemReferences.load()
         try {
             assertTrue(entered.await(5, TimeUnit.SECONDS))
-            assertEquals(DeleteResult.SUCCESS, service.items.delete("deleted"))
+            val deletion = service.submitIo { service.items.delete("deleted") }
+            assertFalse(deletion.isDone)
         } finally { release.countDown() }
         assertIs<StoreResult.Success<*>>(loading.get(5, TimeUnit.SECONDS))
+        service.submitIo {}.get(5, TimeUnit.SECONDS)
         assertEquals(ItemReferenceStatus.READY, service.itemReferences.snapshot.status)
         assertTrue(service.itemReferences.snapshot.items.isEmpty())
-        assertEquals(2, store.lists.get())
+        assertEquals(1, store.lists.get())
     }
 
     @Test
@@ -128,23 +134,21 @@ class ItemReferenceCacheTest {
         store.memory.save(EditorDataDescriptors.item, "old", item("old"))
         val entered = CountDownLatch(1)
         val release = CountDownLatch(1)
-        var worker: Thread? = null
-        store.afterLoad = { worker = Thread.currentThread(); entered.countDown(); assertTrue(release.await(5, TimeUnit.SECONDS)) }
+        store.afterLoad = { entered.countDown(); assertTrue(release.await(5, TimeUnit.SECONDS)) }
         val loading = service.itemReferences.load()
         try {
             assertTrue(entered.await(5, TimeUnit.SECONDS))
             service.itemReferences.close()
             assertIs<StoreResult.Failure>(loading.get(5, TimeUnit.SECONDS))
         } finally { release.countDown() }
-        requireNotNull(worker).join(5000)
-        assertFalse(requireNotNull(worker).isAlive)
+        service.submitIo {}.get(5, TimeUnit.SECONDS)
         assertEquals(ItemReferenceStatus.EMPTY, service.itemReferences.snapshot.status)
         assertTrue(service.itemReferences.snapshot.items.isEmpty())
         val next = EditorDataService(InMemoryEditorDataStore(store.identity))
         try {
             next.itemReferences.load().get(5, TimeUnit.SECONDS)
             assertTrue(next.itemReferences.snapshot.items.isEmpty())
-        } finally { next.itemReferences.close() }
+        } finally { next.itemReferences.close(); next.closeIo() }
     }
 
     private fun withService(action: (EditorDataService, CountingStore) -> Unit) {
@@ -152,7 +156,7 @@ class ItemReferenceCacheTest {
         val store = CountingStore()
         val service = EditorDataService(store, directory)
         try { action(service, store) }
-        finally { service.itemReferences.close(); directory.deleteRecursively() }
+        finally { service.itemReferences.close(); service.closeIo(); directory.deleteRecursively() }
     }
 
     private class CountingStore(val memory: InMemoryEditorDataStore = InMemoryEditorDataStore()) : EditorDataStore by memory {

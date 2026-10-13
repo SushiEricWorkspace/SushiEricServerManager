@@ -52,7 +52,7 @@ internal class ItemReferenceCache(private val service: EditorDataService) : Auto
         val future = CompletableFuture<StoreResult<List<ItemBaseData>>>()
         loading = future
         publish(ItemReferenceStatus.LOADING, snapshot.items)
-        Thread({
+        service.executeIo(Runnable {
             while (true) {
                 val startedAt = synchronized(this) { revision }
                 val result = try {
@@ -61,7 +61,7 @@ internal class ItemReferenceCache(private val service: EditorDataService) : Auto
                     StoreResult.Failure(StoreError(StoreErrorCode.STORE_UNAVAILABLE, detail = "アイテム一覧の読み込みに失敗しました。", cause = e))
                 }
                 synchronized(this) {
-                    if (closed) return@Thread
+                    if (closed) return@Runnable
                     if (result is StoreResult.Failure && revision != startedAt) return@synchronized
                     loading = null
                     when (result) {
@@ -78,10 +78,10 @@ internal class ItemReferenceCache(private val service: EditorDataService) : Auto
                             future.complete(result)
                         }
                     }
-                    return@Thread
+                    return@Runnable
                 }
             }
-        }, "item-reference-cache").apply { isDaemon = true; start() }
+        })
         return future
     }
 

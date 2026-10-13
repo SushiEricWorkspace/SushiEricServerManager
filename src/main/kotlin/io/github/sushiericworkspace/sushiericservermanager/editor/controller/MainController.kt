@@ -7,6 +7,7 @@ import io.github.sushiericworkspace.sushiericservermanager.ui.shortcut.EditorSho
 import io.github.sushiericworkspace.sushiericservermanager.ui.shortcut.ShortcutManager
 import javafx.animation.PauseTransition
 import javafx.fxml.FXML
+import javafx.scene.control.ProgressIndicator
 import javafx.scene.control.Label
 import javafx.scene.layout.HBox
 import javafx.scene.layout.VBox
@@ -19,6 +20,31 @@ class MainController {
     @FXML lateinit var sidebarContainer: VBox
     @FXML lateinit var mainContentContainer: HBox
     @FXML private lateinit var topInfoLabel: Label
+    @FXML private lateinit var operationProgress: ProgressIndicator
+
+    var operationRunning: Boolean = false
+        private set
+
+    fun showOperation(phase: String) {
+        clearTopLabelTimer()
+        operationRunning = true
+        operationProgress.isVisible = true
+        operationProgress.isManaged = true
+        actionButtonContainer.isDisable = true
+        sidebarContainer.isDisable = true
+        mainContentContainer.isDisable = true
+        setTopLabel(phase)
+    }
+
+    fun finishOperation() {
+        operationRunning = false
+        operationProgress.isVisible = false
+        operationProgress.isManaged = false
+        actionButtonContainer.isDisable = false
+        sidebarContainer.isDisable = false
+        mainContentContainer.isDisable = false
+        setTopLabel("")
+    }
 
     private var topLabelTimer: PauseTransition? = null
 
@@ -61,6 +87,7 @@ class MainController {
     }
 
     fun showTimedTopLabel(text: String, textColor: Color = Color.WHITE, delaySeconds: Double = 2.0) {
+        if (operationRunning) return
         setTopLabel(text, textColor)
         topLabelTimer?.stop()
         topLabelTimer = PauseTransition(Duration.seconds(delaySeconds)).apply {
@@ -98,7 +125,7 @@ class MainController {
             scene = scene,
             shortcut = EditorShortcut.SAVE
         ) {
-            logic.onSave()
+            if (!logic.storeOperationBlocked) logic.onSave()
         }
         listOf(
             EditorShortcut.SAVE_ALL to logic::onSaveAll,
@@ -111,12 +138,12 @@ class MainController {
             EditorShortcut.FOCUS_ERROR to logic::focusSelectedError,
             EditorShortcut.FOCUS_ALL_ERRORS to logic::focusAllErrors
         ).forEach { (shortcut, action) ->
-            ShortcutManager.register(scene, shortcut) { action() }
+            ShortcutManager.register(scene, shortcut) { if (!logic.storeOperationBlocked) action() }
         }
         ShortcutManager.registerHistoryShortcuts(
             scene = scene,
-            onUndo = logic::onUndo,
-            onRedo = logic::onRedo
+            onUndo = { !logic.saveRunning && logic.onUndo() },
+            onRedo = { !logic.saveRunning && logic.onRedo() }
         )
     }
 

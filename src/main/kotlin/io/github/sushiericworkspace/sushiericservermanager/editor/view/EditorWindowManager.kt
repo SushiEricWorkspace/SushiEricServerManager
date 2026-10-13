@@ -38,6 +38,8 @@ object EditorWindowManager {
             activeEditors.remove(key)
         }
 
+        if (hasRunningSave) return
+
         val root = loader.load<Parent>()
         val mainController = loader.getController<MainController>()
 
@@ -65,16 +67,17 @@ object EditorWindowManager {
         newStage.show()
     }
 
+    val hasRunningSave: Boolean
+        get() = activeEditors.values.any { it.logic.saveRunning }
+
     /**
-     * 現在管理しているすべてのウィンドウを閉じ、リストをクリアします。
+     * 全エディターの終了処理でローカル退避してからウィンドウを閉じます。
+     * [Stage.close]はclose requestを発生させないため、終了処理を明示的に呼びます。
      *
-     * 閉じる前に各エディタの終了処理を実行し、未保存の変更をローカルへ退避します。
-     * [Stage.close]は`setOnCloseRequest`を発生させないため、ここで明示的に呼び出します。
-     *
-     * 接続終了や画面遷移に伴う一括クローズであり、
-     * 終了処理が閉じる操作を中断する結果を返しても、そのままウィンドウを閉じます。
+     * @throws IllegalStateException 保存中のエディターがあり、まだ画面を閉じられない場合。
      */
     fun closeAll() {
+        check(!hasRunningSave) { "保存中のエディターは閉じられません。" }
         val editors = activeEditors.values.toList()
 
         activeEditors.clear()

@@ -18,11 +18,12 @@ import io.github.sushiericworkspace.sushiericservermanager.editor.store.StoreRes
 import io.github.sushiericworkspace.sushiericservermanager.editor.view.ManagedDataEditorView
 import io.github.sushiericworkspace.sushiericservermanager.editor.view.createPublicIdDisplay
 import io.github.sushiericworkspace.sushiericservermanager.ui.dialog.MergeConflictDialog
-import io.github.sushiericworkspace.sushiericservermanager.ui.dialog.RecipeSaveProgressDialog
 import io.github.sushiericworkspace.sushiericservermanager.ui.dialog.ItemTreeSelectionDialog
 import io.github.sushiericworkspace.sushiericservermanager.ui.dialog.ItemTreeSelection
 import io.github.sushiericworkspace.sushiericservermanager.ui.dialog.CustomDialog
 import io.github.sushiericworkspace.sushiericservermanager.ui.AppTooltip
+import javafx.application.Platform
+import io.github.sushiericworkspace.sushiericservermanager.ui.dialog.RecipeSaveProgressDialog
 import javafx.concurrent.Task
 import javafx.geometry.Insets
 import javafx.geometry.Pos
@@ -259,7 +260,11 @@ internal class RecipeEditorLogic(main: MainController, dataService: EditorDataSe
     }
 
     override fun saveStoreData(dataId: String, data: MutableRecipeData): StoreResult<Unit> =
-        RecipeSaveProgressDialog.save(main.currentStage, dataId) { dataAccess.saveStore(dataId, data) }
+        if (Platform.isFxApplicationThread()) {
+            RecipeSaveProgressDialog.save(main.currentStage, dataId, dataService::executeIo) { dataAccess.saveStore(dataId, data) }
+        } else {
+            dataAccess.saveStore(dataId, data)
+        }
 
     private fun loadCatalog(force: Boolean = false) {
         if (catalogTask != null || disposed) return
@@ -271,7 +276,7 @@ internal class RecipeEditorLogic(main: MainController, dataService: EditorDataSe
                     is StoreResult.Success -> result.value
                     is StoreResult.Failure -> error("参照アイテムを読み込めません: ${result.error.code}")
                 }
-                return when (val result = RecipeEditorCatalog.load(dataService.store, cachedItems)) {
+                return when (val result = dataService.submitIo { RecipeEditorCatalog.load(dataService.store, cachedItems) }.get()) {
                     is StoreResult.Success -> result.value
                     is StoreResult.Failure -> error("参照一覧を読み込めません: ${result.error.code} ${result.error.dataId}")
                 }
