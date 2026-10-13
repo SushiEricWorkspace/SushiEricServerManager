@@ -257,15 +257,17 @@ class HomeController internal constructor(
                     Utility.closeConnection { Platform.exit() }
                     return@setOnCloseRequest
                 }
-                // 親が閉じられたら、エディタウィンドウをすべて閉じる
-                EditorWindowManager.closeAll()
-                ModConfigWindowManager.close()
-                ConsoleWindowManager.close()
-                DashboardWindowManager.close()
-                ServerControlWindowManager.close()
-                MoneyHistoryWindowManager.close()
-                // SSH接続も忘れずに切断
-                EditorSession.disconnect()
+                it.consume()
+                EditorWindowManager.closeAll { success ->
+                    if (!success) return@closeAll
+                    ModConfigWindowManager.close()
+                    ConsoleWindowManager.close()
+                    DashboardWindowManager.close()
+                    ServerControlWindowManager.close()
+                    MoneyHistoryWindowManager.close()
+                    EditorSession.disconnect()
+                    stage.close()
+                }
             }
         }
     }
@@ -332,8 +334,12 @@ class HomeController internal constructor(
                         Utility.closeConnection { Platform.exit() }
                         return@setOnSucceeded
                     }
-                    EditorSession.disconnect()
-                    Platform.exit()
+                    EditorWindowManager.closeAll { success ->
+                        if (success) {
+                            EditorSession.disconnect()
+                            Platform.exit()
+                        }
+                    }
                 }
             }
         }

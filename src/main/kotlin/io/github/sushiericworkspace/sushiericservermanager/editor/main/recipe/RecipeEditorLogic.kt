@@ -298,11 +298,9 @@ internal class RecipeEditorLogic(main: MainController, dataService: EditorDataSe
         Thread(task, "recipe-editor-catalog").apply { isDaemon = true; start() }
     }
 
-    override fun onClose(): Boolean {
-        if (!super.onClose()) return false
+    override fun afterClose() {
         disposed = true
         itemBinding.close()
         catalogTask?.cancel()
-        return true
     }
 }

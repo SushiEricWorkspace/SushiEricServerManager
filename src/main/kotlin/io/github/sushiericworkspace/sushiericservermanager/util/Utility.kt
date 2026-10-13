@@ -45,25 +45,17 @@ object Utility {
             return
         }
 
-        // 1. 全てのウィンドウを閉じる (HomeもEditorも全部消える)
-        EditorWindowManager.closeAll()
-        Stage.getWindows().toList().forEach { window ->
-            (window as? Stage)?.close()
+        EditorWindowManager.closeAll { success ->
+            if (!success) return@closeAll
+            Stage.getWindows().toList().filterIsInstance<Stage>().forEach { it.close() }
+            EditorSession.disconnect()
+            Stage().apply {
+                title = appWindowTitle("サーバー選択")
+                scene = createScene(AppScreen.SERVER_SELECT, 600.0, 400.0)
+                isResizable = false
+                show()
+            }
         }
-
-        // 2. 切断
-        EditorSession.disconnect()
-
-        // 3. 次の画面をロード
-        val scene = createScene(AppScreen.SERVER_SELECT, 600.0, 400.0)
-
-        val nextStage = Stage().apply {
-            title = appWindowTitle("サーバー選択")
-            this.scene = scene // ここで適用済みsceneをセット
-            isResizable = false
-        }
-
-        nextStage.show()
     }
 
     fun navigateToModeSelect() {
@@ -72,26 +64,31 @@ object Utility {
             closeConnection { ApplicationFlow.showModeSelection(Stage()) }
             return
         }
-        EditorWindowManager.closeAll()
-        Stage.getWindows().toList().forEach { window ->
-            (window as? Stage)?.close()
+        EditorWindowManager.closeAll { success ->
+            if (!success) return@closeAll
+            Stage.getWindows().toList().filterIsInstance<Stage>().forEach { it.close() }
+            EditorSession.resetMode()
+            ApplicationFlow.showModeSelection(Stage())
         }
-        EditorSession.resetMode()
-        ApplicationFlow.showModeSelection(Stage())
     }
 
-    /** ローカル退避は画面側、接続の終了待ちはUIスレッド外で行います。 */
+    /** ローカル退避の成功後、接続の終了待ちはUIスレッド外で行います。 */
     fun closeConnection(afterClose: () -> Unit) {
         if (EditorWindowManager.hasRunningSave) return
         val stage = Stage.getWindows().filterIsInstance<Stage>().first { it.isShowing }
         val implicitExit = Platform.isImplicitExit()
         Platform.setImplicitExit(false)
-        EditorWindowManager.closeAll()
-        stage.setOnCloseRequest { it.consume() }
-        ApplicationFlow.finishConnection(stage) {
-            Stage.getWindows().toList().filterIsInstance<Stage>().forEach { it.close() }
-            afterClose()
-            Platform.setImplicitExit(implicitExit)
+        EditorWindowManager.closeAll { success ->
+            if (!success) {
+                Platform.setImplicitExit(implicitExit)
+                return@closeAll
+            }
+            stage.setOnCloseRequest { it.consume() }
+            ApplicationFlow.finishConnection(stage) {
+                Stage.getWindows().toList().filterIsInstance<Stage>().forEach { it.close() }
+                afterClose()
+                Platform.setImplicitExit(implicitExit)
+            }
         }
     }
 

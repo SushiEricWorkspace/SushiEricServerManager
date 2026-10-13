@@ -20,6 +20,7 @@ import javafx.scene.control.TextField
 import javafx.stage.Stage
 import org.junit.jupiter.api.condition.EnabledOnOs
 import org.junit.jupiter.api.condition.OS
+import java.util.concurrent.CompletableFuture
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.FutureTask
 import java.util.concurrent.TimeUnit
@@ -93,7 +94,9 @@ class EditorSidebarIntegrationTest {
                 assertTrue(root.lookupAll(".button").filterIsInstance<Button>().single { it.id == "group.two" }.styleClass.contains("button-selected"))
             }
         } finally {
-            fx { logic.onClose(); stage.close() }
+            val closed = CompletableFuture<Boolean>()
+            fx { logic.onClose { success -> stage.close(); closed.complete(success) } }
+            assertTrue(closed.get(10, TimeUnit.SECONDS))
             service.submitIo {}.get(10, TimeUnit.SECONDS)
             service.itemReferences.close()
             service.closeIo()

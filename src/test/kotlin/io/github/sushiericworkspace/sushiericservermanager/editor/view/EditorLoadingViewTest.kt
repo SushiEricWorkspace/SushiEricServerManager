@@ -21,6 +21,7 @@ import javafx.scene.Parent
 import javafx.scene.Scene
 import javafx.scene.control.Label
 import javafx.stage.Stage
+import java.util.concurrent.CompletableFuture
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.FutureTask
 import java.util.concurrent.TimeUnit
@@ -92,7 +93,9 @@ class EditorLoadingViewTest {
             try {
                 fx { f.view.selectTab("a") }
                 assertTrue(entered.await(10, TimeUnit.SECONDS))
-                fx { assertTrue(f.view.onClose()); f.stage.close() }
+                val closed = CompletableFuture<Boolean>()
+                fx { f.view.onClose { success -> f.stage.close(); closed.complete(success) } }
+                assertTrue(closed.get(10, TimeUnit.SECONDS))
                 release.countDown()
                 f.service.submitIo {}.get(10, TimeUnit.SECONDS)
                 fx { assertTrue(f.view.shown.isEmpty()); assertNull(f.view.cached("a")) }
@@ -113,7 +116,9 @@ class EditorLoadingViewTest {
             f.service.submitIo { entered.countDown(); assertTrue(release.await(10, TimeUnit.SECONDS)) }
             assertTrue(entered.await(10, TimeUnit.SECONDS))
             try {
-                fx { f.main.switchView(f.view); assertTrue(f.main.loadingRunning); assertTrue(f.view.onClose()); f.stage.close() }
+                val closed = CompletableFuture<Boolean>()
+                fx { f.main.switchView(f.view); assertTrue(f.main.loadingRunning); f.view.onClose { success -> f.stage.close(); closed.complete(success) } }
+                assertTrue(closed.get(10, TimeUnit.SECONDS))
                 assertEquals(1, access.loadPendingStoreOperations().size)
                 assertNotNull(access.loadBackupPair("draft"))
                 release.countDown()
@@ -248,7 +253,9 @@ class EditorLoadingViewTest {
             assertFalse(store.ioThreads.any { it })
         } finally {
             release.countDown()
-            fx { EditorWindowManager.closeAll() }
+            val closed = CompletableFuture<Boolean>()
+            fx { EditorWindowManager.closeAll { closed.complete(it) } }
+            assertTrue(closed.get(10, TimeUnit.SECONDS))
             service.submitIo {}.get(10, TimeUnit.SECONDS)
             service.itemReferences.close()
             service.closeIo()
@@ -282,7 +289,9 @@ class EditorLoadingViewTest {
             })).apply { cycleCount = Timeline.INDEFINITE; play() }
         }
         try { block(f) } finally {
-            fx { dialogs.stop(); f.view.onClose(); f.stage.close() }
+            val closed = CompletableFuture<Boolean>()
+            fx { dialogs.stop(); f.view.onClose { success -> f.stage.close(); closed.complete(success) } }
+            assertTrue(closed.get(10, TimeUnit.SECONDS))
             service.submitIo {}.get(10, TimeUnit.SECONDS)
             service.itemReferences.close()
             service.closeIo()

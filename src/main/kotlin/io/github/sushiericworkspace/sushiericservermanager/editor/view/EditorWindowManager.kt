@@ -10,6 +10,7 @@ import javafx.stage.Stage
 
 object EditorWindowManager {
     // 開いているエディタをロジックのクラス名などで管理
+    private var closingAll = false
     private val activeEditors = mutableMapOf<String, ActiveEditor>()
 
     /**
@@ -38,7 +39,7 @@ object EditorWindowManager {
             activeEditors.remove(key)
         }
 
-        if (hasRunningSave) return
+        if (hasRunningSave || closingAll) return
 
         val root = loader.load<Parent>()
         val mainController = loader.getController<MainController>()
@@ -55,16 +56,18 @@ object EditorWindowManager {
         }
 
         newStage.setOnCloseRequest { event ->
-            if (!logic.onClose()) {
-                event.consume()
-            } else {
-                activeEditors.remove(key)
+            event.consume()
+            logic.onClose { success ->
+                if (success) {
+                    activeEditors.remove(key)
+                    newStage.close()
+                }
             }
         }
 
         activeEditors[key] = ActiveEditor(newStage, logic)
         newStage.setOnHidden {
-            logic.onClose()
+            logic.onClose { }
             activeEditors.remove(key)
         }
         newStage.show()
@@ -75,20 +78,32 @@ object EditorWindowManager {
         get() = activeEditors.values.any { it.logic.saveRunning }
 
     /**
-     * 全エディターの終了処理でローカル退避してからウィンドウを閉じます。
-     * [Stage.close]はclose requestを発生させないため、終了処理を明示的に呼びます。
-     *
-     * @throws IllegalStateException 保存中のエディターがあり、まだ画面を閉じられない場合。
+     * JavaFXスレッドから呼び出し、全エディターの退避完了を待って閉じます。
+     * 結果もJavaFXスレッドで通知し、処理中や対象がない場合はその場で通知します。
+     * 退避失敗時はその画面と未処理の画面を保持し、切断・画面遷移を中断してください。
      */
-    fun closeAll() {
-        check(!hasRunningSave) { "保存中のエディターは閉じられません。" }
-        val editors = activeEditors.values.toList()
-
-        activeEditors.clear()
-
-        editors.forEach { editor ->
-            editor.logic.onClose()
-            editor.stage.close()
+    fun closeAll(onComplete: (Boolean) -> Unit) {
+        if (hasRunningSave || closingAll) { onComplete(false); return }
+        closingAll = true
+        val editors = activeEditors.entries.map { it.key to it.value }
+        fun closeNext(index: Int) {
+            if (index == editors.size) {
+                closingAll = false
+                onComplete(true)
+                return
+            }
+            val (key, editor) = editors[index]
+            editor.logic.onClose { success ->
+                if (!success) {
+                    closingAll = false
+                    onComplete(false)
+                } else {
+                    activeEditors.remove(key)
+                    editor.stage.close()
+                    closeNext(index + 1)
+                }
+            }
         }
+        closeNext(0)
     }
 }

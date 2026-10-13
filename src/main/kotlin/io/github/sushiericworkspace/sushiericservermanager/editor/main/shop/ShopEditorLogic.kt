@@ -172,9 +172,7 @@ internal class ShopEditorLogic(main: MainController, dataService: EditorDataServ
         return merge.resolveWithLocal(local)
     }
 
-    override fun onClose(): Boolean {
-        if (!super.onClose()) return false
+    override fun afterClose() {
         itemBinding.close()
-        return true
     }
 }

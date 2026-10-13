@@ -72,6 +72,13 @@ class MainController {
         setTopLabel("")
     }
 
+    /** 背景退避の状態を非モーダルに表示し、編集中の操作を維持します。 */
+    fun showBackupStatus(text: String, color: Color = Color.WHITE) {
+        if (operationRunning || loadingRunning) return
+        clearTopLabelTimer()
+        setTopLabel(text, color)
+    }
+
     private var topLabelTimer: PauseTransition? = null
 
     val currentStage: Stage?
@@ -153,8 +160,10 @@ class MainController {
         ) {
             if (!logic.storeOperationBlocked) logic.onSave()
         }
+        ShortcutManager.register(scene, EditorShortcut.SAVE_ALL) {
+            if (!logic.storeOperationBlocked) logic.onSaveAll()
+        }
         listOf(
-            EditorShortcut.SAVE_ALL to logic::onSaveAll,
             EditorShortcut.SYNC to logic::onSynchronizeSelected,
             EditorShortcut.SYNC_ALL to logic::onSynchronizeAll,
             EditorShortcut.CREATE_DATA to logic::onCreateData,
