@@ -10,10 +10,8 @@ import io.github.sushiericworkspace.common.data.item.model.LoreSectionType
 import io.github.sushiericworkspace.sushiericservermanager.ui.dialog.CustomDialog
 import io.github.sushiericworkspace.sushiericservermanager.editor.main.item.diff.ItemDiffField
 import io.github.sushiericworkspace.sushiericservermanager.editor.service.EditorDataService
-import io.github.sushiericworkspace.sushiericservermanager.editor.view.TreeSidebarRenderer
-import io.github.sushiericworkspace.sushiericservermanager.editor.view.buildSidebarTree
-import io.github.sushiericworkspace.sushiericservermanager.editor.view.FlatSidebarRenderer
-import io.github.sushiericworkspace.sushiericservermanager.editor.view.SidebarDisplayMode
+import io.github.sushiericworkspace.sushiericservermanager.editor.view.EditorSidebar
+import io.github.sushiericworkspace.sushiericservermanager.editor.view.buildSidebarRows
 import io.github.sushiericworkspace.sushiericservermanager.editor.view.idsInSidebarDirectory
 import io.github.sushiericworkspace.sushiericservermanager.editor.view.isLocalOnlyData
 import io.github.sushiericworkspace.sushiericservermanager.editor.view.isLocalOnlyDirectory
@@ -238,26 +236,27 @@ class ItemEditorLogic(
         }
     }
 
-    private val sidebarResultsContainer = VBox().apply {
-        maxWidth = Double.MAX_VALUE
-        styleClass.add("sidebar-results-container")
-    }
-
-    private val sidebarNoResultsLabel = Label("該当するItemがありません").apply {
-        maxWidth = Double.MAX_VALUE
-        styleClass.add("sidebar-no-results-label")
-    }
+    private val sidebarResults = EditorSidebar(
+        noResultsText = "該当するItemがありません",
+        stateFor = ::sidebarState,
+        onSelect = ::selectTab,
+        createDataMenu = { id -> createSidebarContextMenu(id, registeredSidebarIds) },
+        createDirectoryMenu = ::createDirectoryContextMenu,
+        onMove = ::moveData,
+        expandedState = sidebarExpandedState,
+        onExpandedStateChanged = ::persistSidebarExpandedState,
+        onExpansionChanged = ::renderSidebarResults
+    )
 
     private var sidebarItemIds: List<String> = emptyList()
     private var sidebarDirectories: List<String> = emptyList()
 
     override fun setupSidebar(container: VBox, selectId: String?) {
-        container.children.setAll(sidebarSearchField, sidebarResultsContainer)
+        container.children.setAll(sidebarSearchField, sidebarResults)
+        VBox.setVgrow(sidebarResults, Priority.ALWAYS)
         VBox.setMargin(sidebarSearchField, Insets(10.0))
-        selectedButton = null
-        sidebarButtons.clear()
         sidebarItemIds = emptyList()
-        sidebarResultsContainer.children.clear()
+        sidebarResults.showRows(emptyList())
 
         val (fileResources, isSuccess) = sidebarResources()
         if (!isSuccess) {
@@ -283,24 +282,12 @@ class ItemEditorLogic(
             is StoreResult.Success -> result.value
             is StoreResult.Failure -> emptyList()
         }
-        val existingIds = ids.toSet()
-        ids.forEach { id ->
-            val button = createSidebarButton(id, existingIds)
-            sidebarButtons[id] = button
-        }
-        TreeSidebarRenderer(
-            createDataButton = { id -> sidebarButtons.getValue(id) },
-            createDirectoryMenu = ::createDirectoryContextMenu,
-            onMove = ::moveData,
-            expandedState = sidebarExpandedState,
-            onExpandedStateChanged = ::persistSidebarExpandedState
-        ).enableRootDrop(sidebarResultsContainer)
+        registerSidebar(ids, sidebarResults)
         renderSidebarResults()
 
         val selectableIds = ids.filterNot(::isPendingStoreDeletion)
         if (selectableIds.isEmpty()) {
             currentSelectedDataId = null
-            selectedButton = null
             main.mainContentContainer.children.clear()
         } else {
             val requestedId = selectId?.removeSuffix(".yml")
@@ -308,7 +295,7 @@ class ItemEditorLogic(
             selectTab(targetId)
         }
 
-        ids.forEach(::refreshButtonVisual)
+        ids.forEach(::refreshSidebarState)
         preloadSidebarDataForVisualStates(ids)
 
         startAutoSaveTimer()
@@ -320,26 +307,10 @@ class ItemEditorLogic(
     }
 
     private fun renderSidebarResults() {
-        if (sidebarDisplayMode == SidebarDisplayMode.FLAT) {
-            val buttons = FlatSidebarRenderer { id -> sidebarButtons.getValue(id) }
-                .render(sidebarItemIds, sidebarSearchField.text.orEmpty())
-            sidebarResultsContainer.children.setAll(buttons.ifEmpty { listOf(sidebarNoResultsLabel) })
-            return
-        }
-        val nodes = buildSidebarTree(sidebarItemIds, sidebarDirectories, sidebarSearchField.text.orEmpty())
-        if (nodes.isEmpty()) {
-            sidebarResultsContainer.children.setAll(sidebarNoResultsLabel)
-        } else {
-            sidebarResultsContainer.children.setAll(
-                TreeSidebarRenderer(
-                    createDataButton = { id -> sidebarButtons.getValue(id) },
-                    createDirectoryMenu = ::createDirectoryContextMenu,
-                    onMove = ::moveData,
-                    expandedState = sidebarExpandedState,
-                    onExpandedStateChanged = ::persistSidebarExpandedState
-                ).render(nodes)
-            )
-        }
+        sidebarResults.showRows(buildSidebarRows(
+            sidebarItemIds, sidebarDirectories, sidebarSearchField.text.orEmpty(),
+            sidebarDisplayMode, sidebarExpandedState
+        ))
     }
 
     private fun createDirectoryContextMenu(directory: String): ContextMenu {
@@ -435,23 +406,6 @@ class ItemEditorLogic(
 
     private fun showDirectoryError(message: String) {
         CustomDialog.error().title("ディレクトリ操作エラー").header(message).owner(main.currentStage).show()
-    }
-
-    private fun createSidebarButton(id: String, existingIds: Set<String>): Button {
-        return Button(PublicId.normalizeForLoad(id)).apply {
-            isFocusTraversable = false
-            /*
-             * Buttonは既定でmnemonicParsingが有効なため、IDに含まれる`_`が
-             * ニーモニック指定として解釈されて表示から欠落する。IDはそのまま
-             * 表示するため無効化する。
-             */
-            isMnemonicParsing = false
-            this.id = id
-            maxWidth = Double.MAX_VALUE
-            alignment = Pos.CENTER_LEFT
-            onAction = EventHandler { selectTab(id) }
-            contextMenu = createSidebarContextMenu(id, existingIds)
-        }
     }
 
     private fun createSidebarContextMenu(id: String, existingIds: Set<String>): ContextMenu {
@@ -942,7 +896,7 @@ class ItemEditorLogic(
                                 lineSystem.moveTo(toIndex)
                                 loreTreeUiIdMemory.lineMoved(selectData.id, fromIndex, toIndex)
 
-                                refreshButtonVisual(selectData.id)
+                                refreshSidebarState(selectData.id)
                                 handleRefresh(TreeRow.Folder.Lore)
                             }
                         }
@@ -955,7 +909,7 @@ class ItemEditorLogic(
                                 lineSystem.moveTo(toIndex)
                                 loreTreeUiIdMemory.lineMoved(selectData.id, fromIndex, toIndex)
 
-                                refreshButtonVisual(selectData.id)
+                                refreshSidebarState(selectData.id)
                                 handleRefresh(TreeRow.Folder.Lore)
                             }
                         }
@@ -967,7 +921,7 @@ class ItemEditorLogic(
                                 lineSystem.moveTo(insertIndex)
                                 loreTreeUiIdMemory.lineMoved(selectData.id, row.lineIndex, insertIndex)
 
-                                refreshButtonVisual(selectData.id)
+                                refreshSidebarState(selectData.id)
                                 handleRefresh(TreeRow.Folder.Lore)
                             }
                         }
@@ -982,7 +936,7 @@ class ItemEditorLogic(
                                         lineSystem.add(type)
                                         loreTreeUiIdMemory.lineInserted(selectData.id, row.lineIndex)
 
-                                        refreshButtonVisual(selectData.id)
+                                        refreshSidebarState(selectData.id)
                                         handleRefresh(TreeRow.Folder.Lore)
                                     }
                                 )
@@ -995,7 +949,7 @@ class ItemEditorLogic(
                                         LoreLineEditor(selectData.display, idx).add(type)
                                         loreTreeUiIdMemory.lineInserted(selectData.id, idx)
 
-                                        refreshButtonVisual(selectData.id)
+                                        refreshSidebarState(selectData.id)
                                         handleRefresh(TreeRow.Folder.Lore)
                                     }
                                 )
@@ -1009,7 +963,7 @@ class ItemEditorLogic(
                                                 lineSystem.section(sectionIndex).add(type)
                                                 loreTreeUiIdMemory.sectionInserted(selectData.id, row.lineUiId, sectionIndex)
 
-                                                refreshButtonVisual(selectData.id)
+                                                refreshSidebarState(selectData.id)
                                                 handleRefresh(row)
                                             }
                                         )
@@ -1022,7 +976,7 @@ class ItemEditorLogic(
                                                 lineSystem.section(sectionIndex).add(type)
                                                 loreTreeUiIdMemory.sectionInserted(selectData.id, row.lineUiId, sectionIndex)
 
-                                                refreshButtonVisual(selectData.id)
+                                                refreshSidebarState(selectData.id)
                                                 handleRefresh(row)
                                             }
                                         )
@@ -1037,7 +991,7 @@ class ItemEditorLogic(
                                                 lineSystem.section(insertIndex).add(type)
                                                 loreTreeUiIdMemory.sectionInserted(selectData.id, row.lineUiId, insertIndex)
 
-                                                refreshButtonVisual(selectData.id)
+                                                refreshSidebarState(selectData.id)
                                                 handleRefresh(row)
                                             }
                                         )
@@ -1049,7 +1003,7 @@ class ItemEditorLogic(
                                     lineSystem.remove()
                                     loreTreeUiIdMemory.lineRemoved(selectData.id, row.lineIndex)
 
-                                    refreshButtonVisual(selectData.id)
+                                    refreshSidebarState(selectData.id)
                                     handleRefresh(TreeRow.Folder.Lore)
                                 }
                             }
@@ -1069,7 +1023,7 @@ class ItemEditorLogic(
 
                 is TreeRow.Folder.LoreSection -> {
                     fun refreshParentLine() {
-                        refreshButtonVisual(selectData.id)
+                        refreshSidebarState(selectData.id)
                         handleRefresh(
                             TreeRow.Folder.LoreLine(
                                 lineIndex = row.lineIndex,
@@ -1209,7 +1163,7 @@ class ItemEditorLogic(
                                                 index = insertIndex
                                             )
 
-                                            refreshButtonVisual(selectData.id)
+                                            refreshSidebarState(selectData.id)
                                             handleRefresh(row)
                                         }
                                     )
@@ -1237,7 +1191,7 @@ class ItemEditorLogic(
                                                 index = insertIndex
                                             )
 
-                                            refreshButtonVisual(selectData.id)
+                                            refreshSidebarState(selectData.id)
                                             handleRefresh(row)
                                         }
                                     )
@@ -1264,7 +1218,7 @@ class ItemEditorLogic(
                                             LoreLineEditor(selectData.display, insertIndex).add(type)
                                             loreTreeUiIdMemory.lineInserted(selectData.id, insertIndex)
 
-                                            refreshButtonVisual(selectData.id)
+                                            refreshSidebarState(selectData.id)
                                             handleRefresh(row)
                                         }
                                     )
@@ -1301,7 +1255,7 @@ class ItemEditorLogic(
                                 lineSystem.moveTo(toIndex)
                                 loreTreeUiIdMemory.lineMoved(selectData.id, row.lineIndex, toIndex)
 
-                                refreshButtonVisual(selectData.id)
+                                refreshSidebarState(selectData.id)
                                 handleRefresh(TreeRow.Folder.Lore)
 
                                 event.consume()
@@ -1321,7 +1275,7 @@ class ItemEditorLogic(
                                 lineSystem.moveTo(toIndex)
                                 loreTreeUiIdMemory.lineMoved(selectData.id, fromIndex, toIndex)
 
-                                refreshButtonVisual(selectData.id)
+                                refreshSidebarState(selectData.id)
                                 handleRefresh(TreeRow.Folder.Lore)
 
                                 event.consume()
@@ -1336,7 +1290,7 @@ class ItemEditorLogic(
                                 lineSystem.remove()
                                 loreTreeUiIdMemory.lineRemoved(selectData.id, row.lineIndex)
 
-                                refreshButtonVisual(selectData.id)
+                                refreshSidebarState(selectData.id)
                                 handleRefresh(TreeRow.Folder.Lore)
 
                                 event.consume()
@@ -1347,7 +1301,7 @@ class ItemEditorLogic(
 
                 is TreeRow.Folder.LoreSection -> HBox(8.0).apply {
                     fun refreshParentLine() {
-                        refreshButtonVisual(selectData.id)
+                        refreshSidebarState(selectData.id)
                         handleRefresh(
                             TreeRow.Folder.LoreLine(
                                 lineIndex = row.lineIndex,
@@ -1434,7 +1388,7 @@ class ItemEditorLogic(
         treeView.setCellFactory {
             LoreDragDropTreeCell(
                 itemData = selectData,
-                refreshButtonVisual = ::refreshButtonVisual,
+                refreshSidebarState = ::refreshSidebarState,
                 recordHistorySnapshot = ::recordHistorySnapshot,
                 onRefresh = { row -> handleRefresh(row) },
                 loreTreeUiIdMemory = loreTreeUiIdMemory,
@@ -1618,10 +1572,10 @@ class ItemEditorLogic(
         return true
     }
 
-    override fun refreshButtonVisual(id: String) {
+    override fun refreshSidebarState(id: String) {
         // プレビュー更新
         previewCanvas?.refreshPreview()
-        super.refreshButtonVisual(id)
+        super.refreshSidebarState(id)
     }
 }
 

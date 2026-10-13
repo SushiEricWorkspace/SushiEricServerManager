@@ -9,15 +9,13 @@ import io.github.sushiericworkspace.sushiericservermanager.editor.store.StoreRes
 import io.github.sushiericworkspace.sushiericservermanager.ui.dialog.CustomDialog
 import javafx.event.EventHandler
 import javafx.geometry.Insets
-import javafx.geometry.Pos
-import javafx.scene.control.Button
 import javafx.scene.control.ContextMenu
-import javafx.scene.control.Label
 import javafx.scene.control.MenuItem
 import javafx.scene.control.TextField
 import javafx.scene.input.Clipboard
 import javafx.scene.input.ClipboardContent
 import javafx.scene.layout.VBox
+import javafx.scene.layout.Priority
 import javafx.scene.paint.Color
 
 internal fun filterManagedDataIds(ids: List<String>, query: String): List<String> {
@@ -51,24 +49,27 @@ internal abstract class ManagedDataEditorView<T : ManagedData<T, *>>(
         styleClass.add("sidebar-search-field")
         textProperty().addListener { _, _, _ -> renderSidebarResults() }
     }
-    private val sidebarResultsContainer = VBox().apply {
-        maxWidth = Double.MAX_VALUE
-        styleClass.add("sidebar-results-container")
-    }
-    private val sidebarNoResultsLabel = Label("該当する${dataAccess.displayName}がありません").apply {
-        maxWidth = Double.MAX_VALUE
-        styleClass.add("sidebar-no-results-label")
-    }
+    private val sidebarResults = EditorSidebar(
+        noResultsText = "該当する${dataAccess.displayName}がありません",
+        stateFor = ::sidebarState,
+        onSelect = ::selectTab,
+        createDataMenu = { id -> createSidebarContextMenu(id, registeredSidebarIds) },
+        createDirectoryMenu = ::createDirectoryContextMenu,
+        onMove = ::moveData,
+        expandedState = sidebarExpandedState,
+        onExpandedStateChanged = ::persistSidebarExpandedState,
+        onExpansionChanged = ::renderSidebarResults
+    )
+
     private var sidebarDataIds: List<String> = emptyList()
     private var sidebarDirectories: List<String> = emptyList()
 
     override fun setupSidebar(container: VBox, selectId: String?) {
-        container.children.setAll(sidebarSearchField, sidebarResultsContainer)
+        container.children.setAll(sidebarSearchField, sidebarResults)
+        VBox.setVgrow(sidebarResults, Priority.ALWAYS)
         VBox.setMargin(sidebarSearchField, Insets(10.0))
-        selectedButton = null
-        sidebarButtons.clear()
         sidebarDataIds = emptyList()
-        sidebarResultsContainer.children.clear()
+        sidebarResults.showRows(emptyList())
 
         val (fileResources, isSuccess) = sidebarResources()
         if (!isSuccess) {
@@ -89,30 +90,19 @@ internal abstract class ManagedDataEditorView<T : ManagedData<T, *>>(
             is StoreResult.Success -> result.value
             is StoreResult.Failure -> emptyList()
         }
-        val existingIds = ids.toSet()
-        ids.forEach { id ->
-            sidebarButtons[id] = createSidebarButton(id, existingIds)
-        }
-        TreeSidebarRenderer(
-            createDataButton = { id -> sidebarButtons.getValue(id) },
-            createDirectoryMenu = ::createDirectoryContextMenu,
-            onMove = ::moveData,
-            expandedState = sidebarExpandedState,
-            onExpandedStateChanged = ::persistSidebarExpandedState
-        ).enableRootDrop(sidebarResultsContainer)
+        registerSidebar(ids, sidebarResults)
         renderSidebarResults()
 
         val selectableIds = ids.filterNot(::isPendingStoreDeletion)
         if (selectableIds.isEmpty()) {
             currentSelectedDataId = null
-            selectedButton = null
             main.mainContentContainer.children.clear()
         } else {
             val requestedId = selectId?.removeSuffix(".yml")
             val targetId = requestedId?.takeIf { it in selectableIds } ?: selectableIds.first()
             selectTab(targetId)
         }
-        ids.forEach(::refreshButtonVisual)
+        ids.forEach(::refreshSidebarState)
         preloadSidebarDataForVisualStates(ids)
         startAutoSaveTimer()
 
@@ -123,26 +113,10 @@ internal abstract class ManagedDataEditorView<T : ManagedData<T, *>>(
     }
 
     private fun renderSidebarResults() {
-        if (sidebarDisplayMode == SidebarDisplayMode.FLAT) {
-            val buttons = FlatSidebarRenderer { id -> sidebarButtons.getValue(id) }
-                .render(sidebarDataIds, sidebarSearchField.text.orEmpty())
-            sidebarResultsContainer.children.setAll(buttons.ifEmpty { listOf(sidebarNoResultsLabel) })
-            return
-        }
-        val nodes = buildSidebarTree(sidebarDataIds, sidebarDirectories, sidebarSearchField.text.orEmpty())
-        if (nodes.isEmpty()) {
-            sidebarResultsContainer.children.setAll(sidebarNoResultsLabel)
-        } else {
-            sidebarResultsContainer.children.setAll(
-                TreeSidebarRenderer(
-                    createDataButton = { id -> sidebarButtons.getValue(id) },
-                    createDirectoryMenu = ::createDirectoryContextMenu,
-                    onMove = ::moveData,
-                    expandedState = sidebarExpandedState,
-                    onExpandedStateChanged = ::persistSidebarExpandedState
-                ).render(nodes)
-            )
-        }
+        sidebarResults.showRows(buildSidebarRows(
+            sidebarDataIds, sidebarDirectories, sidebarSearchField.text.orEmpty(),
+            sidebarDisplayMode, sidebarExpandedState
+        ))
     }
 
     private fun createDirectoryContextMenu(directory: String): ContextMenu {
@@ -246,17 +220,6 @@ internal abstract class ManagedDataEditorView<T : ManagedData<T, *>>(
     private fun showDirectoryError(message: String) {
         CustomDialog.error().title("ディレクトリ操作エラー").header(message).owner(main.currentStage).show()
     }
-
-    private fun createSidebarButton(id: String, existingIds: Set<String>): Button =
-        Button(PublicId.normalizeForLoad(id)).apply {
-            isFocusTraversable = false
-            isMnemonicParsing = false
-            this.id = id
-            maxWidth = Double.MAX_VALUE
-            alignment = Pos.CENTER_LEFT
-            onAction = EventHandler { selectTab(id) }
-            contextMenu = createSidebarContextMenu(id, existingIds)
-        }
 
     private fun createSidebarContextMenu(id: String, existingIds: Set<String>): ContextMenu {
         if (isPendingStoreDeletion(id)) {

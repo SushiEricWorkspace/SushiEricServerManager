@@ -166,7 +166,7 @@ internal class OreEditorLogic(
     private val skillExperienceFields = mutableMapOf<SkillType, TextField>()
 
     private val itemBinding = ItemReferenceBinding(dataService.itemReferences, {
-        sidebarButtons.keys.forEach(::refreshButtonVisual)
+        registeredSidebarIds.forEach(::refreshSidebarState)
         refreshCurrentValidation?.invoke()
     }, { error ->
         logger.error("ドロップ参照用のアイテム一覧を読み込めませんでした", error.cause)
@@ -229,7 +229,7 @@ internal class OreEditorLogic(
             }
 
             validationBox.children.setAll(labels)
-            refreshButtonVisual(selectData.id)
+            refreshSidebarState(selectData.id)
         }
         refreshCurrentValidation = ::refreshValidation
 

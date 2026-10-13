@@ -12,7 +12,7 @@ import javafx.scene.control.TreeItem
  */
 class ItemTreeMoveHandler(
     private val itemData: MutableItemBaseData,
-    private val refreshButtonVisual: (String) -> Unit,
+    private val refreshSidebarState: (String) -> Unit,
     private val loreTreeUiIdMemory: LoreTreeUiIdMemory
 ) : TreeMoveHandler<TreeRow> {
 
@@ -58,7 +58,7 @@ class ItemTreeMoveHandler(
             else -> return false
         }
 
-        refreshButtonVisual(itemData.id)
+        refreshSidebarState(itemData.id)
         return true
     }
 }
