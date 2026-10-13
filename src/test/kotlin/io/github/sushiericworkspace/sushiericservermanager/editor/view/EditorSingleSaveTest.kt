@@ -321,9 +321,9 @@ class EditorSingleSaveTest {
         fun delete() { stageDataDeletion("saved") }
         override fun setupSidebar(container: VBox, selectId: String?) {
             assertTrue(Platform.isFxApplicationThread())
-            assertTrue(sidebarResources().second)
-            assertIs<StoreResult.Success<*>>(sidebarDirectoryList())
-            selectId?.let(::selectTab)
+            loadSidebar(onFailed = { error("一覧の取得に失敗しました") }) { _, _ ->
+                selectId?.let(::selectTab)
+            }
         }
         override fun setupMainContent(selectData: T) { main.mainContentContainer.children.setAll(Label(selectData.id)) }
         override fun resolveSaveConflict(dataId: String, originalData: T, currentData: T, serverData: T): T = currentData

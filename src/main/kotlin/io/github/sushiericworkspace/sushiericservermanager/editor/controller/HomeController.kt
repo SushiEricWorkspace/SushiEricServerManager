@@ -1,6 +1,5 @@
 package io.github.sushiericworkspace.sushiericservermanager.editor.controller
 
-import io.github.sushiericworkspace.common.data.core.ManagedData
 import io.github.sushiericworkspace.sushiericservermanager.app.AppScreen
 import io.github.sushiericworkspace.sushiericservermanager.app.ApplicationFlow
 import io.github.sushiericworkspace.sushiericservermanager.app.AppMode
@@ -9,7 +8,6 @@ import io.github.sushiericworkspace.sushiericservermanager.monitor.ServerMonitor
 import io.github.sushiericworkspace.sushiericservermanager.ui.dialog.CustomDialog
 import io.github.sushiericworkspace.sushiericservermanager.util.Utility
 import io.github.sushiericworkspace.sushiericservermanager.ui.dialog.ErrorType
-import io.github.sushiericworkspace.sushiericservermanager.config.FilePath
 import io.github.sushiericworkspace.sushiericservermanager.config.ServerProfile
 import io.github.sushiericworkspace.sushiericservermanager.editor.main.item.ItemEditorLogic
 import io.github.sushiericworkspace.sushiericservermanager.editor.main.ore.OreEditorLogic
@@ -406,7 +404,6 @@ class HomeController internal constructor(
         openManagedDataEditor(
             key = "ITEM_EDITOR",
             title = "アイテムエディタ",
-            dataAccessProvider = { it.items },
             logicFactory = { mainController, service ->
                 ItemEditorLogic(
                     main = mainController,
@@ -422,7 +419,6 @@ class HomeController internal constructor(
         openManagedDataEditor(
             key = "SHOP_EDITOR",
             title = "ショップエディター",
-            dataAccessProvider = { it.shops },
             logicFactory = { controller, service -> ShopEditorLogic(controller, service) }
         )
     }
@@ -433,7 +429,6 @@ class HomeController internal constructor(
         openManagedDataEditor(
             key = "RECIPE_EDITOR",
             title = "レシピエディター",
-            dataAccessProvider = { it.recipes },
             logicFactory = { controller, service -> RecipeEditorLogic(controller, service) }
         )
     }
@@ -492,11 +487,10 @@ class HomeController internal constructor(
         MoneyHistoryWindowManager.open(rootPane.scene?.window, service.store)
     }
 
-    private fun <T : ManagedData<T, *>, L : EditorView<T>> openManagedDataEditor(
+    private fun openManagedDataEditor(
         key: String,
         title: String,
-        dataAccessProvider: (EditorDataService) -> EditorDataService.DataAccess<T>,
-        logicFactory: (MainController, EditorDataService) -> L
+        logicFactory: (MainController, EditorDataService) -> EditorView<*>
     ) {
         if (EditorSession.mode == AppMode.ONLINE && EditorSession.dataService?.store?.isAvailable != true) {
             CustomDialog.error(ErrorType.CONNECTION_FAILED).show()
@@ -510,7 +504,6 @@ class HomeController internal constructor(
             return
         }
 
-        val dataAccess = dataAccessProvider(service)
         val loader = FXMLLoader(javaClass.getResource(AppScreen.BASE.fxml!!))
 
         EditorWindowManager.openEditor(
@@ -518,52 +511,7 @@ class HomeController internal constructor(
             title = title,
             loader = loader
         ) { mainController ->
-            val logic = logicFactory(mainController, service)
-
-            try {
-                val profileName = service.cacheIdentity
-
-                val dataDir = service.autoSaveDirectory
-                    .resolve(profileName)
-                    .resolve(dataAccess.dataType.categoryDirName)
-
-                val editingDir = dataDir.resolve("editing")
-
-                if (editingDir.exists()) {
-                    val editingCaches = mutableMapOf<String, T>()
-                    val originalCaches = mutableMapOf<String, T>()
-
-                    editingDir
-                        .listFiles { file ->
-                            file.isFile && file.extension.lowercase() == "yml"
-                        }
-                        ?.forEach { file ->
-                            val id = file.nameWithoutExtension
-                            val backupPair = dataAccess.loadBackupPair(id)
-
-                            if (backupPair != null) {
-                                val restoredId = backupPair.first.id
-                                editingCaches[restoredId] = backupPair.first
-                                originalCaches[restoredId] = backupPair.second.apply { this.id = restoredId }
-                                if (restoredId != id) {
-                                    dataAccess.saveToLocalBackup(restoredId, "editing", backupPair.first)
-                                    dataAccess.saveToLocalBackup(restoredId, "original", backupPair.second)
-                                    dataAccess.deleteLocalBackup(id)
-                                    logger.info("旧形式の自動保存IDを移行しました: {} -> {}", id, restoredId)
-                                }
-                            }
-                        }
-
-                    logic.injectAutoSaveCaches(
-                        editingCaches = editingCaches,
-                        originalCaches = originalCaches
-                    )
-                }
-            } catch (e: Exception) {
-                logger.error("${dataAccess.displayName}エディタ起動時の自動保存スキャンに失敗しました", e)
-            }
-
-            logic
+            logicFactory(mainController, service)
         }
     }
 
@@ -573,7 +521,6 @@ class HomeController internal constructor(
         openManagedDataEditor(
             key = "ORE_EDITOR",
             title = "鉱石エディタ",
-            dataAccessProvider = { it.ores },
             logicFactory = { mainController, service ->
                 OreEditorLogic(
                     main = mainController,

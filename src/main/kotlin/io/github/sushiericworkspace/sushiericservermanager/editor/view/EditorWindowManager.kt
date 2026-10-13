@@ -49,7 +49,6 @@ object EditorWindowManager {
         }
 
         val logic = logicFactory(mainController)
-        mainController.switchView(logic)
 
         if (logic.openCancelled) {
             return
@@ -64,7 +63,12 @@ object EditorWindowManager {
         }
 
         activeEditors[key] = ActiveEditor(newStage, logic)
+        newStage.setOnHidden {
+            logic.onClose()
+            activeEditors.remove(key)
+        }
         newStage.show()
+        mainController.switchView(logic)
     }
 
     val hasRunningSave: Boolean

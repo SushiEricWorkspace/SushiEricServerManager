@@ -258,51 +258,31 @@ class ItemEditorLogic(
         sidebarItemIds = emptyList()
         sidebarResults.showRows(emptyList())
 
-        val (fileResources, isSuccess) = sidebarResources()
-        if (!isSuccess) {
-            CustomDialog.error()
-                .title("取得失敗")
-                .header("ファイルリストの取得に失敗しました。")
-                .owner(main.currentStage)
-                .show()
-            handleForceBackToSelect()
-            return
-        }
+        sidebarResults.placeholder = Label("一覧を読み込み中...")
+        loadSidebar(onFailed = {
+            sidebarResults.placeholder = Label("一覧の取得に失敗しました")
+        }) { ids, directories ->
+            sidebarResults.placeholder = Label("該当する${dataAccess.displayName}がありません")
+            sidebarItemIds = ids
+            sidebarDirectories = directories
+            registerSidebar(ids, sidebarResults)
+            renderSidebarResults()
 
-        /*
-         * サーバー上のIDへ、ローカルにだけ存在するIDを加えてサイドバーを作る。
-         * 未保存の新規データや複製データを、再オープン後も選べるようにするためである。
-         */
-        val remoteIds = fileResources.map { it.name.removeSuffix(".yml") }
-        remoteDataIds = remoteIds.toSet()
+            val selectableIds = ids.filterNot(::isPendingStoreDeletion)
+            if (selectableIds.isEmpty()) {
+                currentSelectedDataId = null
+                main.mainContentContainer.children.clear()
+            } else {
+                val requestedId = selectId?.removeSuffix(".yml")
+                val targetId = requestedId?.takeIf { it in selectableIds } ?: selectableIds.first()
+                selectTab(targetId)
+            }
 
-        val ids = mergeSidebarIdsWithPending(remoteIds)
-        sidebarItemIds = ids
-        sidebarDirectories = when (val result = sidebarDirectoryList()) {
-            is StoreResult.Success -> result.value
-            is StoreResult.Failure -> emptyList()
-        }
-        registerSidebar(ids, sidebarResults)
-        renderSidebarResults()
+            ids.forEach(::refreshSidebarState)
+            preloadSidebarDataForVisualStates(ids)
 
-        val selectableIds = ids.filterNot(::isPendingStoreDeletion)
-        if (selectableIds.isEmpty()) {
-            currentSelectedDataId = null
-            main.mainContentContainer.children.clear()
-        } else {
-            val requestedId = selectId?.removeSuffix(".yml")
-            val targetId = requestedId?.takeIf { it in selectableIds } ?: selectableIds.first()
-            selectTab(targetId)
-        }
+            startAutoSaveTimer()
 
-        ids.forEach(::refreshSidebarState)
-        preloadSidebarDataForVisualStates(ids)
-
-        startAutoSaveTimer()
-
-        if (restoredCacheCount > 0) {
-            main.showTimedTopLabel("自動保存から $restoredCacheCount 件のデータを復元しました", Color.GREENYELLOW)
-            restoredCacheCount = 0
         }
     }
 
