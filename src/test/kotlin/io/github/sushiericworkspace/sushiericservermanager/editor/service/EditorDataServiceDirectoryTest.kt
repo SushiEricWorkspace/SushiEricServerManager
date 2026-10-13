@@ -7,14 +7,50 @@ import io.github.sushiericworkspace.sushiericservermanager.editor.result.dataser
 import io.github.sushiericworkspace.sushiericservermanager.editor.store.EditorDataDescriptors
 import io.github.sushiericworkspace.sushiericservermanager.editor.store.InMemoryEditorDataStore
 import io.github.sushiericworkspace.sushiericservermanager.editor.store.StoreResult
+import io.github.sushiericworkspace.sushiericservermanager.editor.store.EditorDataStore
+import io.github.sushiericworkspace.sushiericservermanager.editor.store.EditorDataStoreKind
+import io.github.sushiericworkspace.sushiericservermanager.editor.store.LocalEditorDataStore
 import kotlin.io.path.createTempDirectory
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertIs
 import kotlin.test.assertNotNull
+import kotlin.test.assertTrue
 import kotlin.test.assertNull
 
 class EditorDataServiceDirectoryTest {
+    @Test
+    fun `通常リモートと開発管理のidentityとオフラインで退避を分離する`() {
+        val directory = createTempDirectory("backup-identities").toFile()
+        val memory = InMemoryEditorDataStore()
+        val normal = object : EditorDataStore by memory {
+            override val kind = EditorDataStoreKind.REMOTE
+            override val identity = "remote-profile"
+        }
+        val managed = object : EditorDataStore by memory {
+            override val kind = EditorDataStoreKind.REMOTE
+            override val identity = "managed-session"
+        }
+        val local = LocalEditorDataStore(directory.resolve("offline-store"))
+        val services = listOf(normal, managed, local).map { EditorDataService(it, directory.resolve("backups")) }
+        try {
+            services.forEachIndexed { index, service ->
+                val editing = service.items.createDefault("same-id").apply { editorMeta.comment.add("mode-$index") }
+                val original = service.items.createDefault("same-id")
+                val snapshot = LocalBackupSnapshot(1, mapOf("same-id" to (editing to original)), emptySet(), emptyList())
+                assertTrue(service.items.persistBackup(snapshot).get(10, java.util.concurrent.TimeUnit.SECONDS))
+            }
+            services.forEachIndexed { index, service ->
+                val pair = assertNotNull(service.items.loadBackupPair("same-id"))
+                assertEquals(listOf("mode-$index"), pair.first.editorMeta.comment)
+                assertTrue(pair.second.editorMeta.comment.isEmpty())
+            }
+        } finally {
+            services.forEach { it.closeIo() }
+            directory.deleteRecursively()
+        }
+    }
+
     @Test
     fun `保存待ち操作を自動保存領域へ保存して再読み込みできる`() {
         val backupRoot = createTempDirectory("editor-pending-operations").toFile()

@@ -20,6 +20,7 @@ import javafx.scene.control.TextField
 import javafx.stage.Stage
 import org.junit.jupiter.api.condition.EnabledOnOs
 import org.junit.jupiter.api.condition.OS
+import java.util.concurrent.CompletableFuture
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.FutureTask
 import java.util.concurrent.TimeUnit
@@ -47,6 +48,7 @@ class EditorSidebarIntegrationTest {
         val store = InMemoryEditorDataStore("sidebar-test")
         listOf("group.one", "group.two").forEach { id -> store.save(descriptor, id, descriptor.createDefault(id)) }
         val service = EditorDataService(store, directory)
+        val closed = CompletableFuture<Boolean>()
         try {
             fx {
                 val loader = FXMLLoader(javaClass.getResource(AppScreen.BASE.fxml!!))
@@ -79,9 +81,10 @@ class EditorSidebarIntegrationTest {
                     root.layout()
                     assertTrue(logic.sidebarState("group.two").selected)
                     assertTrue((root.lookupAll(".button").filterIsInstance<Button>().single { it.id == "group.two" } as Button).styleClass.contains("button-selected"))
-                } finally { logic.onClose(); stage.close() }
+                } finally { logic.onClose { success -> stage.close(); closed.complete(success) } }
             }
         } finally {
+            assertTrue(closed.get(10, TimeUnit.SECONDS))
             service.itemReferences.close()
             service.closeIo()
             directory.deleteRecursively()

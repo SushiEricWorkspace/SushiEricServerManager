@@ -97,10 +97,15 @@ class ManagedEditorDataStoreTest {
             assertTrue(peer.ioThreads.none { it })
             bases.forEach { base -> assertEquals("changed", assertIs<StoreResult.Success<MutableItemBaseData>>(service.items.loadStore(base.id)).value.display.displayName) }
         } finally {
-            fx { fixture.third.stop(); fixture.first.onClose(); fixture.second.close() }
-            service.closeIo()
-            service.itemReferences.close()
-            directory.toFile().deleteRecursively()
+            val closed = CompletableFuture<Boolean>()
+            fx { fixture.third.stop(); fixture.first.onClose { closed.complete(it) } }
+            try { assertTrue(closed.get(10, TimeUnit.SECONDS)) }
+            finally {
+                fx { fixture.second.close() }
+                service.closeIo()
+                service.itemReferences.close()
+                directory.toFile().deleteRecursively()
+            }
         }
     }
 

@@ -38,6 +38,7 @@ import io.github.sushiericworkspace.common.data.core.SushiEricDataType
 import javafx.animation.Animation
 import javafx.animation.KeyFrame
 import javafx.animation.Timeline
+import io.github.sushiericworkspace.sushiericservermanager.editor.service.LocalBackupSnapshot
 import javafx.application.Platform
 import javafx.event.EventHandler
 import javafx.concurrent.Task
@@ -141,6 +142,10 @@ abstract class EditorView<T : ManagedData<T, *>>(
     // ID（String）をキーにしたキャッシュMap
     protected val editingDataMap = mutableMapOf<String, T>()
     protected val originalDataMap = mutableMapOf<String, T>()
+    private var backupGeneration = 0L
+    private val removedBackupIds = mutableSetOf<String>()
+    private var closing = false
+    private var closed = false
     private val mergeConflicts = mutableMapOf<String, List<DataConflict>>()
     private val pendingStoreOperations = mutableMapOf<String, PendingStoreOperation>()
     private val editHistory = EditorDataHistory<T>(copy = { it.deepCopy() })
@@ -162,10 +167,10 @@ abstract class EditorView<T : ManagedData<T, *>>(
     private var repairBusy = false
     private var syncBusy = false
     val saveRunning: Boolean get() = main.operationRunning
-    internal val storeOperationBlocked: Boolean get() = dataService.activeSaves > 0
+    internal val storeOperationBlocked: Boolean get() = dataService.activeSaves > 0 || closing || closed
     private val saveListener = ChangeListener<Number> { _, _, count ->
-        main.actionButtonContainer.isDisable = count.toInt() > 0
-        main.sidebarContainer.isDisable = count.toInt() > 0
+        main.actionButtonContainer.isDisable = count.toInt() > 0 || closing
+        main.sidebarContainer.isDisable = count.toInt() > 0 || closing
     }
 
     init {
@@ -218,7 +223,7 @@ abstract class EditorView<T : ManagedData<T, *>>(
         originalDataMap.remove(id)
         mergeConflicts.remove(id)
         editHistory.remove(id)
-        dataAccess.deleteLocalBackup(id)
+        removeLocalBackup(id)
     }
 
     /** 新規データを、保存時にストアへ追加する保留操作として登録します。 */
@@ -242,21 +247,19 @@ abstract class EditorView<T : ManagedData<T, *>>(
         mergeConflicts.remove(oldId)?.let { mergeConflicts[newId] = it }
         editHistory.rename(oldId, newId)
         operation?.let { pendingStoreOperations[newId] = it }
-        dataAccess.deleteLocalBackup(oldId)
+        removeLocalBackup(oldId)
         persistPendingStoreState()
         if (operation == null) persistContentChangeBackup(newId)
         refreshSyncButtonState()
     }
 
     private fun persistContentChangeBackup(id: String) {
-        val editing = editingDataMap[id] ?: return
-        val original = originalDataMap[id] ?: return
-        if (editing == original) {
-            dataAccess.deleteLocalBackup(id)
-            return
-        }
-        dataAccess.saveToLocalBackup(id, "editing", editing)
-        dataAccess.saveToLocalBackup(id, "original", original)
+        if (id in editingDataMap) requestBackup()
+    }
+
+    private fun removeLocalBackup(id: String) {
+        removedBackupIds.add(id)
+        requestBackup()
     }
 
     /**
@@ -345,11 +348,12 @@ abstract class EditorView<T : ManagedData<T, *>>(
     protected fun handleForceBackToSelect() {
         logger.warn("ネットワーク切断または不正な状態を検知したため、エディタを強制終了します。")
 
-        executeAutoSave()
-        stopAutoSaveTimer()
-
-        cancelOpen()
-        dataService.forceBackToSelect()
+        onClose { success ->
+            if (success) {
+                cancelOpen()
+                dataService.forceBackToSelect()
+            }
+        }
     }
 
     /**
@@ -458,7 +462,8 @@ abstract class EditorView<T : ManagedData<T, *>>(
                 operationsBeforeLoad = pendingStoreOperations.toMap()
             },
             onBusyChanged = { busy -> uploadMenuItem?.isDisable = busy },
-            onLoaded = { entries ->
+            onLoaded = loaded@ { entries ->
+                if (closing || closed) return@loaded false
                 val changedWhileLoading = entries.filter { entry ->
                     val id = entry.data.id
                     editingDataMap[id] != editingBeforeLoad[id] ||
@@ -588,10 +593,9 @@ abstract class EditorView<T : ManagedData<T, *>>(
         if (remote != base) editHistory.reset(targetId, merge.merged)
         mergeConflicts[targetId] = merge.conflicts
         if (merge.merged != remote) {
-            dataAccess.saveToLocalBackup(targetId, "editing", merge.merged)
-            dataAccess.saveToLocalBackup(targetId, "original", remote)
+            persistContentChangeBackup(targetId)
         } else {
-            dataAccess.deleteLocalBackup(targetId)
+            removeLocalBackup(targetId)
         }
     }
 
@@ -601,7 +605,7 @@ abstract class EditorView<T : ManagedData<T, *>>(
      * 保存中は編集・再実行・画面終了を抑止します。
      */
     fun onSave(targetDataId: String? = null, onComplete: (SaveOutcome) -> Unit = {}) {
-        if (storeOperationBlocked || syncBusy || repairBusy) { onComplete(SaveOutcome.BUSY); return }
+        if (closed || closing || storeOperationBlocked || syncBusy || repairBusy) { onComplete(SaveOutcome.BUSY); return }
         main.mainContentContainer.requestFocus()
         commitPendingTextEdit()
         val dataId = targetDataId ?: currentSelectedDataId
@@ -666,7 +670,10 @@ abstract class EditorView<T : ManagedData<T, *>>(
                         savedDuringOperation = true
                         applySavedData(prepared, result.value)
                         main.showOperation("バックアップを整理しています")
-                        saveStep(backupCleanup(prepared), ::fail) { refreshSidebar() }
+                        requestBackup(allowDuringOperation = true) { success ->
+                            if (success) refreshSidebar()
+                            else fail(IllegalStateException("ローカル退避の整理に失敗しました。"))
+                        }
                     }
                 }
             }
@@ -755,6 +762,8 @@ abstract class EditorView<T : ManagedData<T, *>>(
             is PendingStoreOperation.Delete -> operation.sourceId
             else -> id
         }
+        removedBackupIds.add(id)
+        removedBackupIds.add(sourceId)
         pendingStoreOperations.remove(id)
         mergeConflicts.remove(id)
         if (operation is PendingStoreOperation.Delete) {
@@ -771,30 +780,6 @@ abstract class EditorView<T : ManagedData<T, *>>(
             editHistory.reset(id, data)
             remoteDataIds = (remoteDataIds - sourceId) + id
             refreshSidebarState(id)
-        }
-    }
-
-    private fun backupCleanup(prepared: PreparedSave<T>): () -> Unit {
-        val pending = pendingStoreOperations.values.toList()
-        val backups = pending.mapNotNull { entry ->
-            val id = entry.currentId
-            val editing = editingDataMap[id] ?: return@mapNotNull null
-            val original = originalDataMap[id] ?: return@mapNotNull null
-            Triple(id, editing.deepCopy(), original.deepCopy())
-        }
-        val sourceId = when (val operation = prepared.operation) {
-            is PendingStoreOperation.Rename -> operation.sourceId
-            is PendingStoreOperation.Delete -> operation.sourceId
-            else -> prepared.dataId
-        }
-        return {
-            check(dataAccess.savePendingStoreOperations(pending.map(PendingStoreOperation::toRecord)))
-            check(dataAccess.deleteLocalBackup(prepared.dataId))
-            if (sourceId != prepared.dataId) check(dataAccess.deleteLocalBackup(sourceId))
-            backups.forEach { (id, editing, original) ->
-                check(dataAccess.saveToLocalBackup(id, "editing", editing))
-                check(dataAccess.saveToLocalBackup(id, "original", original))
-            }
         }
     }
 
@@ -939,11 +924,13 @@ abstract class EditorView<T : ManagedData<T, *>>(
                         saved += entry.dataId
                         applySavedData(entry, result.value)
                         main.showOperation("保存中 $index/${prepared.size} 件: ${entry.dataId}（バックアップ整理）")
-                        saveStep(backupCleanup(entry), { error ->
-                            logger.error("一括保存のバックアップ整理に失敗しました: id={}", entry.dataId, error)
-                            postErrors += "${entry.dataId}: バックアップ整理に失敗しました。"
+                        requestBackup(allowDuringOperation = true) { success ->
+                            if (!success) {
+                                logger.error("一括保存のバックアップ整理に失敗しました: id={}", entry.dataId)
+                                postErrors += "${entry.dataId}: バックアップ整理に失敗しました。"
+                            }
                             next()
-                        }) { next() }
+                        }
                     }
                 }
             }
@@ -1205,55 +1192,65 @@ abstract class EditorView<T : ManagedData<T, *>>(
     ): T?
 
     /**
-     * エディタ（ウィンドウ）が閉じられる直前に呼び出される ライフサイクル関数です。
-     *
-     * このメソッドは、ユーザーがウィンドウの「×」ボタンを押した際や、システムによって
-     * ウィンドウが閉じられる要求が発生した際にトリガーされます。
-     * 子クラスでオーバーライドすることで、未保存チェックによる閉じる動作のキャンセルや、
-     * メモリ解放のためのキャッシュクリアなどの後処理を実装できます。
-     *
-     * @return ウィンドウをそのまま閉じてよい場合は `true`、
-     *         未保存データがあるなどの理由で閉じる動作を中断（キャンセル）したい場合は `false`。
+     * 最新の編集内容と保留操作を退避し、終了可否をJavaFXスレッドで通知します。
+     * JavaFXスレッドから呼び出してください。処理中や閉鎖済みの場合はその場で通知します。
+     * 退避失敗時は編集キャッシュを保持するため、再度呼び出して再試行できます。
      */
-    open fun onClose(): Boolean {
-        if (saveRunning) return false
+    fun onClose(onComplete: (Boolean) -> Unit) {
+        if (closed) { onComplete(true); return }
+        if (saveRunning || storeOperationBlocked || syncBusy || repairBusy || closing) {
+            onComplete(false)
+            return
+        }
+        main.mainContentContainer.requestFocus()
+        commitPendingTextEdit()
+        closing = true
         sidebarPreloadGeneration++
-        dataService.activeSavesProperty.removeListener(saveListener)
-        logger.info("アイテムエディタのクローズ処理を開始します。未保存の変更をローカルへ即時保存します。")
-
-        // 通常の編集内容と保存待ちの構造変更をローカルへ退避する
-        executeAutoSave()
-
-        // 安全にタイマーを停止
         stopAutoSaveTimer()
+        main.showOperation("終了前のバックアップ完了を待っています")
+        requestBackup(allowDuringOperation = true) { success ->
+            main.finishOperation()
+            closing = false
+            if (!success) {
+                startAutoSaveTimer()
+                main.showTimedTopLabel("退避に失敗しました。編集内容を保持しています。終了操作で再試行できます。", Color.ORANGERED, 10.0)
+                onComplete(false)
+                return@requestBackup
+            }
+            dataService.activeSavesProperty.removeListener(saveListener)
+            main.clearTopLabelTimer()
+            main.clearShortcuts()
 
-        main.clearTopLabelTimer()
-        main.clearShortcuts()
+            editingDataMap.clear()
+            originalDataMap.clear()
+            mergeConflicts.clear()
+            pendingStoreOperations.clear()
+            editHistory.clear()
+            registeredSidebarIds.clear()
+            sidebarStates.clear()
+            sidebarView?.showRows(emptyList())
+            sidebarView = null
+            currentSelectedDataId = null
+            saveMenuItem = null
+            saveAllMenuItem = null
+            syncMenuItem = null
+            syncAllMenuItem = null
+            undoMenuItem = null
+            redoMenuItem = null
+            repairWarningsMenuItem = null
+            repairAllWarningsMenuItem = null
+            repairErrorsMenuItem = null
+            repairAllErrorsMenuItem = null
+            syncBusy = false
 
-        editingDataMap.clear()
-        originalDataMap.clear()
-        mergeConflicts.clear()
-        pendingStoreOperations.clear()
-        editHistory.clear()
-        registeredSidebarIds.clear()
-        sidebarStates.clear()
-        sidebarView?.showRows(emptyList())
-        sidebarView = null
-        currentSelectedDataId = null
-        saveMenuItem = null
-        saveAllMenuItem = null
-        syncMenuItem = null
-        syncAllMenuItem = null
-        undoMenuItem = null
-        redoMenuItem = null
-        repairWarningsMenuItem = null
-        repairAllWarningsMenuItem = null
-        repairErrorsMenuItem = null
-        repairAllErrorsMenuItem = null
-        syncBusy = false
-
-        return true
+            closed = true
+            afterClose()
+            onComplete(true)
+        }
     }
+
+    /** ローカル退避とキャッシュ解放が成功した後に、種別固有の資源を解放します。 */
+    protected open fun afterClose() = Unit
 
     /**
      * 起動時に外側から自動保存バックアップ（新旧ペア）を注入するための関数
@@ -1645,44 +1642,61 @@ abstract class EditorView<T : ManagedData<T, *>>(
             .filterIsInstance<MutableItemBaseData>()
             .mapTo(mutableSetOf()) { item -> item.internalId }
 
-    /** 内容変更と保存待ちの構造変更をローカルに自動保存します。 */
-    protected fun executeAutoSave() {
-        if (saveRunning) return
-        val changedData = editingDataMap.filter { (id, data) ->
-            hasPendingStoreOperation(id) || data != originalDataMap[id]
-        }
-        if (changedData.isEmpty()) {
-            persistPendingStoreState()
-            return
-        }
-
-        logger.info("【自動保存】未保存の変更を検知しました（${changedData.size} 件）。ローカルキャッシュを更新します。")
-
-        changedData.forEach { (id, currentData) ->
-            // 編集中の最新データを保存
-            dataAccess.saveToLocalBackup(id, "editing", currentData)
-
-            // ベースとなったオリジナルを保存
-            val originalData = originalDataMap[id]
-            if (originalData != null) {
-                dataAccess.saveToLocalBackup(id, "original", originalData)
-            }
-        }
-
-        persistPendingStoreState()
-
-        main.showTimedTopLabel("${changedData.size} 件の項目を自動バックアップしました。", Color.GREENYELLOW)
+    /**
+     * JavaFXスレッドで取得した世代の編集・保留操作を背景で退避します。編集中の操作は止めません。
+     * 完了通知はJavaFXスレッドで行い、その後に加わった編集内容の退避完了は保証しません。
+     */
+    protected fun executeAutoSave(onComplete: (Boolean) -> Unit = {}) {
+        requestBackup(onComplete = onComplete)
     }
 
     private fun persistPendingStoreState() {
         pendingStoreOperations.entries.removeIf { !it.value.isEffective() }
-        pendingStoreOperations.keys.forEach { id ->
-            val editing = editingDataMap[id] ?: return@forEach
-            val original = originalDataMap[id] ?: return@forEach
-            dataAccess.saveToLocalBackup(id, "editing", editing)
-            dataAccess.saveToLocalBackup(id, "original", original)
+        requestBackup()
+    }
+
+    private fun requestBackup(
+        allowDuringOperation: Boolean = false,
+        onComplete: (Boolean) -> Unit = {}
+    ) {
+        if (closed || (!allowDuringOperation && saveRunning)) {
+            onComplete(false)
+            return
         }
-        dataAccess.savePendingStoreOperations(pendingStoreOperations.values.map(PendingStoreOperation::toRecord))
+        val entries = editingDataMap.mapNotNull { (id, editing) ->
+            val original = originalDataMap[id] ?: return@mapNotNull null
+            if (editing == original && !hasPendingStoreOperation(id)) return@mapNotNull null
+            id to (editing.deepCopy() to original.deepCopy())
+        }.toMap()
+        val removed = removedBackupIds + (editingDataMap.keys - entries.keys)
+        val snapshot = LocalBackupSnapshot(++backupGeneration, entries, removed,
+            pendingStoreOperations.values.map(PendingStoreOperation::toRecord))
+        if (!saveRunning) main.showBackupStatus("ローカルバックアップを更新しています")
+        dataAccess.persistBackup(snapshot).whenComplete { success, error ->
+            Platform.runLater {
+                val saved = error == null && success == true
+                if (error != null) logger.error("ローカル退避に失敗しました", error)
+                if (snapshot.generation == backupGeneration && !closed) {
+                    if (saved) removedBackupIds.removeAll(snapshot.removedIds)
+                    val currentIds = editingDataMap.keys.filterTo(mutableSetOf()) {
+                        hasPendingStoreOperation(it) || editingDataMap[it] != originalDataMap[it]
+                    }
+                    val current = snapshot.entries.keys == currentIds &&
+                        snapshot.entries.all { (id, pair) ->
+                            editingDataMap[id] == pair.first && originalDataMap[id] == pair.second
+                        } && snapshot.pending == pendingStoreOperations.values.map(PendingStoreOperation::toRecord)
+                    if (!saveRunning) main.showBackupStatus(
+                        when {
+                            !saved -> "バックアップに失敗しました。編集内容は保持されています。"
+                            current -> "ローカルバックアップを更新しました"
+                            else -> "退避後に編集されています。最新の変更は次回バックアップします。"
+                        },
+                        if (!saved) Color.ORANGERED else if (current) Color.GREENYELLOW else Color.WHITE
+                    )
+                }
+                onComplete(saved)
+            }
+        }
     }
 
     /**
@@ -1738,7 +1752,7 @@ abstract class EditorView<T : ManagedData<T, *>>(
                     originalDataMap[dataId] = latest.deepCopy()
                     editHistory.reset(dataId, latest)
                     mergeConflicts.remove(dataId)
-                    dataAccess.deleteLocalBackup(dataId)
+                    removeLocalBackup(dataId)
                     setupMainContent(editingDataMap.getValue(dataId))
                     refreshSidebarState(dataId)
                     main.showTimedTopLabel("$dataId を同期しました", Color.GREENYELLOW)
@@ -1796,6 +1810,7 @@ abstract class EditorView<T : ManagedData<T, *>>(
         if (!confirmed) return
 
         val previousSelection = currentSelectedDataId
+        removedBackupIds.addAll(editingDataMap.keys)
         editingDataMap.clear()
         originalDataMap.clear()
         editHistory.clear()
@@ -1805,7 +1820,7 @@ abstract class EditorView<T : ManagedData<T, *>>(
             editHistory.reset(id, data)
         }
         mergeConflicts.clear()
-        dataAccess.clearLocalBackupsExcept()
+        requestBackup()
         setupSidebar(main.sidebarContainer, previousSelection?.takeIf { it in remoteData })
         main.showTimedTopLabel(
             "${dataAccess.displayName}データ ${remoteData.size} 件を同期しました",

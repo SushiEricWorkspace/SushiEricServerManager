@@ -30,6 +30,7 @@ import javafx.stage.Stage
 import javafx.stage.Window
 import org.junit.jupiter.api.condition.EnabledOnOs
 import org.junit.jupiter.api.condition.OS
+import java.util.concurrent.CompletableFuture
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.FutureTask
 import java.util.concurrent.TimeUnit
@@ -143,7 +144,13 @@ class ItemReferenceEditorsTest {
                 assertEquals(2, reads.get())
             }
         } finally {
-            onFxThread { opened.forEach { (stage, logic) -> logic.onClose(); stage.close() } }
+            val closed = opened.map { (stage, logic) ->
+                CompletableFuture<Boolean>().also { done ->
+                    onFxThread { logic.onClose { success -> stage.close(); done.complete(success) } }
+                }
+            }
+            closed.forEach { assertTrue(it.get(10, TimeUnit.SECONDS)) }
+            service.closeIo()
             service.itemReferences.close()
             directory.deleteRecursively()
         }
