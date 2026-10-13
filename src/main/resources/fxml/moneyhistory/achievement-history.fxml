@@ -38,6 +38,7 @@
         </HBox>
     </VBox>
     <Label fx:id="statusLabel" text="プレイヤーを読み込み中..." />
+    <Label fx:id="nameStatusLabel" text="" />
     <TableView fx:id="historyTable" VBox.vgrow="ALWAYS">
         <columns>
             <TableColumn fx:id="timeColumn" text="達成時刻" prefWidth="170" />
