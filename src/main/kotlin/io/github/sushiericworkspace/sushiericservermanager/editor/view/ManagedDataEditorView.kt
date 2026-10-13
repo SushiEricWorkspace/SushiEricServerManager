@@ -70,7 +70,7 @@ internal abstract class ManagedDataEditorView<T : ManagedData<T, *>>(
         sidebarDataIds = emptyList()
         sidebarResultsContainer.children.clear()
 
-        val (fileResources, isSuccess) = dataAccess.listYmlResources()
+        val (fileResources, isSuccess) = sidebarResources()
         if (!isSuccess) {
             CustomDialog.error()
                 .title("取得失敗")
@@ -85,7 +85,7 @@ internal abstract class ManagedDataEditorView<T : ManagedData<T, *>>(
         remoteDataIds = remoteIds.toSet()
         val ids = mergeSidebarIdsWithPending(remoteIds)
         sidebarDataIds = ids
-        sidebarDirectories = when (val result = dataAccess.listDirectories()) {
+        sidebarDirectories = when (val result = sidebarDirectoryList()) {
             is StoreResult.Success -> result.value
             is StoreResult.Failure -> emptyList()
         }
@@ -163,6 +163,7 @@ internal abstract class ManagedDataEditorView<T : ManagedData<T, *>>(
     }
 
     private fun requestCreateDirectory(parent: String) {
+        if (storeOperationBlocked) return
         val name = main.requestInput("ディレクトリを追加") { input ->
             when {
                 input.isBlank() -> ValidationResult.Error("名前を入力してください")
@@ -178,6 +179,7 @@ internal abstract class ManagedDataEditorView<T : ManagedData<T, *>>(
     }
 
     private fun requestDeleteDirectory(directory: String) {
+        if (storeOperationBlocked) return
         val affected = idsInSidebarDirectory(sidebarDataIds, directory)
         val localOnly = isLocalOnlyDirectory(
             directory = directory,
@@ -204,7 +206,7 @@ internal abstract class ManagedDataEditorView<T : ManagedData<T, *>>(
             .okButton("削除", Color.RED)
             .owner(main.currentStage)
             .show()
-        if (!confirmed) return
+        if (!confirmed || storeOperationBlocked) return
 
         if (localOnly) {
             affected.forEach(::discardData)
@@ -223,6 +225,7 @@ internal abstract class ManagedDataEditorView<T : ManagedData<T, *>>(
     }
 
     private fun moveData(id: String, directory: String): Boolean {
+        if (storeOperationBlocked) return false
         val newId = PublicId.join(directory.split('.').filter(String::isNotEmpty), PublicId.nameOf(id))
         if (newId == id) return false
         if (!dataAccess.descriptor.isValidId(newId)) {
@@ -308,6 +311,7 @@ internal abstract class ManagedDataEditorView<T : ManagedData<T, *>>(
     }
 
     private fun requestDuplicate(id: String, existingIds: Set<String>) {
+        if (storeOperationBlocked) return
         val source = editingDataMap[id]?.deepCopy() ?: dataAccess.load(id).first?.deepCopy()
         if (source == null) {
             CustomDialog.error()
@@ -320,6 +324,7 @@ internal abstract class ManagedDataEditorView<T : ManagedData<T, *>>(
         }
         val directory = PublicId.directoryOf(id)
         val newName = requestNewId("${dataAccess.displayName}を複製", directory, existingIds) ?: return
+        if (storeOperationBlocked) return
         val newId = PublicId.join(directory, newName)
         val duplicate = dataAccess.duplicateAsNew(source, newId)
         editingDataMap[newId] = duplicate
@@ -330,8 +335,10 @@ internal abstract class ManagedDataEditorView<T : ManagedData<T, *>>(
     }
 
     private fun requestRename(id: String, existingIds: Set<String>) {
+        if (storeOperationBlocked) return
         val directory = PublicId.directoryOf(id)
         val newName = requestNewId("名前変更", directory, existingIds) ?: return
+        if (storeOperationBlocked) return
         val newId = PublicId.join(directory, newName)
         stageDataRename(id, newId)
         onDataRenamed(id, newId)
@@ -340,6 +347,7 @@ internal abstract class ManagedDataEditorView<T : ManagedData<T, *>>(
     }
 
     private fun requestDelete(id: String) {
+        if (storeOperationBlocked) return
         val localOnly = isLocalOnlyData(id, remoteDataIds) && !pendingOperationHasStoredSource(id)
         val confirmed = CustomDialog.confirmation()
             .title(if (localOnly) "未保存データを破棄" else "削除を保留")
@@ -356,7 +364,7 @@ internal abstract class ManagedDataEditorView<T : ManagedData<T, *>>(
             .okButton("削除", Color.RED)
             .owner(main.currentStage)
             .show()
-        if (!confirmed) return
+        if (!confirmed || storeOperationBlocked) return
 
         if (stageDataDeletion(id)) {
             onDataDeleted(id)

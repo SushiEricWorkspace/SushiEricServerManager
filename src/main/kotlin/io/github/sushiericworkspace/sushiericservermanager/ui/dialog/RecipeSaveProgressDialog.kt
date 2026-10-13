@@ -14,9 +14,9 @@ import javafx.scene.layout.VBox
 import javafx.stage.Modality
 import javafx.stage.Stage
 
-/** 最新の材料・レシピ取得を含む保存を別スレッドで実行し、処理中の再編集を防ぎます。 */
+/** 一括保存の同期入口で、レシピ検証中の表示を維持します。単件保存は共通工程表示を使います。 */
 internal object RecipeSaveProgressDialog {
-    fun save(owner: Stage?, dataId: String, operation: () -> StoreResult<Unit>): StoreResult<Unit> {
+    fun save(owner: Stage?, dataId: String, execute: (Runnable) -> Unit, operation: () -> StoreResult<Unit>): StoreResult<Unit> {
         var result: StoreResult<Unit> = StoreResult.Failure(StoreError(StoreErrorCode.IO_ERROR, dataId))
         val stage = Stage().apply {
             title = "レシピの検証・保存"
@@ -36,7 +36,7 @@ internal object RecipeSaveProgressDialog {
             result = StoreResult.Failure(StoreError(StoreErrorCode.IO_ERROR, dataId, cause = task.exception))
             stage.hide()
         }
-        stage.setOnShown { Thread(task, "recipe-editor-save").apply { isDaemon = true; start() } }
+        stage.setOnShown { execute(task) }
         stage.showAndWait()
         return result
     }

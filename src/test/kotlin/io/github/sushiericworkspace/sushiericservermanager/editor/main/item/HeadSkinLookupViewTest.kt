@@ -29,7 +29,7 @@ class HeadSkinLookupViewTest {
         catch (_: IllegalStateException) { started.countDown() }
         assertTrue(started.await(20, TimeUnit.SECONDS))
 
-        for (scenario in listOf("成功", "失敗", "入力変更", "入力復帰", "指定変更", "切替", "再表示", "終了", "再開", "空入力", "不正UUID")) {
+        for (scenario in listOf("成功", "失敗", "入力変更", "入力復帰", "指定変更", "保存中", "保存終了", "切替", "再表示", "終了", "再開", "空入力", "不正UUID")) {
             val entered = CountDownLatch(1)
             val release = CountDownLatch(1)
             val item = MutableItemBaseData().apply {
@@ -76,6 +76,8 @@ class HeadSkinLookupViewTest {
                 assertTrue(entered.await(10, TimeUnit.SECONDS))
                 fx {
                     when (scenario) {
+                        "保存中" -> root.isDisable = true
+                        "保存終了" -> { root.isDisable = true; root.isDisable = false }
                         "入力変更" -> input.text = "Other"
                         "入力復帰" -> { input.text = "Other"; input.text = "SushiEric" }
                         "指定変更" -> nodes(root).filterIsInstance<ComboBox<*>>().single {

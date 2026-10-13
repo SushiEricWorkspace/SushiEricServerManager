@@ -2,6 +2,7 @@
 
 <?import javafx.geometry.Insets?>
 <?import javafx.scene.control.Label?>
+<?import javafx.scene.control.ProgressIndicator?>
 <?import javafx.scene.control.ScrollPane?>
 <?import javafx.scene.layout.BorderPane?>
 <?import javafx.scene.layout.HBox?>
@@ -14,6 +15,7 @@
       <HBox fx:id="topBar" alignment="CENTER_LEFT" minHeight="24.0" prefHeight="24.0" spacing="12.0">
          <HBox fx:id="actionButtonContainer" alignment="CENTER_LEFT" spacing="0.0" />
          <Region HBox.hgrow="ALWAYS" />
+         <ProgressIndicator fx:id="operationProgress" prefWidth="18.0" prefHeight="18.0" visible="false" managed="false" />
          <Label fx:id="topInfoLabel" />
       </HBox>
    </top>

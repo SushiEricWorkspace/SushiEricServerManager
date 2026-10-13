@@ -854,6 +854,7 @@ class ItemEditorFactory(
                                     var lookupGeneration = 0L
                                     headSkinEditor.sceneProperty().addListener { _, _, _ -> lookupGeneration++ }
                                     headSkinEditor.visibleProperty().addListener { _, _, _ -> lookupGeneration++ }
+                                    headSkinEditor.disabledProperty().addListener { _, _, _ -> lookupGeneration++ }
                                     headSkinSourceComboBox.valueProperty().addListener { _, _, _ -> lookupGeneration++ }
                                     headSkinValueField.textProperty().addListener { _, _, _ -> lookupGeneration++ }
 
@@ -930,7 +931,7 @@ class ItemEditorFactory(
                                                 headSkinLookupButton.isDisable = false
                                                 headSkinLookupProgress.isVisible = false
                                                 headSkinLookupProgress.isManaged = false
-                                                if (generation != lookupGeneration || !window.isShowing ||
+                                                if (generation != lookupGeneration || headSkinEditor.isDisabled || !window.isShowing ||
                                                     headSkinEditor.scene?.window !== window ||
                                                     itemData.itemDetail.mutableHeadSkin?.source != source ||
                                                     itemData.itemDetail.mutableHeadSkin?.value != input

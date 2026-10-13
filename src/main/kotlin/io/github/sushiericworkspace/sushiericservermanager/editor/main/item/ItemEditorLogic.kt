@@ -259,7 +259,7 @@ class ItemEditorLogic(
         sidebarItemIds = emptyList()
         sidebarResultsContainer.children.clear()
 
-        val (fileResources, isSuccess) = dataAccess.listYmlResources()
+        val (fileResources, isSuccess) = sidebarResources()
         if (!isSuccess) {
             CustomDialog.error()
                 .title("取得失敗")
@@ -279,7 +279,7 @@ class ItemEditorLogic(
 
         val ids = mergeSidebarIdsWithPending(remoteIds)
         sidebarItemIds = ids
-        sidebarDirectories = when (val result = dataAccess.listDirectories()) {
+        sidebarDirectories = when (val result = sidebarDirectoryList()) {
             is StoreResult.Success -> result.value
             is StoreResult.Failure -> emptyList()
         }
@@ -360,6 +360,7 @@ class ItemEditorLogic(
     }
 
     private fun requestCreateDirectory(parent: String) {
+        if (storeOperationBlocked) return
         val name = main.requestInput("ディレクトリを追加") { input ->
             when {
                 input.isBlank() -> ValidationResult.Error("名前を入力してください")
@@ -375,6 +376,7 @@ class ItemEditorLogic(
     }
 
     private fun requestDeleteDirectory(directory: String) {
+        if (storeOperationBlocked) return
         val affected = idsInSidebarDirectory(sidebarItemIds, directory)
         val localOnly = isLocalOnlyDirectory(
             directory = directory,
@@ -401,7 +403,7 @@ class ItemEditorLogic(
             .okButton("削除", Color.RED)
             .owner(main.currentStage)
             .show()
-        if (!confirmed) return
+        if (!confirmed || storeOperationBlocked) return
 
         if (localOnly) {
             affected.forEach(::discardItemData)
@@ -420,6 +422,7 @@ class ItemEditorLogic(
     }
 
     private fun moveData(id: String, directory: String): Boolean {
+        if (storeOperationBlocked) return false
         val newId = PublicId.join(directory.split('.').filter(String::isNotEmpty), PublicId.nameOf(id))
         if (newId == id) return false
         if (newId in sidebarItemIds) {
@@ -513,6 +516,7 @@ class ItemEditorLogic(
     }
 
     private fun copyInternalId(id: String) {
+        if (storeOperationBlocked) return
         val internalId = resolveItemInternalId(editingDataMap[id]) {
             dataAccess.load(id).first
         }
@@ -538,6 +542,7 @@ class ItemEditorLogic(
     }
 
     private fun requestDuplicate(id: String, existingIds: Set<String>) {
+        if (storeOperationBlocked) return
         val source = editingDataMap[id]?.deepCopy() ?: dataAccess.load(id).first?.deepCopy()
         if (source == null) {
             CustomDialog.error()
@@ -559,6 +564,7 @@ class ItemEditorLogic(
             }
         } ?: return
 
+        if (storeOperationBlocked) return
         val newId = PublicId.join(directory, newName)
         val duplicate = dataAccess.duplicateAsNew(source, newId)
         editingDataMap[newId] = duplicate
@@ -569,6 +575,7 @@ class ItemEditorLogic(
     }
 
     private fun requestRename(id: String, existingIds: Set<String>) {
+        if (storeOperationBlocked) return
         val directory = PublicId.directoryOf(id)
         val newName = main.requestInput("名前変更") { input ->
             when {
@@ -583,6 +590,7 @@ class ItemEditorLogic(
          * 永続識別子で解決するため、公開IDの変更で既存アイテムは無効化されない。
          * このため破壊的変更としての確認は行わない。
         */
+        if (storeOperationBlocked) return
         val newId = PublicId.join(directory, newName)
         finishRename(id, newId)
     }
@@ -598,6 +606,7 @@ class ItemEditorLogic(
     }
 
     private fun requestDelete(id: String) {
+        if (storeOperationBlocked) return
         val localOnly = isLocalOnlyData(id, remoteDataIds) && !pendingOperationHasStoredSource(id)
         val confirmed = CustomDialog.confirmation()
             .title("削除を保留")
@@ -621,7 +630,7 @@ class ItemEditorLogic(
             .okButton("削除", Color.RED)
             .owner(main.currentStage)
             .show()
-        if (!confirmed) return
+        if (!confirmed || storeOperationBlocked) return
 
         if (stageDataDeletion(id)) {
             removeCachedData(id)
