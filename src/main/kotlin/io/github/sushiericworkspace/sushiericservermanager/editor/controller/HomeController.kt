@@ -29,6 +29,8 @@ import io.github.sushiericworkspace.sushiericservermanager.update.UpdateChecker
 import io.github.sushiericworkspace.sushiericservermanager.update.UpdateCheckResult
 import io.github.sushiericworkspace.sushiericservermanager.update.isNewerVersion
 import io.github.sushiericworkspace.sushiericservermanager.ui.dialog.UpdateDialog
+import javafx.beans.value.ChangeListener
+import javafx.scene.control.ProgressIndicator
 import javafx.concurrent.Task
 import javafx.application.Platform
 import javafx.scene.control.Button
@@ -46,7 +48,17 @@ import java.util.ResourceBundle
  * サーバー接続後のメイン操作画面（ホーム画面）を管理するコントローラー。
  * ファイルリストの表示、SSHセッションの維持、および切断処理を担当します。
  */
-class HomeController : Initializable {
+class HomeController internal constructor(
+    private val checkUpdate: () -> UpdateCheckResult,
+    private val showUpdate: (UpdateCheckResult.Update) -> UpdateDialog.Outcome
+) : Initializable {
+
+    constructor() : this(
+        { UpdateChecker().check() },
+        { update -> UpdateDialog.show(
+            update, openUrl = { java.awt.Desktop.getDesktop().browse(java.net.URI(it)) }, required = true
+        ) }
+    )
 
     private val logger = LoggerFactory.getLogger(javaClass)
 
@@ -56,6 +68,10 @@ class HomeController : Initializable {
     @FXML private lateinit var modeLabel: Label
     @FXML private lateinit var compatibilityLabel: Label
     @FXML private lateinit var updateButton: Button
+    @FXML private lateinit var updateCheckLabel: Label
+    @FXML private lateinit var updateCheckProgress: ProgressIndicator
+
+    private var requiredUpdateTask: Task<UpdateCheckResult>? = null
     @FXML private lateinit var managementLabel: Label
     @FXML private lateinit var monitorLabel: Label
     @FXML private lateinit var consoleButton: Button
@@ -176,6 +192,9 @@ class HomeController : Initializable {
      * 親ウィンドウの「閉じる」イベントを監視します。
      */
     override fun initialize(location: URL?, resources: ResourceBundle?) {
+        rootPane.sceneProperty().addListener { _, _, scene ->
+            if (scene == null) requiredUpdateTask?.cancel()
+        }
         val mode = EditorSession.mode
         modeLabel.text = when (mode) {
             AppMode.ONLINE -> EditorSession.connection?.contextName
@@ -254,23 +273,58 @@ class HomeController : Initializable {
      */
     @FXML
     private fun onRequiredUpdate() {
-        if (!ApplicationFlow.updatesEnabled) return
+        if (!ApplicationFlow.updatesEnabled || requiredUpdateTask != null || EditorSession.mode != AppMode.ONLINE) return
         val compatibility = (EditorSession.connection?.compatibility ?: sshManager.compatibility) as? ManagerCompatibility.UpdateRequired ?: return
-        updateButton.isDisable = true
+        val window = rootPane.scene?.window ?: return
+        if (!window.isShowing) return
+        val connection = EditorSession.connection
+        val client = sshManager.sshClient
+        val service = EditorSession.dataService
+        fun isCurrent(): Boolean = rootPane.scene?.window === window && window.isShowing &&
+            ApplicationFlow.updatesEnabled && EditorSession.mode == AppMode.ONLINE &&
+            EditorSession.sshManager === sshManager && EditorSession.connection === connection &&
+            sshManager.sshClient === client && EditorSession.dataService === service &&
+            (EditorSession.connection?.compatibility ?: sshManager.compatibility) === compatibility
+
         val task = object : Task<UpdateCheckResult>() {
-            override fun call() = UpdateChecker().check()
+            override fun call() = checkUpdate()
+        }
+        requiredUpdateTask = task
+        updateButton.isDisable = true
+        updateCheckLabel.text = "アップデートを確認中"
+        updateCheckLabel.isVisible = true
+        updateCheckLabel.isManaged = true
+        updateCheckProgress.isVisible = true
+        updateCheckProgress.isManaged = true
+        val showingListener = ChangeListener<Boolean> { _, _, showing ->
+            if (!showing) task.cancel()
+        }
+        window.showingProperty().addListener(showingListener)
+
+        fun finish(message: String?) {
+            requiredUpdateTask = null
+            window.showingProperty().removeListener(showingListener)
+            updateButton.isDisable = false
+            updateCheckProgress.isVisible = false
+            updateCheckProgress.isManaged = false
+            updateCheckLabel.text = message.orEmpty()
+            updateCheckLabel.isVisible = message != null
+            updateCheckLabel.isManaged = message != null
         }
         task.setOnSucceeded {
-            updateButton.isDisable = false
+            if (!isCurrent()) {
+                finish(null)
+                return@setOnSucceeded
+            }
             val update = task.value as? UpdateCheckResult.Update
             if (update == null || isNewerVersion(compatibility.minimumVersion, update.version)) {
+                finish("必要な版の更新を取得できません。")
                 CustomDialog.error().title("更新が必要です").header("必要な版の更新を取得できません")
                     .content("最低版 ${compatibility.minimumVersion} が必要です。公開されるまで読み取り専用で利用してください。").show()
             } else {
-                val outcome = UpdateDialog.show(
-                    update, openUrl = { java.awt.Desktop.getDesktop().browse(java.net.URI(it)) }, required = true
-                )
-                if (outcome == UpdateDialog.Outcome.EXIT) {
+                finish("アップデートの確認が完了しました。")
+                val outcome = showUpdate(update)
+                if (outcome == UpdateDialog.Outcome.EXIT && isCurrent()) {
                     if (EditorSession.connection != null) {
                         Utility.closeConnection { Platform.exit() }
                         return@setOnSucceeded
@@ -281,11 +335,16 @@ class HomeController : Initializable {
             }
         }
         task.setOnFailed {
-            updateButton.isDisable = false
             logger.warn("必須更新を確認できませんでした", task.exception)
+            if (!isCurrent()) {
+                finish(null)
+                return@setOnFailed
+            }
+            finish("アップデートを確認できません。再試行してください。")
             CustomDialog.error().title("更新が必要です").header("更新を確認できません")
                 .content("最低版 ${compatibility.minimumVersion} が必要です。接続を確認して再試行してください。").show()
         }
+        task.setOnCancelled { finish(null) }
         Thread(task, "required-update-check").apply { isDaemon = true; start() }
     }
 
