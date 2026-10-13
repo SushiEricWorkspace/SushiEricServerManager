@@ -68,6 +68,7 @@ dependencies {
     implementation("org.bouncycastle:bcprov-jdk18on:1.78")
 
     testImplementation(kotlin("test"))
+    testImplementation("org.mockito:mockito-core:5.14.2")
 }
 
 configurations.configureEach {

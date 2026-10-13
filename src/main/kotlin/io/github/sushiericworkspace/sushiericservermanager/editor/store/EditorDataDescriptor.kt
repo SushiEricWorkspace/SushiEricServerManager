@@ -61,6 +61,13 @@ class EditorDataDescriptor<T : ManagedData<T, *>>(
     /** falseならIDはパスだけに由来し、ローカルのID変更でも内容の再出力は不要です。 */
     val storesIdInFile: Boolean = true
 ) {
+    /**
+     * 保存前に最新のアイテム参照ID集合を取得する必要があるか。
+     * アイテム本体の検証は参照集合を使わず、ストア検証がある種別はその処理で取得します。
+     */
+    val requiresItemIds: Boolean
+        get() = dataType != SushiEricDataType.Item && validateInStore == null
+
     val displayName: String
         get() = dataType.displayName
 

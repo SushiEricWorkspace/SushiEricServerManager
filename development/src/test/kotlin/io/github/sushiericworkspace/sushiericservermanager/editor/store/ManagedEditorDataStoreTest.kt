@@ -1,6 +1,12 @@
 package io.github.sushiericworkspace.sushiericservermanager.editor.store
 
 import io.github.sushiericworkspace.common.data.item.model.mutable.MutableItemBaseData
+import io.github.sushiericworkspace.common.data.core.identity.VanillaBlockId
+import io.github.sushiericworkspace.common.data.drop.model.mutable.MutableDropItemData
+import io.github.sushiericworkspace.common.data.ore.model.mutable.MutableOreBaseData
+import io.github.sushiericworkspace.common.data.shop.model.mutable.MutableShopProductData
+import io.github.sushiericworkspace.common.data.recipe.model.RecipeIngredients
+import io.github.sushiericworkspace.common.data.recipe.model.mutable.MutableRecipeData
 import io.github.sushiericworkspace.sushiericservermanager.communication.managed.*
 import io.github.sushiericworkspace.sushiericservermanager.editor.service.EditorDataService
 import io.github.sushiericworkspace.sushiericservermanager.editor.service.PendingStoreOperationKind
@@ -89,6 +95,56 @@ class ManagedEditorDataStoreTest {
             assertEquals(StoreErrorCode.INVALID_ID, assertIs<StoreResult.Failure>(store.delete(EditorDataDescriptors.item, "../escape")).error.code)
             assertEquals(before, peer.fixture.commands.size)
             assertEquals(ManagedSession.State.OPEN, session.state)
+        } finally { root.toFile().deleteRecursively() }
+    }
+
+    @Test fun `アイテム保存では列挙と読込を要求せず本体検証とYAMLを維持する`() {
+        val root = createTempDirectory("managed-save-item-")
+        try {
+            val peer = StorePeer(root)
+            val store = peer.store()
+            val descriptor = EditorDataDescriptors.item
+            val item = descriptor.createDefault("test")
+            val before = peer.fixture.commands.size
+            assertIs<StoreResult.Success<Unit>>(store.save(descriptor, item.id, item))
+            assertTrue(item.completed)
+            val io = peer.fixture.commands.drop(before).filter { it.first == "writer-io" }
+            assertEquals(listOf("write"), io.map { it.second.getValue("request").jsonObject.getValue("action").jsonPrimitive.content })
+            assertEquals(item.freeze(), assertIs<StoreResult.Success<MutableItemBaseData>>(store.load(descriptor, item.id)).value.freeze())
+            val after = peer.fixture.commands.size
+            item.display.displayName = " "
+            assertEquals(StoreErrorCode.VALIDATION_FAILED, assertIs<StoreResult.Failure>(store.save(descriptor, item.id, item)).error.code)
+            assertFalse(item.completed)
+            assertEquals(after, peer.fixture.commands.size)
+        } finally { root.toFile().deleteRecursively() }
+    }
+
+    @Test fun `鉱石とショップの参照削除およびレシピ重複を最新定義で検出する`() {
+        val root = createTempDirectory("managed-save-references-")
+        try {
+            val peer = StorePeer(root)
+            val store = peer.store()
+            val item = EditorDataDescriptors.item.createDefault("reference")
+            assertIs<StoreResult.Success<Unit>>(store.save(EditorDataDescriptors.item, item.id, item))
+            val ore = MutableOreBaseData(id = "ore", blockId = VanillaBlockId("iron_ore"),
+                mutableDropItems = mutableListOf(MutableDropItemData(itemId = item.internalId)))
+            val shop = MutableShopProductData("weapons.product", item.internalId, 100, 50, 12, true, 3)
+            assertIs<StoreResult.Success<Unit>>(store.save(EditorDataDescriptors.ore, ore.id, ore))
+            assertIs<StoreResult.Success<Unit>>(store.save(EditorDataDescriptors.shop, shop.id, shop))
+            assertTrue(ore.completed)
+            assertTrue(shop.completed)
+            val recipe = MutableRecipeData(id = "recipe",
+                ingredients = RecipeIngredients.Shaped(mapOf(0 to item.internalId)), resultItemInternalId = item.internalId)
+            assertIs<StoreResult.Success<Unit>>(store.save(EditorDataDescriptors.recipe, recipe.id, recipe))
+            assertTrue(recipe.completed)
+            val duplicate = recipe.copy(id = "duplicate")
+            assertEquals(StoreErrorCode.VALIDATION_FAILED,
+                assertIs<StoreResult.Failure>(store.save(EditorDataDescriptors.recipe, duplicate.id, duplicate)).error.code)
+            assertIs<StoreResult.Success<Unit>>(store.delete(EditorDataDescriptors.item, item.id))
+            assertIs<StoreResult.Success<Unit>>(store.save(EditorDataDescriptors.ore, ore.id, ore))
+            assertIs<StoreResult.Success<Unit>>(store.save(EditorDataDescriptors.shop, shop.id, shop))
+            assertFalse(ore.completed)
+            assertFalse(shop.completed)
         } finally { root.toFile().deleteRecursively() }
     }
 
