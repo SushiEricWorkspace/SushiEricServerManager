@@ -98,11 +98,7 @@ class MojangHeadSkinTextureLookup(
     ): HeadSkinTextureLookupResult {
         val input = value.trim()
 
-        if (input.isEmpty()) {
-            return HeadSkinTextureLookupResult.Failure(
-                "値を入力してください。"
-            )
-        }
+        headSkinLookupInputFailure(source, value)?.let { return it }
 
         val profileId = when (source) {
             HeadSkinSource.PLAYER_NAME ->
@@ -236,22 +232,6 @@ class MojangHeadSkinTextureLookup(
         else -> null
     }
 
-    /**
-     * 入力UUIDをAPIで使用するハイフンなし表記へ変換します。
-     *
-     * 解釈できない場合はnullを返します。
-     */
-    private fun normalizeUuid(value: String): String? {
-        if (UNDASHED_UUID_PATTERN.matches(value)) {
-            return value.lowercase()
-        }
-
-        return runCatching { UUID.fromString(value) }
-            .getOrNull()
-            ?.toString()
-            ?.replace("-", "")
-    }
-
     private companion object {
         const val NAME_LOOKUP_URL =
             "https://api.mojang.com/users/profiles/minecraft"
@@ -266,8 +246,6 @@ class MojangHeadSkinTextureLookup(
         const val HTTP_TOO_MANY_REQUESTS = 429
 
         val HTTP_OK_RANGE = 200..299
-
-        val UNDASHED_UUID_PATTERN = Regex("^[0-9a-fA-F]{32}$")
 
         const val PLAYER_NOT_FOUND_MESSAGE =
             "プレイヤーが見つかりません。"
@@ -317,7 +295,6 @@ class DefaultHeadSkinHttpClient(
             connection.disconnect()
         }
     }
-
     private companion object {
         const val DEFAULT_TIMEOUT_MILLIS = 5000
     }
@@ -341,3 +318,34 @@ private data class MojangProfileProperty(
     val name: String = "",
     val value: String = ""
 )
+
+private val UNDASHED_UUID_PATTERN = Regex("^[0-9a-fA-F]{32}$")
+
+/**
+ * 入力UUIDをAPIで使用するハイフンなし表記へ変換します。
+ *
+ * 解釈できない場合はnullを返します。
+ */
+private fun normalizeUuid(value: String): String? {
+    if (UNDASHED_UUID_PATTERN.matches(value)) {
+        return value.lowercase()
+    }
+
+    return runCatching { UUID.fromString(value) }
+        .getOrNull()
+        ?.toString()
+        ?.replace("-", "")
+}
+
+/** 通信せずに判定できる入力エラーを返します。 */
+internal fun headSkinLookupInputFailure(
+    source: HeadSkinSource,
+    value: String
+): HeadSkinTextureLookupResult.Failure? = when {
+    value.isBlank() -> HeadSkinTextureLookupResult.Failure("値を入力してください。")
+    source == HeadSkinSource.TEXTURE ->
+        HeadSkinTextureLookupResult.Failure("テクスチャ指定では取得できません。")
+    source == HeadSkinSource.PLAYER_UUID && normalizeUuid(value.trim()) == null ->
+        HeadSkinTextureLookupResult.Failure("UUIDとして解釈できません。")
+    else -> null
+}

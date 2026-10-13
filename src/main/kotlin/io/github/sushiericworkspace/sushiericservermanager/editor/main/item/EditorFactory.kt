@@ -35,6 +35,7 @@ import io.github.sushiericworkspace.sushiericservermanager.editor.tree.EditorGra
 import io.github.sushiericworkspace.sushiericservermanager.editor.main.item.tree.TreeRow
 import io.github.sushiericworkspace.sushiericservermanager.ui.AppTooltip
 import io.github.sushiericworkspace.sushiericservermanager.util.NumericSpinnerFactory
+import javafx.beans.value.ChangeListener
 import javafx.event.ActionEvent
 import javafx.geometry.Insets
 import javafx.geometry.Pos
@@ -47,6 +48,7 @@ import javafx.scene.control.CheckBox
 import javafx.scene.control.ColorPicker
 import javafx.scene.control.ComboBox
 import javafx.scene.control.Dialog
+import javafx.scene.control.ProgressIndicator
 import javafx.scene.control.Label
 import javafx.scene.control.ListCell
 import javafx.scene.control.Spinner
@@ -725,6 +727,12 @@ class ItemEditorFactory(
                                         isVisible = false
                                         isManaged = false
                                     }
+                                    val headSkinLookupProgress = ProgressIndicator().apply {
+                                        prefWidth = 18.0
+                                        prefHeight = 18.0
+                                        isVisible = false
+                                        isManaged = false
+                                    }
                                     val headSkinLookupButton = Button("テクスチャ値を取得").apply {
                                         isVisible = false
                                         isManaged = false
@@ -745,7 +753,8 @@ class ItemEditorFactory(
                                                 children.addAll(
                                                     headSkinSourceComboBox,
                                                     headSkinValueField,
-                                                    headSkinLookupButton
+                                                    headSkinLookupButton,
+                                                    headSkinLookupProgress
                                                 )
                                             },
                                             headSkinMultilineArea,
@@ -842,6 +851,12 @@ class ItemEditorFactory(
                                         headSkinErrorLabel.isManaged = errorMessage != null
                                     }
 
+                                    var lookupGeneration = 0L
+                                    headSkinEditor.sceneProperty().addListener { _, _, _ -> lookupGeneration++ }
+                                    headSkinEditor.visibleProperty().addListener { _, _, _ -> lookupGeneration++ }
+                                    headSkinSourceComboBox.valueProperty().addListener { _, _, _ -> lookupGeneration++ }
+                                    headSkinValueField.textProperty().addListener { _, _, _ -> lookupGeneration++ }
+
                                     headSkinSourceComboBox.valueProperty().addListener { _, _, option ->
                                         if (syncingHeadSkinEditor) return@addListener
 
@@ -879,7 +894,9 @@ class ItemEditorFactory(
                                         }
                                     }
 
-                                    fun showHeadSkinLookupMessage(message: String?) {
+                                    fun showHeadSkinLookupMessage(message: String?, failed: Boolean = false) {
+                                        headSkinLookupLabel.styleClass.remove("error-label")
+                                        if (failed) headSkinLookupLabel.styleClass.add("error-label")
                                         headSkinLookupLabel.text = message.orEmpty()
                                         headSkinLookupLabel.isVisible = message != null
                                         headSkinLookupLabel.isManaged = message != null
@@ -890,29 +907,48 @@ class ItemEditorFactory(
                                             ?: return@setOnAction
                                         val input = headSkinValueField.text
 
-                                        showHeadSkinLookupMessage(null)
+                                        headSkinLookupInputFailure(source, input)?.let {
+                                            showHeadSkinLookupMessage(it.message, failed = true)
+                                            return@setOnAction
+                                        }
+                                        val generation = ++lookupGeneration
+                                        val window = headSkinEditor.scene?.window ?: return@setOnAction
+                                        val showingListener = ChangeListener<Boolean> { _, _, showing ->
+                                            if (!showing) lookupGeneration++
+                                        }
+                                        window.showingProperty().addListener(showingListener)
+                                        showHeadSkinLookupMessage("スキンを取得中")
+                                        headSkinLookupProgress.isVisible = true
+                                        headSkinLookupProgress.isManaged = true
                                         headSkinLookupButton.isDisable = true
 
-                                        /*
-                                         * 通信でUIを止めないため別スレッドで取得し、
-                                         * 反映だけをJavaFXスレッドへ戻す。
-                                         */
                                         Thread {
                                             val result = headSkinTextureLookup.lookup(source, input)
 
                                             Platform.runLater {
+                                                window.showingProperty().removeListener(showingListener)
                                                 headSkinLookupButton.isDisable = false
+                                                headSkinLookupProgress.isVisible = false
+                                                headSkinLookupProgress.isManaged = false
+                                                if (generation != lookupGeneration || !window.isShowing ||
+                                                    headSkinEditor.scene?.window !== window ||
+                                                    itemData.itemDetail.mutableHeadSkin?.source != source ||
+                                                    itemData.itemDetail.mutableHeadSkin?.value != input
+                                                ) {
+                                                    showHeadSkinLookupMessage(null)
+                                                    return@runLater
+                                                }
 
                                                 when (result) {
                                                     is HeadSkinTextureLookupResult.Success -> {
                                                         headSkinSourceComboBox.value = headSkinSourceOptions
                                                             .first { it.source == HeadSkinSource.TEXTURE }
                                                         headSkinValueField.text = result.texture
-                                                        showHeadSkinLookupMessage(null)
+                                                        showHeadSkinLookupMessage("スキンを取得しました。")
                                                     }
 
                                                     is HeadSkinTextureLookupResult.Failure ->
-                                                        showHeadSkinLookupMessage(result.message)
+                                                        showHeadSkinLookupMessage(result.message, failed = true)
                                                 }
                                             }
                                         }.apply {
