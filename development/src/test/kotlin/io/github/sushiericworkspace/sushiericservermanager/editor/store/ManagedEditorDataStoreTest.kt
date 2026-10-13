@@ -13,11 +13,97 @@ import io.github.sushiericworkspace.sushiericservermanager.editor.service.Pendin
 import io.github.sushiericworkspace.sushiericservermanager.editor.service.PendingStoreOperationRecord
 import io.github.sushiericworkspace.sushiericservermanager.update.ManagerCompatibility
 import kotlinx.serialization.json.*
+import org.junit.jupiter.api.Assumptions
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.FutureTask
+import java.util.concurrent.CompletableFuture
+import javafx.application.Platform
+import javafx.fxml.FXMLLoader
+import javafx.scene.Parent
+import javafx.stage.Stage
+import javafx.scene.Scene
+import javafx.scene.layout.VBox
+import javafx.animation.Timeline
+import javafx.animation.KeyFrame
+import javafx.util.Duration
+import javafx.stage.Window
+import javafx.scene.control.DialogPane
+import javafx.scene.control.ButtonBar
+import javafx.scene.control.Button
+import io.github.sushiericworkspace.sushiericservermanager.editor.view.EditorView
+import io.github.sushiericworkspace.sushiericservermanager.editor.controller.MainController
 import java.nio.file.Path
 import kotlin.io.path.createTempDirectory
 import kotlin.test.*
 
 class ManagedEditorDataStoreTest {
+    @Test fun `管理接続の一括保存は共有工程を使い保存と一覧取得を背景実行する`() {
+        Assumptions.assumeTrue(System.getProperty("os.name").let { it.startsWith("Windows") || it.startsWith("Mac") })
+        val ready = CountDownLatch(1)
+        try { Platform.startup { Platform.setImplicitExit(false); ready.countDown() } }
+        catch (_: IllegalStateException) { Platform.runLater { ready.countDown() } }
+        assertTrue(ready.await(10, TimeUnit.SECONDS))
+        fun <R> fx(action: () -> R): R {
+            val task = FutureTask(action)
+            Platform.runLater(task)
+            return task.get(15, TimeUnit.SECONDS)
+        }
+        val directory = createTempDirectory("managed-batch-save-")
+        val peer = StorePeer(directory)
+        val service = EditorDataService(peer.store(), directory.toFile())
+        val descriptor = EditorDataDescriptors.item
+        val bases = listOf("first", "second").map { MutableItemBaseData(id = it).apply { display.displayName = "original" } }
+        bases.forEach { assertIs<StoreResult.Success<Unit>>(service.items.saveStore(it.id, it).also { result -> assertTrue(result is StoreResult.Success, result.toString()) }) }
+        val completed = CompletableFuture<EditorView.BatchSaveResult>()
+        val fixture = fx {
+            val loader = FXMLLoader(javaClass.getResource("/fxml/main/base.fxml"))
+            val root = loader.load<Parent>()
+            val main = loader.getController<MainController>()
+            val stage = Stage().apply { scene = Scene(root); show() }
+            val logic = object : EditorView<MutableItemBaseData>(main, service, service.items) {
+                init {
+                    bases.forEach { base ->
+                        originalDataMap[base.id] = base.deepCopy()
+                        editingDataMap[base.id] = base.deepCopy().apply { display.displayName = "changed" }
+                    }
+                    currentSelectedDataId = "first"
+                }
+                override fun setupSidebar(container: VBox, selectId: String?) {
+                    assertTrue(Platform.isFxApplicationThread())
+                    assertTrue(sidebarResources().second)
+                    assertIs<StoreResult.Success<*>>(sidebarDirectoryList())
+                }
+                override fun setupMainContent(selectData: MutableItemBaseData) = Unit
+                override fun resolveSaveConflict(dataId: String, originalData: MutableItemBaseData, currentData: MutableItemBaseData, serverData: MutableItemBaseData) = currentData
+            }
+            val timer = Timeline(KeyFrame(Duration.millis(20.0), {
+                Platform.runLater {
+                    Window.getWindows().toList().mapNotNull { it.scene?.root as? DialogPane }.forEach { pane ->
+                        val type = pane.buttonTypes.firstOrNull { it.buttonData == ButtonBar.ButtonData.OK_DONE } ?: pane.buttonTypes.first()
+                        (pane.lookupButton(type) as Button).fire()
+                    }
+                }
+            })).apply { cycleCount = Timeline.INDEFINITE; play() }
+            Triple(logic, stage, timer)
+        }
+        try {
+            peer.ioThreads.clear()
+            fx { fixture.first.onSaveAll { completed.complete(it) } }
+            val result = completed.get(15, TimeUnit.SECONDS)
+            assertEquals(EditorView.SaveOutcome.SAVED, result.outcome)
+            assertEquals(listOf("first", "second"), result.saved)
+            assertTrue(peer.ioThreads.isNotEmpty())
+            assertTrue(peer.ioThreads.none { it })
+            bases.forEach { base -> assertEquals("changed", assertIs<StoreResult.Success<MutableItemBaseData>>(service.items.loadStore(base.id)).value.display.displayName) }
+        } finally {
+            fx { fixture.third.stop(); fixture.first.onClose(); fixture.second.close() }
+            service.closeIo()
+            service.itemReferences.close()
+            directory.toFile().deleteRecursively()
+        }
+    }
+
     @Test fun `同じpublicIDの異なる管理rootをCRUDとautoSave pending cache offlineで隔離する`() {
         val root = createTempDirectory("managed-store-profiles-")
         try {
@@ -151,11 +237,13 @@ class ManagedEditorDataStoreTest {
     private class StorePeer(private val storage: Path) : SupervisorClient {
         val fixture = ManagedSessionTest.Fixture(storage)
         val files = mutableMapOf<String, String>()
+        val ioThreads = mutableListOf<Boolean>()
         var failure: SupervisorFailure? = null
         fun session() = ManagedSession.open(fixture.profile, storage, this)
         fun store() = ManagedEditorDataStore(session(), ManagerCompatibility.Compatible("0.1.0"))
         override fun request(command: String, payload: JsonObject, operationId: String): JsonObject {
             if (command != "writer-io") return fixture.request(command, payload, operationId)
+            ioThreads += Platform.isFxApplicationThread()
             fixture.commands += command to payload
             failure?.let { throw it }
             val request = payload.getValue("request").jsonObject

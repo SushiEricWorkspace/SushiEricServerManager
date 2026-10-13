@@ -127,8 +127,10 @@ class MainController {
         ) {
             if (!logic.storeOperationBlocked) logic.onSave()
         }
+        ShortcutManager.register(scene, EditorShortcut.SAVE_ALL) {
+            if (!logic.storeOperationBlocked) logic.onSaveAll()
+        }
         listOf(
-            EditorShortcut.SAVE_ALL to logic::onSaveAll,
             EditorShortcut.SYNC to logic::onSynchronizeSelected,
             EditorShortcut.SYNC_ALL to logic::onSynchronizeAll,
             EditorShortcut.CREATE_DATA to logic::onCreateData,
