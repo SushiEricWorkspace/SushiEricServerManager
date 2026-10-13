@@ -56,7 +56,7 @@ internal class RecipeEditorLogic(main: MainController, dataService: EditorDataSe
     private val itemsLoaded get() = dataService.itemReferences.snapshot.status == ItemReferenceStatus.READY
     private val itemBinding = ItemReferenceBinding(dataService.itemReferences, {
         refreshItemButtons()
-        sidebarButtons.keys.forEach(::refreshButtonVisual)
+        registeredSidebarIds.forEach(::refreshSidebarState)
         refreshContent?.invoke()
     }, { error ->
         logger.warn("レシピ用のアイテム一覧を取得できませんでした。", error.cause)
@@ -88,7 +88,7 @@ internal class RecipeEditorLogic(main: MainController, dataService: EditorDataSe
             }
             refreshButton.isDisable = catalogTask != null || dataService.itemReferences.snapshot.status == ItemReferenceStatus.LOADING
             refreshItemButtons()
-            sidebarButtons.keys.forEach(::refreshButtonVisual)
+            registeredSidebarIds.forEach(::refreshSidebarState)
         }
         refreshContent = ::refresh
         refreshButton.setOnAction { loadCatalog(force = true) }

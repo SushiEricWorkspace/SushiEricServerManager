@@ -91,3 +91,44 @@ private class MutableSidebarDirectory(
         data.forEach { (name, id) -> add(SidebarTreeNode.Data(name, id)) }
     }
 }
+
+/** エディターが選択できるサイドバー表示方式です。 */
+enum class SidebarDisplayMode { TREE, FLAT }
+
+/** 仮想化された一覧に表示する行です。深さはルート直下を0とします。 */
+internal sealed interface SidebarRow {
+    val name: String
+    val depth: Int
+
+    data class Data(val fullId: String, override val name: String, override val depth: Int) : SidebarRow
+    data class Directory(val fullPath: String, override val name: String, override val depth: Int, val expanded: Boolean) : SidebarRow
+}
+
+internal fun buildSidebarRows(
+    ids: Collection<String>,
+    directories: Collection<String>,
+    query: String,
+    mode: SidebarDisplayMode,
+    expandedState: Map<String, Boolean>
+): List<SidebarRow> {
+    if (mode == SidebarDisplayMode.FLAT) {
+        return filterManagedDataIds(ids.sorted(), query).map { SidebarRow.Data(it, PublicId.normalizeForLoad(it), 0) }
+    }
+    return buildList {
+        fun addNodes(nodes: List<SidebarTreeNode>, depth: Int) {
+            nodes.forEach { node ->
+                when (node) {
+                    is SidebarTreeNode.Data -> add(SidebarRow.Data(node.fullId, node.name, depth))
+                    is SidebarTreeNode.Directory -> {
+                        val expanded = expandedState[node.fullPath] ?: true
+                        add(SidebarRow.Directory(node.fullPath, node.name, depth, expanded))
+                        if (expanded) addNodes(node.children, depth + 1)
+                    }
+                }
+            }
+        }
+        addNodes(buildSidebarTree(ids, directories, query), 0)
+    }
+}
+
+internal fun sidebarDisclosureSymbol(expanded: Boolean): String = if (expanded) "▾" else "▸"

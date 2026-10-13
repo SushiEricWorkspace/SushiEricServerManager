@@ -111,15 +111,15 @@ private data class HeadSkinSourceOption(val source: HeadSkinSource?) {
  * 共通TreeCellから呼び出され、MutableItemBaseDataに応じた入力UIを生成する。
  *
  * @property itemData 編集対象のItem定義。
- * @property refreshButtonVisual 変更を保存ボタンの表示へ反映する処理。
+ * @property refreshSidebarState 変更を保存ボタンの表示へ反映する処理。
  * @property recordHistorySnapshot 確定した操作を編集履歴へ記録する処理。
  * @property headSkinTextureLookup ヘッドスキンのテクスチャ値取得。
  * 既定はMojang APIを使用する実装。
  */
 class ItemEditorFactory(
     private val itemData: MutableItemBaseData,
-    private val refreshButtonVisual: (String) -> Unit,
-    private val recordHistorySnapshot: (String) -> Unit = refreshButtonVisual,
+    private val refreshSidebarState: (String) -> Unit,
+    private val recordHistorySnapshot: (String) -> Unit = refreshSidebarState,
     private val headSkinTextureLookup: HeadSkinTextureLookup =
         MojangHeadSkinTextureLookup()
 ) : EditorGraphicFactory<TreeRow> {
@@ -277,11 +277,11 @@ class ItemEditorFactory(
         return listOf(
             doubleSpinnerRow("クールダウン:", content.cooldown, 0.0, 999.0, 0.1, 1) { value ->
                 content.cooldown = value
-                refreshButtonVisual(itemData.id)
+                refreshSidebarState(itemData.id)
             },
             doubleSpinnerRow("レンジ:", content.range, 0.0, 999.0, 0.1, 1) { value ->
                 content.range = value
-                refreshButtonVisual(itemData.id)
+                refreshSidebarState(itemData.id)
             }
         )
     }
@@ -290,7 +290,7 @@ class ItemEditorFactory(
         return listOf(
             intSpinnerRow("Tier:", content.tier, 0, Int.MAX_VALUE, 1) { value ->
                 content.tier = value
-                refreshButtonVisual(itemData.id)
+                refreshSidebarState(itemData.id)
             }
         )
     }
@@ -305,7 +305,7 @@ class ItemEditorFactory(
             1
         ) { value ->
             content.angle = value
-            refreshButtonVisual(itemData.id)
+            refreshSidebarState(itemData.id)
         }.apply {
             isVisible = content.multi > 0
             isManaged = content.multi > 0
@@ -317,21 +317,21 @@ class ItemEditorFactory(
                     content.multi = value
                     angleRow.isVisible = value > 0
                     angleRow.isManaged = value > 0
-                    refreshButtonVisual(itemData.id)
+                    refreshSidebarState(itemData.id)
                 }
             )
             add(angleRow)
             add(
                 intSpinnerRow("貫通:", content.pierce, 0, 999, 1) { value ->
                     content.pierce = value
-                    refreshButtonVisual(itemData.id)
+                    refreshSidebarState(itemData.id)
                 }
             )
             if (content is MutableShortBowData) {
                 add(
                     doubleSpinnerRow("連射速度:", content.shortInterval, 0.0, 999.0, 0.1, 1) { value ->
                         content.shortInterval = value
-                        refreshButtonVisual(itemData.id)
+                        refreshSidebarState(itemData.id)
                     }
                 )
             }
@@ -342,19 +342,19 @@ class ItemEditorFactory(
         return listOf(
             doubleSpinnerRow("チャージ時間:", content.chargeSecond, 0.0, 999.0, 0.1, 1) { value ->
                 content.chargeSecond = value
-                refreshButtonVisual(itemData.id)
+                refreshSidebarState(itemData.id)
             },
             doubleSpinnerRow("矢消費効率:", content.arrowEfficiency, 0.0, 1.0, 0.1, 1) { value ->
                 content.arrowEfficiency = value
-                refreshButtonVisual(itemData.id)
+                refreshSidebarState(itemData.id)
             },
             intSpinnerRow("矢本数:", content.arrowCount, 0, 999, 1) { value ->
                 content.arrowCount = value
-                refreshButtonVisual(itemData.id)
+                refreshSidebarState(itemData.id)
             },
             doubleSpinnerRow("拡散率:", content.diffusionRate, 0.0, 1.0, 0.1, 1) { value ->
                 content.diffusionRate = value
-                refreshButtonVisual(itemData.id)
+                refreshSidebarState(itemData.id)
             },
             doubleSpinnerRow(
                 "1本あたりの反動量:",
@@ -366,7 +366,7 @@ class ItemEditorFactory(
                 tooltipText = CROSSBOW_RECOIL_PER_PROJECTILE_TOOLTIP
             ) { value ->
                 content.recoilPerProjectile = value
-                refreshButtonVisual(itemData.id)
+                refreshSidebarState(itemData.id)
             },
             doubleSpinnerRow(
                 "合計反動量の上限:",
@@ -378,7 +378,7 @@ class ItemEditorFactory(
                 tooltipText = CROSSBOW_MAX_RECOIL_TOOLTIP
             ) { value ->
                 content.maxRecoil = value
-                refreshButtonVisual(itemData.id)
+                refreshSidebarState(itemData.id)
             }
         )
     }
@@ -394,7 +394,7 @@ class ItemEditorFactory(
                     valueProperty().addListener { _, _, newColor ->
                         if (newColor == null) return@addListener
                         content.color = ColorPickerDialog.toHexColor(newColor)
-                        refreshButtonVisual(itemData.id)
+                        refreshSidebarState(itemData.id)
                     }
                 }
             ),
@@ -404,7 +404,7 @@ class ItemEditorFactory(
                     isFocusTraversable = false
                     setOnAction {
                         PotionEffectEditorDialog.show(content) {
-                            refreshButtonVisual(itemData.id)
+                            refreshSidebarState(itemData.id)
                         }
                         effectCountLabel.text = "効果数: ${content.effects.size}"
                     }
@@ -426,7 +426,7 @@ class ItemEditorFactory(
                 1L
             ) { value ->
                 content.blockCooldown = value
-                refreshButtonVisual(itemData.id)
+                refreshSidebarState(itemData.id)
             },
             longSpinnerRow(
                 "Parryクールダウン (tick):",
@@ -436,7 +436,7 @@ class ItemEditorFactory(
                 1L
             ) { value ->
                 content.parryCooldown = value
-                refreshButtonVisual(itemData.id)
+                refreshSidebarState(itemData.id)
             }
         )
     }
@@ -462,7 +462,7 @@ class ItemEditorFactory(
             valueProperty().addListener { _, _, newColor ->
                 if (newColor == null) return@addListener
                 content.color = ColorPickerDialog.toHexColor(newColor)
-                refreshButtonVisual(itemData.id)
+                refreshSidebarState(itemData.id)
             }
         }
         val colorRow = editorRow("色:", colorPicker).apply {
@@ -481,7 +481,7 @@ class ItemEditorFactory(
                 }
                 colorRow.isVisible = enabled
                 colorRow.isManaged = enabled
-                refreshButtonVisual(itemData.id)
+                refreshSidebarState(itemData.id)
             }
             nodes += colorRow
         }
@@ -494,7 +494,7 @@ class ItemEditorFactory(
                 val trimData = content.mutableTrimData
                     ?: MutableArmorTrimData().also { content.mutableTrimData = it }
                 trimData.pattern = newPattern
-                refreshButtonVisual(itemData.id)
+                refreshSidebarState(itemData.id)
             }
         }
         val materialCombo = ComboBox<ArmorTrimRegistry.Material>().apply {
@@ -505,7 +505,7 @@ class ItemEditorFactory(
                 val trimData = content.mutableTrimData
                     ?: MutableArmorTrimData().also { content.mutableTrimData = it }
                 trimData.material = newMaterial
-                refreshButtonVisual(itemData.id)
+                refreshSidebarState(itemData.id)
             }
         }
         val trimRows = VBox(
@@ -528,7 +528,7 @@ class ItemEditorFactory(
             }
             trimRows.isVisible = enabled
             trimRows.isManaged = enabled
-            refreshButtonVisual(itemData.id)
+            refreshSidebarState(itemData.id)
         }
         nodes += trimRows
         return nodes
@@ -575,7 +575,7 @@ class ItemEditorFactory(
                                 textProperty().addListener { _, _, n ->
                                     itemData.display.displayName = n
                                     errorView()
-                                    refreshButtonVisual(itemData.id)
+                                    refreshSidebarState(itemData.id)
                                 }
                             },
                             errorLabel
@@ -597,7 +597,7 @@ class ItemEditorFactory(
                                 valueProperty().addListener { _, _, n ->
                                     if (n != null) {
                                         itemData.rarity = n
-                                        refreshButtonVisual(itemData.id)
+                                        refreshSidebarState(itemData.id)
                                     }
                                 }
                             }
@@ -868,7 +868,7 @@ class ItemEditorFactory(
                                             value = headSkinValueField.text
                                         )
                                         refreshHeadSkinEditor()
-                                        refreshButtonVisual(itemData.id)
+                                        refreshSidebarState(itemData.id)
                                     }
                                     headSkinValueField.textProperty().addListener { _, _, value ->
                                         if (syncingHeadSkinEditor) return@addListener
@@ -884,7 +884,7 @@ class ItemEditorFactory(
                                                 value = value
                                             )
                                             refreshHeadSkinEditor()
-                                            refreshButtonVisual(itemData.id)
+                                            refreshSidebarState(itemData.id)
                                         }
                                     }
                                     headSkinMultilineArea.textProperty().addListener { _, _, value ->
@@ -974,7 +974,7 @@ class ItemEditorFactory(
                                             rebuildContentController()
                                             applyHeadSkinApplicability()
                                             refreshHeadSkinEditor()
-                                            refreshButtonVisual(itemData.id)
+                                            refreshSidebarState(itemData.id)
                                             errorLabel.isVisible = false
                                             errorLabel.isManaged = false
                                             errorLabel.text = ""
@@ -1005,7 +1005,7 @@ class ItemEditorFactory(
                                                     getter = { itemData.itemDetail.maxStackSize },
                                                     setter = { value ->
                                                         itemData.itemDetail.maxStackSize = value
-                                                        refreshButtonVisual(itemData.id)
+                                                        refreshSidebarState(itemData.id)
                                                     },
                                                     min = 1,
                                                     max = 99,
@@ -1039,7 +1039,7 @@ class ItemEditorFactory(
                                                     selectedProperty().addListener { _, _, value ->
                                                         if (value == null) return@addListener
                                                         itemData.itemDetail.enchantAura = value
-                                                        refreshButtonVisual(itemData.id)
+                                                        refreshSidebarState(itemData.id)
                                                     }
                                                 }
                                             )
@@ -1056,7 +1056,7 @@ class ItemEditorFactory(
                                                 itemData.itemDetail.normalizeVanillaIdByContent()
                                                 refreshMaxStackSizeRow(newType)
                                                 contentDisplay(newType)
-                                                refreshButtonVisual(itemData.id)
+                                                refreshSidebarState(itemData.id)
                                             }
                                         }
                                     )
@@ -1147,7 +1147,7 @@ class ItemEditorFactory(
 
                             if (index >= 0) {
                                 multipliers[index] = updated
-                                refreshButtonVisual(itemData.id)
+                                refreshSidebarState(itemData.id)
                             }
                         }
 
@@ -1326,7 +1326,7 @@ class ItemEditorFactory(
                                                 itemData.statMultipliers.remove(type)
                                             }
 
-                                            refreshButtonVisual(itemData.id)
+                                            refreshSidebarState(itemData.id)
                                             onRemoved()
                                         }
                                     }
@@ -1422,7 +1422,7 @@ class ItemEditorFactory(
                                     }
 
                                     refreshSelfMultiplierWarning()
-                                    refreshButtonVisual(itemData.id)
+                                    refreshSidebarState(itemData.id)
                                 }
 
                                 fun rebuildMultiplierRows() {
@@ -1470,7 +1470,7 @@ class ItemEditorFactory(
 
                                                         setOnAction {
                                                             multipliersOf(type).add(initialItemStatMultiplier())
-                                                            refreshButtonVisual(itemData.id)
+                                                            refreshSidebarState(itemData.id)
                                                             rebuildMultiplierRows()
                                                         }
                                                     },
@@ -1483,7 +1483,7 @@ class ItemEditorFactory(
                                                             itemData.stats.remove(type)
                                                             itemData.statMultipliers.remove(type)
                                                             visibleTypes.remove(type)
-                                                            refreshButtonVisual(itemData.id)
+                                                            refreshSidebarState(itemData.id)
                                                             rebuildStatsList(container)
                                                         }
                                                     }
@@ -1648,7 +1648,7 @@ class ItemEditorFactory(
 
                                 visibleTypes.add(type)
                                 recordHistorySnapshot(itemData.id)
-                                refreshButtonVisual(itemData.id)
+                                refreshSidebarState(itemData.id)
                                 rebuildStatsList(statsListBox)
                             }
                         }
@@ -1725,7 +1725,7 @@ class ItemEditorFactory(
 
                                                 sectionEditor.replaceCurrentSection(newType)
 
-                                                refreshButtonVisual(itemData.id)
+                                                refreshSidebarState(itemData.id)
                                                 rebuildContent()
                                             }
                                         }
@@ -1750,7 +1750,7 @@ class ItemEditorFactory(
                                                 textProperty().addListener { _, _, text ->
                                                     if (text == null) return@addListener
                                                     section.text = text
-                                                    refreshButtonVisual(itemData.id)
+                                                    refreshSidebarState(itemData.id)
                                                 }
                                             }
                                         )
@@ -1767,7 +1767,7 @@ class ItemEditorFactory(
                                                 selectedProperty().addListener { _, _, value ->
                                                     if (value == null) return@addListener
                                                     section.secret = value
-                                                    refreshButtonVisual(itemData.id)
+                                                    refreshSidebarState(itemData.id)
                                                 }
                                             }
                                         )
@@ -1804,7 +1804,7 @@ class ItemEditorFactory(
                                                     if (stat == null) return@addListener
                                                     section.stat = stat
 
-                                                    refreshButtonVisual(itemData.id)
+                                                    refreshSidebarState(itemData.id)
                                                 }
                                             }
                                         )
@@ -1826,7 +1826,7 @@ class ItemEditorFactory(
                                                 textProperty().addListener { _, _, text ->
                                                     if (text == null) return@addListener
                                                     section.editText(text)
-                                                    refreshButtonVisual(itemData.id)
+                                                    refreshSidebarState(itemData.id)
                                                 }
                                             }
                                         )
@@ -1868,7 +1868,7 @@ class ItemEditorFactory(
                                                         selectedProperty().addListener { _, _, value ->
                                                             if (value == null) return@addListener
                                                             section.editDecoration(decoration, value)
-                                                            refreshButtonVisual(itemData.id)
+                                                            refreshSidebarState(itemData.id)
                                                         }
                                                     }, colBase + 1, row)
                                                 }
@@ -1931,7 +1931,7 @@ class ItemEditorFactory(
                                                         text = selectedColor.value
                                                         updateColorButtonStyle(this, selectedColor)
 
-                                                        refreshButtonVisual(itemData.id)
+                                                        refreshSidebarState(itemData.id)
                                                     }
                                                 }
 
@@ -1952,7 +1952,7 @@ class ItemEditorFactory(
                                                         hexColorButton.text = hexColor.value
                                                         updateColorButtonStyle(hexColorButton, hexColor)
 
-                                                        refreshButtonVisual(itemData.id)
+                                                        refreshSidebarState(itemData.id)
                                                     } else {
                                                         hexColorButton.isVisible = false
                                                         hexColorButton.isManaged = false
@@ -1963,7 +1963,7 @@ class ItemEditorFactory(
 
                                                         selectedColor?.let {
                                                             section.editColor(it)
-                                                            refreshButtonVisual(itemData.id)
+                                                            refreshSidebarState(itemData.id)
                                                         }
                                                     }
                                                 }
@@ -2013,7 +2013,7 @@ class ItemEditorFactory(
                                 textProperty().addListener { _, _, text ->
                                     itemData.editorMeta.comment.clear()
                                     itemData.editorMeta.comment.addAll(text.lines())
-                                    refreshButtonVisual(itemData.id)
+                                    refreshSidebarState(itemData.id)
                                 }
                             }
                         )

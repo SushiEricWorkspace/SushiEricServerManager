@@ -41,7 +41,7 @@ internal class ShopEditorLogic(main: MainController, dataService: EditorDataServ
 
     private val itemBinding = ItemReferenceBinding(dataService.itemReferences, {
         itemSelectionButton?.isDisable = catalogLoading
-        sidebarButtons.keys.forEach(::refreshButtonVisual)
+        registeredSidebarIds.forEach(::refreshSidebarState)
         refreshValidation?.invoke()
     }, { error ->
         logger.warn("ショップの対象アイテム一覧を取得できませんでした。", error.cause)
@@ -75,7 +75,7 @@ internal class ShopEditorLogic(main: MainController, dataService: EditorDataServ
                 }
             }
             warnings.children.setAll(messages)
-            refreshButtonVisual(selectData.id)
+            refreshSidebarState(selectData.id)
         }
         refreshValidation = ::refresh
         val itemLabel = Label().apply { style = "-fx-font-size: 16px;" }

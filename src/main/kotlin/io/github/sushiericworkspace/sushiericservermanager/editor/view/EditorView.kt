@@ -31,7 +31,6 @@ import io.github.sushiericworkspace.sushiericservermanager.editor.store.StoreErr
 import io.github.sushiericworkspace.sushiericservermanager.editor.store.StoreResult
 import io.github.sushiericworkspace.sushiericservermanager.editor.validation.ValidationRepairRegistry
 import io.github.sushiericworkspace.sushiericservermanager.editor.validation.ValidationRepairResult
-import io.github.sushiericworkspace.sushiericservermanager.ui.AppTooltip
 import io.github.sushiericworkspace.sushiericservermanager.ui.dialog.CustomDialog
 import io.github.sushiericworkspace.sushiericservermanager.ui.dialog.ErrorType
 import io.github.sushiericworkspace.sushiericservermanager.ui.dialog.MergeConflictDialog
@@ -118,10 +117,25 @@ abstract class EditorView<T : ManagedData<T, *>>(
     /** 現在画面に表示しているアイテムのID */
     protected var currentSelectedDataId: String? = null
 
-    protected var selectedButton: Button? = null
+    protected val registeredSidebarIds = mutableSetOf<String>()
+    private val sidebarStates = mutableMapOf<String, SidebarDataState>()
+    private var sidebarView: EditorSidebar? = null
 
-    /** サイドバーに並んでいるボタンをIDで即座に引き出せるようにするプロパティ */
-    protected val sidebarButtons: MutableMap<String, Button> = mutableMapOf()
+    internal fun registerSidebar(ids: Collection<String>, view: EditorSidebar) {
+        registeredSidebarIds.clear()
+        registeredSidebarIds.addAll(ids)
+        sidebarStates.clear()
+        sidebarView = view
+        ids.forEach { id ->
+            sidebarStates[id] = SidebarDataState(
+                selected = id == currentSelectedDataId,
+                modified = false, hasWarnings = false, hasErrors = false,
+                localOnly = id !in remoteDataIds, pendingDeletion = isPendingStoreDeletion(id)
+            )
+        }
+    }
+
+    internal fun sidebarState(id: String): SidebarDataState = sidebarStates.getValue(id)
 
     protected val logger: Logger = LoggerFactory.getLogger(javaClass)
 
@@ -213,7 +227,7 @@ abstract class EditorView<T : ManagedData<T, *>>(
         pendingStoreOperations[id] = PendingStoreOperation.Create(id)
         editingDataMap[id]?.let { editHistory.reset(id, it) }
         persistPendingStoreState()
-        refreshButtonVisual(id)
+        refreshSidebarState(id)
         refreshSyncButtonState()
     }
 
@@ -263,7 +277,7 @@ abstract class EditorView<T : ManagedData<T, *>>(
             is PendingStoreOperation.Rename -> {
                 pendingStoreOperations[id] = PendingStoreOperation.Delete(id, previous.sourceId)
                 persistPendingStoreState()
-                refreshButtonVisual(id)
+                refreshSidebarState(id)
                 refreshSyncButtonState()
                 false
             }
@@ -271,7 +285,7 @@ abstract class EditorView<T : ManagedData<T, *>>(
             null -> {
                 pendingStoreOperations[id] = PendingStoreOperation.Delete(id, id)
                 persistPendingStoreState()
-                refreshButtonVisual(id)
+                refreshSidebarState(id)
                 refreshSyncButtonState()
                 false
             }
@@ -292,7 +306,7 @@ abstract class EditorView<T : ManagedData<T, *>>(
             pendingStoreOperations[id] = PendingStoreOperation.Rename(deletion.sourceId, id)
         }
         persistPendingStoreState()
-        refreshButtonVisual(id)
+        refreshSidebarState(id)
         refreshSyncButtonState()
         return true
     }
@@ -340,10 +354,10 @@ abstract class EditorView<T : ManagedData<T, *>>(
     }
 
     /**
-     * サイドバー内（コンテナ）のコンポーネント（主にアイテム選択ボタンなど）を構築します。
+     * 検索欄と仮想化されたデータ一覧をサイドバーへ配置します。
      * 必要に応じて、初期表示時に対象となるタブ（リソース）を自動で選択する処理もここに記述します。
      *
-     * @param container ボタン群を配置するサイドバーの垂直レイアウトコンテナ
+     * @param container 検索欄と一覧を配置するサイドバーの垂直レイアウトコンテナ
      * @param selectId 初期表示時に選択させたいアイテムのID。省略時（null）はデフォルトの挙動（先頭の要素を選択など）となります。
      */
     abstract fun setupSidebar(container: VBox, selectId: String? = null)
@@ -511,13 +525,14 @@ abstract class EditorView<T : ManagedData<T, *>>(
 
     /**
      * 指定された一意の識別子（IDやファイル名など）に対応するタブ（アイテム）を選択状態にします。
-     * 内部的には、データのロード、メインコンテンツエリアの再描画、およびサイドバーボタンのハイライト更新などを行います。
+     * 内部的には、データのロード、メインコンテンツエリアの再描画、およびサイドバーの選択表示更新などを行います。
      *
      * @param targetId 選択対象となるリソースの識別子（ID）
      */
     open fun selectTab(targetId: String) {
         if (storeOperationBlocked && sidebarRefresh == null) return
         if (isPendingStoreDeletion(targetId)) return
+        val previousId = currentSelectedDataId
         this.currentSelectedDataId = targetId // 現在選択中のIDを更新
 
         val hasCache = editingDataMap.containsKey(targetId)
@@ -541,7 +556,8 @@ abstract class EditorView<T : ManagedData<T, *>>(
             originalDataMap[targetId] = data.deepCopy()
         }
 
-        selectButtonById(targetId)
+        previousId?.takeIf { it != targetId }?.let(::refreshSidebarState)
+        refreshSidebarState(targetId)
         refreshSyncButtonState()
         editHistory.initialize(targetId, editingDataMap.getValue(targetId))
         setupMainContent(editingDataMap[targetId]!!)
@@ -1209,8 +1225,10 @@ abstract class EditorView<T : ManagedData<T, *>>(
         mergeConflicts.clear()
         pendingStoreOperations.clear()
         editHistory.clear()
-        sidebarButtons.clear()
-        selectedButton = null
+        registeredSidebarIds.clear()
+        sidebarStates.clear()
+        sidebarView?.showRows(emptyList())
+        sidebarView = null
         currentSelectedDataId = null
         saveMenuItem = null
         saveAllMenuItem = null
@@ -1251,36 +1269,20 @@ abstract class EditorView<T : ManagedData<T, *>>(
 
     protected abstract fun setupMainContent(selectData: T)
 
-    /**
-     * 指定したIDのボタンを選択（アクティブ）状態に切り替える
-     */
-    protected fun selectButtonById(id: String) {
-        val target = sidebarButtons[id] ?: return
-        val previousButton = selectedButton
-
-        selectedButton = target
-
-        if (previousButton != null) {
-            refreshButtonVisual(previousButton.id ?: "")
-        }
-
-        refreshButtonVisual(id)
-    }
-
     /** 指定したデータIDの選択、変更、検証状態をサイドバーへ反映します。 */
-    protected open fun refreshButtonVisual(id: String) {
+    protected open fun refreshSidebarState(id: String) {
         editingDataMap[id]?.let { data ->
             editHistory.initialize(id, data)
             if (main.mainContentContainer.scene?.focusOwner !is TextInputControl) {
                 recordHistorySnapshot(id)
             }
         }
-        val btn = sidebarButtons[id] ?: return
+        if (id !in registeredSidebarIds) return
         val data = editingDataMap[id]
         val pendingDeletion = isPendingStoreDeletion(id)
         val validationErrors = if (pendingDeletion) emptyList() else data?.let(::validationErrors).orEmpty()
         val state = SidebarDataState(
-            selected = btn == selectedButton,
+            selected = id == currentSelectedDataId,
             modified = data != originalDataMap[id] || hasPendingStoreOperation(id),
             hasWarnings = validationErrors.any(SushiEricValidationError::isWarning),
             hasErrors = validationErrors.any(SushiEricValidationError::isError),
@@ -1288,28 +1290,8 @@ abstract class EditorView<T : ManagedData<T, *>>(
             pendingDeletion = pendingDeletion
         )
 
-        btn.styleClass.removeAll(SidebarDataState.STYLE_CLASSES)
-        btn.styleClass.addAll(state.styleClasses)
-        btn.text = ""
-        btn.graphic = HBox(5.0).apply {
-            if (state.pendingDeletion) {
-                children += Label("－").apply { styleClass.add("sidebar-pending-deletion-mark") }
-            } else if (state.localOnly) {
-                children += Label("＋").apply { styleClass.add("sidebar-local-only-mark") }
-            }
-            children += Label(
-                btn.properties[TreeSidebarRenderer.DISPLAY_NAME_KEY] as? String
-                    ?: PublicId.normalizeForLoad(id)
-            ).apply {
-                styleClass.add("sidebar-data-name")
-                if (state.modified) styleClass.add("sidebar-data-modified")
-            }
-            if (state.hasErrors) children += Label("⚠").apply { styleClass.add("sidebar-error-mark") }
-            if (state.hasWarnings) children += Label("⚠").apply { styleClass.add("sidebar-warning-mark") }
-        }
-        btn.accessibleText = listOfNotNull(PublicId.normalizeForLoad(id), state.description())
-            .joinToString(" / ")
-        btn.tooltip = state.description()?.let(AppTooltip::create)
+        sidebarStates[id] = state
+        sidebarView?.refreshData(id)
         refreshActionMenuState()
     }
 
@@ -1392,7 +1374,7 @@ abstract class EditorView<T : ManagedData<T, *>>(
         editingDataMap[id] = restored
         onHistoryDataRestored(id)
         setupMainContent(restored)
-        refreshButtonVisual(id)
+        refreshSidebarState(id)
         main.showTimedTopLabel("$id: $notification", Color.GREENYELLOW)
     }
 
@@ -1535,7 +1517,7 @@ abstract class EditorView<T : ManagedData<T, *>>(
             repairBusy = false
             val result = task.value
             result.updated.forEach { (id, data) -> editingDataMap[id] = data }
-            result.updated.keys.forEach(::refreshButtonVisual)
+            result.updated.keys.forEach(::refreshSidebarState)
             currentSelectedDataId
                 ?.takeIf(result.updated::containsKey)
                 ?.let { setupMainContent(editingDataMap.getValue(it)) }
@@ -1632,10 +1614,10 @@ abstract class EditorView<T : ManagedData<T, *>>(
         task.setOnSucceeded {
             if (generation != sidebarPreloadGeneration || saveRunning) return@setOnSucceeded
             task.value.forEach { (id, data) ->
-                if (id !in sidebarButtons || id in editingDataMap) return@forEach
+                if (id !in registeredSidebarIds || id in editingDataMap) return@forEach
                 editingDataMap[id] = data.deepCopy()
                 originalDataMap[id] = data.deepCopy()
-                refreshButtonVisual(id)
+                refreshSidebarState(id)
             }
         }
         task.setOnFailed {
@@ -1748,7 +1730,7 @@ abstract class EditorView<T : ManagedData<T, *>>(
                     mergeConflicts.remove(dataId)
                     dataAccess.deleteLocalBackup(dataId)
                     setupMainContent(editingDataMap.getValue(dataId))
-                    refreshButtonVisual(dataId)
+                    refreshSidebarState(dataId)
                     main.showTimedTopLabel("$dataId を同期しました", Color.GREENYELLOW)
                 }
                 is StoreResult.Failure -> showSyncFailure(dataId, result)

@@ -15,10 +15,10 @@ class EditorBaseLayoutTest {
             isNamespaceAware = true
         }.newDocumentBuilder().parse(resource.openStream())
         val root = document.documentElement
-        val sidebar = document.getElementsByTagName("ScrollPane")
+        val sidebar = document.getElementsByTagName("VBox")
             .asSequence()
             .filterIsInstance<Element>()
-            .first { it.getAttributeNS(FXML_NAMESPACE, "id") == "sidebarScroll" }
+            .first { it.getAttributeNS(FXML_NAMESPACE, "id") == "sidebarContainer" }
 
         val windowWidth = root.getAttribute("prefWidth").toDouble()
         val sidebarWidth = sidebar.getAttribute("prefWidth").toDouble()
