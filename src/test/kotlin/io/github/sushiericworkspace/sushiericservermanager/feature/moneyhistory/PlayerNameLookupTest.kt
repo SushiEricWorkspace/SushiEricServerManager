@@ -3,6 +3,11 @@ package io.github.sushiericworkspace.sushiericservermanager.feature.moneyhistory
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNull
+import kotlin.test.assertSame
+import kotlin.test.assertTrue
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicInteger
 
 class PlayerNameLookupTest {
     @Test
@@ -36,6 +41,32 @@ class PlayerNameLookupTest {
         val lookup = PlayerNameLookup { requests++; null }
         assertNull(lookup.lookup("invalid"))
         assertEquals(0, requests)
+    }
+
+    @Test
+    fun `重複要求をまとめて異なるUUIDも同時通信しない`() {
+        val started = CountDownLatch(1)
+        val release = CountDownLatch(1)
+        val requests = AtomicInteger()
+        val lookup = PlayerNameLookup { uuid ->
+            requests.incrementAndGet()
+            started.countDown()
+            assertTrue(release.await(10, TimeUnit.SECONDS))
+            """{"id":"$uuid","name":"SushiEric"}"""
+        }
+        val first = lookup.lookupAsync(UUID)
+        try {
+            assertTrue(started.await(10, TimeUnit.SECONDS))
+            assertSame(first, lookup.lookupAsync(UUID))
+            val second = lookup.lookupAsync("11111111-1111-1111-1111-111111111111")
+            assertEquals(1, requests.get())
+            release.countDown()
+            assertEquals("SushiEric", first.get(10, TimeUnit.SECONDS))
+            assertEquals("SushiEric", second.get(10, TimeUnit.SECONDS))
+            assertEquals(2, requests.get())
+        } finally {
+            release.countDown()
+        }
     }
 
     private companion object {

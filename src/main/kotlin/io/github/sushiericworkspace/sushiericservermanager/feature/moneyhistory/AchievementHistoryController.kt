@@ -10,12 +10,11 @@ import io.github.sushiericworkspace.sushiericservermanager.config.AppSettingsMan
 import io.github.sushiericworkspace.sushiericservermanager.editor.component.SearchableComboBox
 import io.github.sushiericworkspace.sushiericservermanager.editor.store.EditorDataStore
 import io.github.sushiericworkspace.sushiericservermanager.editor.store.StoreErrorCode
-import io.github.sushiericworkspace.sushiericservermanager.editor.store.StorePathEntry
 import io.github.sushiericworkspace.sushiericservermanager.editor.store.StoreResult
 import io.github.sushiericworkspace.sushiericservermanager.ui.AppTooltip
 import javafx.beans.property.SimpleStringProperty
+import javafx.application.Platform
 import javafx.concurrent.Task
-import javafx.concurrent.WorkerStateEvent
 import javafx.fxml.FXML
 import javafx.scene.control.CheckBox
 import javafx.scene.control.CustomMenuItem
@@ -56,6 +55,7 @@ class AchievementHistoryController {
     @FXML private lateinit var categoryMenu: MenuButton
     @FXML private lateinit var sourceMenu: MenuButton
     @FXML private lateinit var statusLabel: Label
+    @FXML private lateinit var nameStatusLabel: Label
     @FXML private lateinit var historyTable: TableView<AchievementHistoryRow>
     @FXML private lateinit var timeColumn: TableColumn<AchievementHistoryRow, String>
     @FXML private lateinit var nameColumn: TableColumn<AchievementHistoryRow, String>
@@ -65,15 +65,19 @@ class AchievementHistoryController {
     private lateinit var store: EditorDataStore
     private lateinit var managementClient: ServerManagementClient
     private var initialized = false
+    private var disposed = false
+    private var loadingHistory = false
+    private var players: List<HistoryPlayer> = emptyList()
+    private var pendingNames = 0
     private var allEntries: List<AchievementHistoryEntry> = emptyList()
     private var changingFilters = false
     private var loadGeneration = 0
-    private var selectedPlayer: AchievementHistoryPlayer? = null
+    private var selectedPlayer: HistoryPlayer? = null
     private var playerSearchField: TextField? = null
-    private var playerSelector: SearchableComboBox<AchievementHistoryPlayer>? = null
+    private var playerSelector: SearchableComboBox<HistoryPlayer>? = null
     private val categoryItems = mutableMapOf<AchievementCategory, CheckBox>()
     private val sourceItems = mutableMapOf<AchievementSource, CheckBox>()
-    private val playerNameLookup = PlayerNameLookup()
+    internal var playerNameLookup = PlayerNameLookup()
 
     /** 画面にストアとManagement APIを接続してプレイヤー一覧を読み込みます。2回目以降の呼び出しは何もしません。 */
     fun initialize(store: EditorDataStore, managementClient: ServerManagementClient) {
@@ -180,33 +184,40 @@ class AchievementHistoryController {
     }
 
     private fun loadPlayers() {
-        runTask("achievement-history-players", "プレイヤーを読み込み中...") {
-            val knownNames = readKnownPlayerNames(store, logger)
-            val directories = requireSuccess(store.listPath("player_data"))
-            directories.filter(StorePathEntry::isDirectory)
-                .mapNotNull { entry -> runCatching { UUID.fromString(entry.name) }.getOrNull()?.let { entry.name } }
-                .map { uuid ->
-                    val name = knownNames[UUID.fromString(uuid).toString()] ?: playerNameLookup.lookup(uuid) ?: uuid
-                    AchievementHistoryPlayer(uuid, name)
+        runTask("achievement-history-players", "プレイヤー一覧を読み込み中...", block = {
+            readHistoryPlayers(store, logger)
+        }) { loaded ->
+            players = loaded
+            val selector = SearchableComboBox(
+                allChoices = players,
+                initialValue = players.firstOrNull(),
+                promptText = "プレイヤー名・UUIDで検索",
+                displayText = ::playerLabel,
+                searchTexts = { listOf(it.displayName, it.uuid) },
+                onSelected = { loadPlayer(it) }
+            )
+            playerSelector = selector
+            playerSearchField = selector.searchField
+            configurePlayerCells()
+            playerSelectorPane.children.setAll(selector)
+            if (players.isEmpty()) statusLabel.text = "プレイヤーデータがありません。"
+            else loadPlayer(players.first())
+            players.filter { it.displayName == it.uuid }.forEach { player ->
+                pendingNames++
+                nameStatusLabel.text = "プレイヤー名を補完中...（${pendingNames}件）"
+                playerNameLookup.lookupAsync(player.uuid).thenAccept { name ->
+                    Platform.runLater {
+                        if (disposed) return@runLater
+                        pendingNames--
+                        if (name != null) {
+                            player.displayName = name
+                            playerSelector?.updateChoices(players.sortedBy(HistoryPlayer::displayName))
+                            configurePlayerCells()
+                            selector.comboBox.buttonCell?.text = selector.comboBox.value?.let(::playerLabel)
+                        }
+                        nameStatusLabel.text = if (pendingNames == 0) "" else "プレイヤー名を補完中...（${pendingNames}件）"
+                    }
                 }
-                .sortedBy(AchievementHistoryPlayer::displayName)
-        }.also { task ->
-            task.setOnSucceeded {
-                val players = task.value
-                val selector = SearchableComboBox(
-                    allChoices = players,
-                    initialValue = players.firstOrNull(),
-                    promptText = "プレイヤー名・UUIDで検索",
-                    displayText = ::playerLabel,
-                    searchTexts = { listOf(it.displayName, it.uuid) },
-                    onSelected = { loadPlayer(it) }
-                )
-                playerSelector = selector
-                playerSearchField = selector.searchField
-                configurePlayerCells()
-                playerSelectorPane.children.setAll(selector)
-                if (players.isEmpty()) statusLabel.text = "プレイヤーデータがありません。"
-                else loadPlayer(players.first())
             }
         }
     }
@@ -217,25 +228,28 @@ class AchievementHistoryController {
         comboBox.buttonCell = PlayerCell()
     }
 
-    private inner class PlayerCell : ListCell<AchievementHistoryPlayer>() {
-        override fun updateItem(item: AchievementHistoryPlayer?, empty: Boolean) {
+    private inner class PlayerCell : ListCell<HistoryPlayer>() {
+        override fun updateItem(item: HistoryPlayer?, empty: Boolean) {
             super.updateItem(item, empty)
             text = if (empty || item == null) null else playerLabel(item)
         }
     }
 
-    private fun loadPlayer(player: AchievementHistoryPlayer) {
+    private fun loadPlayer(player: HistoryPlayer) {
         selectedPlayer = player
         val generation = ++loadGeneration
-        runTask("achievement-history-load", "${player.displayName}の達成履歴を読み込み中...") {
-            if (managementClient.isConnected) requestHistory(player.uuid) else readHistory(player.uuid)
-        }.also { task ->
-            task.setOnSucceeded {
-                if (generation != loadGeneration) return@setOnSucceeded
-                allEntries = task.value
+        loadingHistory = true
+        allEntries = emptyList()
+        historyTable.items.clear()
+        val connected = managementClient.isConnected
+        runTask("achievement-history-load", "${player.displayName}の${if (connected) "サーバー履歴を取得中" else "達成履歴を読み込み中"}...",
+            isCurrent = { generation == loadGeneration }, block = {
+                if (connected) requestHistory(player.uuid) else readHistory(player.uuid)
+            }) { entries ->
+                loadingHistory = false
+                allEntries = entries
                 applyFilters()
             }
-        }
     }
 
     /** Management APIから対象プレイヤーの実績履歴を取得します。 */
@@ -344,7 +358,7 @@ class AchievementHistoryController {
         playerDisplayToggle.text = if (playerDisplayToggle.isSelected) "UUID表示" else "名前表示"
     }
 
-    private fun playerLabel(player: AchievementHistoryPlayer): String =
+    private fun playerLabel(player: HistoryPlayer): String =
         if (playerDisplayToggle.isSelected) player.uuid else player.displayName
 
     private fun setCurrentDateTime(date: DatePicker, time: TextField) {
@@ -362,7 +376,7 @@ class AchievementHistoryController {
     }
 
     private fun applyFilters() {
-        if (changingFilters) return
+        if (changingFilters || loadingHistory || disposed) return
         val range = runCatching { historyTimeRange(fromDate.value, fromTime.text, toDate.value, toTime.text) }
             .getOrElse {
                 statusLabel.text = it.message ?: "日時の指定が正しくありません。"
@@ -389,25 +403,29 @@ class AchievementHistoryController {
         statusLabel.text = count
     }
 
-    private fun <T> runTask(name: String, message: String, block: () -> T): Task<T> {
+    private fun <T> runTask(
+        name: String,
+        message: String,
+        isCurrent: () -> Boolean = { true },
+        block: () -> T,
+        onSucceeded: (T) -> Unit
+    ) {
         statusLabel.text = message
         val task = object : Task<T>() { override fun call(): T = block() }
-        task.addEventHandler(WorkerStateEvent.WORKER_STATE_FAILED) {
-            val error = task.exception
-            logger.warn("実績履歴の処理に失敗しました。", error)
-            statusLabel.text = "読み込みに失敗しました: ${error?.message ?: "原因不明"}"
+        task.setOnFailed {
+            if (disposed || !isCurrent()) return@setOnFailed
+            loadingHistory = false
+            logger.warn("実績履歴の処理に失敗しました。", task.exception)
+            statusLabel.text = "読み込みに失敗しました: ${task.exception?.message ?: "原因不明"}"
         }
+        task.setOnSucceeded { if (!disposed && isCurrent()) onSucceeded(task.value) }
         Thread(task, name).apply { isDaemon = true; start() }
-        return task
-    }
-
-    private fun <T> requireSuccess(result: StoreResult<T>): T = when (result) {
-        is StoreResult.Success -> result.value
-        is StoreResult.Failure -> error("履歴データを取得できません: ${result.error.code}")
     }
 
     /** 画面終了時に保有する一時状態を解放します。 */
     fun dispose() {
+        disposed = true
+        playerNameLookup.close()
         loadGeneration++
         allEntries = emptyList()
     }
@@ -416,10 +434,6 @@ class AchievementHistoryController {
         val TIME_FORMAT: DateTimeFormatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")
         const val SAVE_TIMEOUT_SECONDS = 20L
     }
-}
-
-private data class AchievementHistoryPlayer(val uuid: String, val displayName: String) {
-    override fun toString(): String = "$displayName ($uuid)"
 }
 
 /** 表に表示する達成履歴1行です。 */

@@ -62,7 +62,7 @@ internal class SearchableComboBox<T>(
             override fun toString(value: T?): String = value?.let(displayText).orEmpty()
 
             override fun fromString(text: String?): T? =
-                allChoices.firstOrNull { displayText(it) == text }
+                choices.firstOrNull { displayText(it) == text }
         }
         cellFactory = Callback {
             object : ListCell<T>() {
@@ -74,7 +74,7 @@ internal class SearchableComboBox<T>(
         }
     }
 
-    private val choices = allChoices.toList()
+    private var choices = allChoices.toList()
     private var updating = false
     private var selectedValue: T?
 
@@ -94,6 +94,25 @@ internal class SearchableComboBox<T>(
         }
         children.addAll(searchField, comboBox)
         maxWidth = Double.MAX_VALUE
+    }
+
+    /** 候補の表示を更新し、検索条件に合わなくなっても現在の選択を維持します。選択通知は発生しません。 */
+    fun updateChoices(allChoices: List<T>) {
+        choices = allChoices.toList()
+        val result = resolveSearchableSelection(choices, selectedValue, searchField.text, searchTexts)
+        val selected = selectedValue?.takeIf { it in choices } ?: result.selected
+        updating = true
+        try {
+            comboBox.items.setAll(result.choices.let { matches ->
+                if (selected != null && selected !in matches) matches + selected else matches
+            })
+            comboBox.value = selected
+            comboBox.buttonCell?.text = selected?.let(displayText)
+        } finally {
+            updating = false
+        }
+        selectedValue = selected
+        onSearchMatchChanged(result.hasMatches)
     }
 
     private fun applySearch(query: String) {

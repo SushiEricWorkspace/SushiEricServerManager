@@ -40,3 +40,21 @@ internal fun readKnownPlayerNames(store: EditorDataStore, logger: Logger): Map<S
         emptyMap()
     }
 }
+
+/** UUIDを選択の識別子として保持し、名前の補完で同じ選択オブジェクトを更新します。 */
+internal class HistoryPlayer(val uuid: String, var displayName: String) {
+    override fun toString(): String = "$displayName ($uuid)"
+}
+
+/** 履歴や外部プロフィールを取得せず、サーバーのキャッシュとUUIDだけで一覧を作ります。 */
+internal fun readHistoryPlayers(store: EditorDataStore, logger: Logger): List<HistoryPlayer> {
+    val names = readKnownPlayerNames(store, logger)
+    val directories = when (val result = store.listPath("player_data")) {
+        is StoreResult.Success -> result.value
+        is StoreResult.Failure -> error("プレイヤー一覧を取得できません: ${result.error.code}")
+    }
+    return directories.filter { it.isDirectory }.mapNotNull { entry ->
+        val uuid = runCatching { UUID.fromString(entry.name).toString() }.getOrNull() ?: return@mapNotNull null
+        HistoryPlayer(uuid, names[uuid] ?: uuid)
+    }.sortedBy(HistoryPlayer::displayName)
+}

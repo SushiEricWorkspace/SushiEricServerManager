@@ -8,6 +8,7 @@ import io.github.sushiericworkspace.sushiericservermanager.editor.component.Sear
 import io.github.sushiericworkspace.sushiericservermanager.editor.store.EditorDataStore
 import io.github.sushiericworkspace.sushiericservermanager.editor.store.StorePathEntry
 import io.github.sushiericworkspace.sushiericservermanager.editor.store.StoreResult
+import javafx.application.Platform
 import javafx.concurrent.Task
 import javafx.fxml.FXML
 import javafx.scene.control.ComboBox
@@ -25,7 +26,6 @@ import javafx.scene.control.CustomMenuItem
 import io.github.sushiericworkspace.sushiericservermanager.ui.AppTooltip
 import javafx.scene.layout.VBox
 import javafx.beans.property.SimpleStringProperty
-import javafx.concurrent.WorkerStateEvent
 import org.slf4j.LoggerFactory
 import java.time.LocalDateTime
 import java.time.LocalDate
@@ -52,6 +52,7 @@ class MoneyHistoryController {
     @FXML private lateinit var typeMenu: MenuButton
     @FXML private lateinit var playerDisplayToggle: ToggleButton
     @FXML private lateinit var statusLabel: Label
+    @FXML private lateinit var nameStatusLabel: Label
     @FXML private lateinit var historyTable: TableView<MoneyHistoryRow>
     @FXML private lateinit var timeColumn: TableColumn<MoneyHistoryRow, String>
     @FXML private lateinit var typeColumn: TableColumn<MoneyHistoryRow, String>
@@ -64,11 +65,16 @@ class MoneyHistoryController {
     private lateinit var store: EditorDataStore
     private lateinit var managementClient: ServerManagementClient
     private var allRows: List<MoneyHistoryRow> = emptyList()
-    private var busy = false
+    private var disposed = false
+    private var loadGeneration = 0
+    private var loadingHistory = false
+    private var playerSelector: SearchableComboBox<HistoryPlayer>? = null
+    private var players: List<HistoryPlayer> = emptyList()
+    private var pendingNames = 0
     private var changingFilters = false
     private var playerSearchField: TextField? = null
     private val typeItems = mutableMapOf<MoneyHistoryType, CheckBox>()
-    private val playerNameLookup = PlayerNameLookup()
+    internal var playerNameLookup = PlayerNameLookup()
     private val knownPlayerNames = mutableMapOf<String, String>()
 
     /** 画面にストアとManagement APIを接続してプレイヤー一覧を読み込みます。 */
@@ -86,6 +92,7 @@ class MoneyHistoryController {
         listOf(fromTime, toTime).forEach { field ->
             field.tooltip = AppTooltip.create("時刻はHH:mmまたはHH:mm:ssで指定します。空欄の場合はその日全体が対象です。")
         }
+        achievementHistoryController.playerNameLookup = playerNameLookup
         loadPlayers()
         achievementTab.selectedProperty().addListener { _, _, selected ->
             if (selected) achievementHistoryController.initialize(store, managementClient)
@@ -151,70 +158,89 @@ class MoneyHistoryController {
     }
 
     private fun loadPlayers() {
-        runTask("money-history-players", "プレイヤーと履歴を読み込み中...") {
-            val knownNames = readKnownPlayerNames(store, logger)
-            knownPlayerNames.putAll(knownNames)
-            val dirs = requireSuccess(store.listPath("player_data"))
-            dirs.filter(StorePathEntry::isDirectory)
-                .mapNotNull { entry -> runCatching { UUID.fromString(entry.name) }.getOrNull()?.let { entry.name } }
-                .map { uuid ->
-                    val records = readRecords(uuid)
-                    val latest = records.maxByOrNull(MoneyHistoryRow::timestamp)
-                    val historyName = latest?.playerName?.takeUnless { it == uuid || it.isBlank() }
-                    val name = historyName ?: knownNames[UUID.fromString(uuid).toString()]
-                        ?: playerNameLookup.lookup(uuid) ?: uuid
-                    if (name != uuid) knownPlayerNames[UUID.fromString(uuid).toString()] = name
-                    HistoryPlayer(uuid, name, records)
+        runTask("money-history-players", "プレイヤー一覧を読み込み中...", block = {
+            readHistoryPlayers(store, logger)
+        }) { loaded ->
+            players = loaded
+            players.filter { it.displayName != it.uuid }.forEach { knownPlayerNames[it.uuid] = it.displayName }
+            val selector = SearchableComboBox(
+                allChoices = players,
+                initialValue = players.firstOrNull(),
+                promptText = "プレイヤー名・UUIDで検索",
+                displayText = ::playerLabel,
+                searchTexts = { listOf(it.displayName, it.uuid) },
+                onSelected = { loadPlayer(it) }
+            )
+            playerSelector = selector
+            playerBox = selector.comboBox
+            playerSearchField = selector.searchField
+            configurePlayerCells()
+            playerSelectorPane.children.setAll(selector)
+            if (players.isEmpty()) statusLabel.text = "プレイヤーデータがありません。"
+            else loadPlayer(players.first())
+            players.filter { it.displayName == it.uuid }.forEach { resolveName(it.uuid) }
+        }
+    }
+
+    private fun resolveName(uuid: String) {
+        pendingNames++
+        nameStatusLabel.text = "プレイヤー名を補完中...（${pendingNames}件）"
+        playerNameLookup.lookupAsync(uuid).thenAccept { name ->
+            Platform.runLater {
+                if (disposed) return@runLater
+                pendingNames--
+                if (name != null && uuid !in knownPlayerNames) {
+                    knownPlayerNames[uuid] = name
+                    players.firstOrNull { it.uuid == uuid }?.displayName = name
+                    refreshPlayers()
+                    applyFilters()
                 }
-                .sortedBy(HistoryPlayer::displayName)
-        }.also { task ->
-            task.setOnSucceeded {
-                busy = false
-                val players = task.value
-                val selector = SearchableComboBox(
-                    allChoices = players,
-                    initialValue = players.firstOrNull(),
-                    promptText = "プレイヤー名・UUIDで検索",
-                    displayText = ::playerLabel,
-                    searchTexts = { listOf(it.displayName, it.uuid) },
-                    onSelected = { loadPlayer(it) }
-                )
-                playerBox = selector.comboBox
-                playerSearchField = selector.searchField
-                configurePlayerCells()
-                playerSelectorPane.children.setAll(selector)
-                if (players.isEmpty()) statusLabel.text = "プレイヤーデータがありません。"
-                else loadPlayer(players.first())
+                nameStatusLabel.text = if (pendingNames == 0) "" else "プレイヤー名を補完中...（${pendingNames}件）"
             }
         }
     }
 
-    private fun loadPlayer(player: HistoryPlayer, forceRefresh: Boolean = false) {
-        if (busy) return
-        runTask("money-history-load", "${player.displayName}の履歴を読み込み中...") {
-            if (managementClient.isConnected) saveOnServer(player.uuid)
-            if (managementClient.isConnected || forceRefresh) readRecords(player.uuid) else player.initialRows
-        }.also { task ->
-            task.setOnSucceeded {
-                busy = false
-                val selected = playerBox.value
-                if (selected != null && selected != player) {
-                    loadPlayer(selected)
-                    return@setOnSucceeded
+    private fun refreshPlayers() {
+        playerSelector?.updateChoices(players.sortedBy(HistoryPlayer::displayName))
+        configurePlayerCells()
+        playerBox.buttonCell?.text = playerBox.value?.let(::playerLabel)
+    }
+
+    private fun loadPlayer(player: HistoryPlayer) {
+        val generation = ++loadGeneration
+        loadingHistory = true
+        allRows = emptyList()
+        historyTable.items.clear()
+        val connected = managementClient.isConnected
+        runTask("money-history-load", "${player.displayName}の${if (connected) "サーバー保存を待機中" else "履歴を読み込み中"}...",
+            isCurrent = { generation == loadGeneration }, block = {
+                if (connected) {
+                    saveOnServer(player.uuid)
+                    Platform.runLater {
+                        if (!disposed && generation == loadGeneration) statusLabel.text = "${player.displayName}の履歴を読み込み中..."
+                    }
                 }
-                allRows = task.value
-                statusLabel.text = if (allRows.isEmpty()) "履歴はありません。" else "${allRows.size}件"
+                readRecords(player.uuid)
+            }) { rows ->
+                loadingHistory = false
+                allRows = rows
+                val historyName = rows.maxByOrNull(MoneyHistoryRow::timestamp)?.playerName
+                    ?.takeUnless { it == player.uuid || it.isBlank() }
+                if (historyName != null) {
+                    knownPlayerNames[player.uuid] = historyName
+                    player.displayName = historyName
+                    refreshPlayers()
+                }
                 applyFilters()
+                rows.mapNotNull { it.counterparty }.mapNotNull { value ->
+                    runCatching { UUID.fromString(value).toString() }.getOrNull()
+                }.distinct().filter { it !in knownPlayerNames }.forEach(::resolveName)
             }
-            task.addEventHandler(WorkerStateEvent.WORKER_STATE_FAILED) {
-                playerBox.value?.takeIf { it != player }?.let { loadPlayer(it) }
-            }
-        }
     }
 
     @FXML @Suppress("unused")
     fun reloadSelected() {
-        if (::playerBox.isInitialized) playerBox.value?.let { loadPlayer(it, forceRefresh = true) }
+        if (::playerBox.isInitialized) playerBox.value?.let { loadPlayer(it) }
     }
 
     @FXML @Suppress("unused")
@@ -343,15 +369,12 @@ class MoneyHistoryController {
                     .onFailure { logger.warn("入出金履歴ファイルを読み飛ばしました: file={}", file.name, it) }
                     .getOrDefault(emptyList())
             }
-        }.sortedByDescending(MoneyHistoryRow::timestamp).map { row ->
-            row.copy(counterparty = row.counterparty?.let(::formatCounterparty))
-        }
+        }.sortedByDescending(MoneyHistoryRow::timestamp)
     }
 
     private fun formatCounterparty(value: String): String {
         val uuid = runCatching { UUID.fromString(value).toString() }.getOrNull() ?: return value
-        val name = knownPlayerNames[uuid] ?: playerNameLookup.lookup(uuid)
-        if (name != null) knownPlayerNames[uuid] = name
+        val name = knownPlayerNames[uuid]
         return formatHistoryActor(name, uuid) ?: "-"
     }
 
@@ -361,7 +384,7 @@ class MoneyHistoryController {
         })
 
     private fun applyFilters() {
-        if (changingFilters) return
+        if (changingFilters || loadingHistory || disposed) return
         val range = runCatching { historyTimeRange(fromDate.value, fromTime.text, toDate.value, toTime.text) }
             .getOrElse {
                 statusLabel.text = it.message ?: "日時の指定が正しくありません。"
@@ -374,23 +397,29 @@ class MoneyHistoryController {
             range.contains(row.timestamp.atZone(zone).toLocalDateTime()) &&
                 row.type in selectedTypes
         }
-        historyTable.items.setAll(rows)
+        historyTable.items.setAll(rows.map { row ->
+            row.copy(counterparty = row.counterparty?.let(::formatCounterparty))
+        })
         statusLabel.text = "${rows.size}件 / ${allRows.size}件"
     }
 
-    private fun <T> runTask(name: String, message: String, block: () -> T): Task<T> {
-        busy = true
+    private fun <T> runTask(
+        name: String,
+        message: String,
+        isCurrent: () -> Boolean = { true },
+        block: () -> T,
+        onSucceeded: (T) -> Unit
+    ) {
         statusLabel.text = message
         val task = object : Task<T>() { override fun call(): T = block() }
-        task.addEventHandler(WorkerStateEvent.WORKER_STATE_FAILED) {
-            busy = false
-            val error = task.exception
-            logger.warn("入出金履歴の処理に失敗しました。", error)
-            statusLabel.text = "読み込みに失敗しました: ${error?.message ?: "原因不明"}"
+        task.setOnFailed {
+            if (disposed || !isCurrent()) return@setOnFailed
+            loadingHistory = false
+            logger.warn("入出金履歴の処理に失敗しました。", task.exception)
+            statusLabel.text = "読み込みに失敗しました: ${task.exception?.message ?: "原因不明"}"
         }
-        task.addEventHandler(WorkerStateEvent.WORKER_STATE_SUCCEEDED) { busy = false }
+        task.setOnSucceeded { if (!disposed && isCurrent()) onSucceeded(task.value) }
         Thread(task, name).apply { isDaemon = true; start() }
-        return task
     }
 
     private fun <T> requireSuccess(result: StoreResult<T>): T = when (result) {
@@ -400,13 +429,12 @@ class MoneyHistoryController {
 
     /** 画面終了時に保有する一時状態を解放します。 */
     fun dispose() {
+        disposed = true
+        playerNameLookup.close()
+        loadGeneration++
         allRows = emptyList()
         achievementHistoryController.dispose()
         shopHistoryView?.dispose()
     }
 
-}
-
-private data class HistoryPlayer(val uuid: String, val displayName: String, val initialRows: List<MoneyHistoryRow>) {
-    override fun toString(): String = "$displayName ($uuid)"
 }
