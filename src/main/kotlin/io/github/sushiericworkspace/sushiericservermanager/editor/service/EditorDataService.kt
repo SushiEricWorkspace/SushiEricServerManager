@@ -54,6 +54,14 @@ class EditorDataService(
     private val ioExecutor = Executors.newSingleThreadExecutor { runnable ->
         Thread(runnable, "editor-store-io").apply { isDaemon = true }
     }
+    private val backupExecutor = Executors.newSingleThreadExecutor { runnable ->
+        Thread(runnable, "editor-backup-io").apply { isDaemon = true }
+    }
+
+    /** ローカル退避の書き込み・削除・保留操作更新を同じ順序で実行します。 */
+    internal fun <R> submitBackupIo(operation: () -> R): CompletableFuture<R> =
+        CompletableFuture.supplyAsync(operation, backupExecutor)
+
     private val saves = ReadOnlyIntegerWrapper(0)
     val activeSaves: Int get() = saves.get()
     internal val activeSavesProperty: ReadOnlyIntegerProperty get() = saves.readOnlyProperty
@@ -70,7 +78,10 @@ class EditorDataService(
 
     internal fun executeIo(task: Runnable) { ioExecutor.execute { synchronized(ioLock) { task.run() } } }
 
-    internal fun closeIo() { ioExecutor.shutdown() }
+    internal fun closeIo() {
+        ioExecutor.shutdown()
+        backupExecutor.shutdown()
+    }
 
     private val logger = LoggerFactory.getLogger(javaClass)
     private val pendingOperationJson = Json {
@@ -130,6 +141,16 @@ class EditorDataService(
     inner class DataAccess<T : ManagedData<T, *>> internal constructor(
         val descriptor: EditorDataDescriptor<T>
     ) {
+        private val backupState = LocalBackupState<T>(
+            write = ::saveToLocalBackup,
+            delete = ::deleteLocalBackup,
+            writePending = ::savePendingStoreOperations
+        )
+
+        /** 複製済みの退避内容を直列に保存し、全工程の成功を返します。 */
+        internal fun persistBackup(snapshot: LocalBackupSnapshot<T>): CompletableFuture<Boolean> =
+            submitBackupIo { backupState.persist(snapshot) }
+
         val dataType: SushiEricDataType<T>
             get() = descriptor.dataType
 
@@ -226,7 +247,7 @@ class EditorDataService(
             }
 
             return try {
-                descriptor.saveBackup(temporary, data)
+                descriptor.saveBackup(temporary, data.deepCopy())
                 replaceAtomically(temporary, target)
                 true
             } catch (e: Exception) {
@@ -284,6 +305,16 @@ class EditorDataService(
                     }
             }
         }
+
+        /** ストアだけを削除します。退避の整理はUIの最新スナップショットで別途行います。 */
+        internal fun deleteStore(fileName: String): DeleteResult =
+            when (val result = store.delete(descriptor, fileName)) {
+                is StoreResult.Success -> {
+                    if (descriptor == EditorDataDescriptors.item) itemReferences.deleted(fileName)
+                    DeleteResult.SUCCESS
+                }
+                is StoreResult.Failure -> result.error.code.toDeleteResult()
+            }
 
         fun delete(fileName: String): DeleteResult {
             return when (val result = store.delete(descriptor, fileName)) {

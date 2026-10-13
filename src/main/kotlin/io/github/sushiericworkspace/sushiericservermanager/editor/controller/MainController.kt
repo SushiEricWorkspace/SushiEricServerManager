@@ -46,6 +46,13 @@ class MainController {
         setTopLabel("")
     }
 
+    /** 背景退避の状態を非モーダルに表示し、編集中の操作を維持します。 */
+    fun showBackupStatus(text: String, color: Color = Color.WHITE) {
+        if (operationRunning) return
+        clearTopLabelTimer()
+        setTopLabel(text, color)
+    }
+
     private var topLabelTimer: PauseTransition? = null
 
     val currentStage: Stage?

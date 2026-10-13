@@ -486,9 +486,7 @@ internal class OreEditorLogic(
         }
     }
 
-    override fun onClose(): Boolean {
-        if (!super.onClose()) return false
+    override fun afterClose() {
         itemBinding.close()
-        return true
     }
 }
