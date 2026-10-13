@@ -104,7 +104,7 @@ class ManagedEditorDataStore(val session: ManagedSession, private val compatibil
     private fun <T : ManagedData<T, *>> serialize(descriptor: EditorDataDescriptor<T>, id: String, data: T): StoreResult<String> {
         if (!StorePathValidator.isValidId(id) || !descriptor.isValidId(id)) return StoreResult.Failure(StoreError(StoreErrorCode.INVALID_ID, id))
         val itemIds = mutableSetOf<ItemInternalId>()
-        if (descriptor.validateInStore == null && descriptor != EditorDataDescriptors.item) {
+        if (descriptor.requiresItemIds) {
             when (val items = list(EditorDataDescriptors.item)) {
                 is StoreResult.Failure -> return items
                 is StoreResult.Success -> for (item in items.value) {

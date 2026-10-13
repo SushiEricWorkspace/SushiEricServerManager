@@ -166,7 +166,7 @@ class LocalEditorDataStore(
             return failure(StoreErrorCode.PERMISSION_DENIED, id)
         }
 
-        val itemIds = if (descriptor.validateInStore == null) localItemIds() else emptySet()
+        val itemIds = if (descriptor.requiresItemIds) localItemIds() else emptySet()
         val validation = descriptor.validateInStore?.invoke(data, this)
         if (validation is StoreResult.Failure) return validation
         val validationResults = data.refreshCompleted(
