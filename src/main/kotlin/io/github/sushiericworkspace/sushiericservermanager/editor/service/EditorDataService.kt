@@ -306,16 +306,6 @@ class EditorDataService(
             }
         }
 
-        /** ストアだけを削除します。退避の整理はUIの最新スナップショットで別途行います。 */
-        internal fun deleteStore(fileName: String): DeleteResult =
-            when (val result = store.delete(descriptor, fileName)) {
-                is StoreResult.Success -> {
-                    if (descriptor == EditorDataDescriptors.item) itemReferences.deleted(fileName)
-                    DeleteResult.SUCCESS
-                }
-                is StoreResult.Failure -> result.error.code.toDeleteResult()
-            }
-
         fun delete(fileName: String): DeleteResult {
             return when (val result = store.delete(descriptor, fileName)) {
                 is StoreResult.Success -> {

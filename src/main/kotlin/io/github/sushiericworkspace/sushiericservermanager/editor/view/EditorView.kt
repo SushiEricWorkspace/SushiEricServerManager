@@ -11,7 +11,6 @@ import io.github.sushiericworkspace.sushiericservermanager.editor.controller.Mai
 import io.github.sushiericworkspace.sushiericservermanager.config.AppSettingsManager
 import io.github.sushiericworkspace.sushiericservermanager.editor.result.ValidationResult
 import io.github.sushiericworkspace.sushiericservermanager.editor.result.dataservice.LoadResult
-import io.github.sushiericworkspace.sushiericservermanager.editor.result.dataservice.DeleteResult
 import io.github.sushiericworkspace.sushiericservermanager.editor.result.dataservice.RenameResult
 import io.github.sushiericworkspace.sushiericservermanager.editor.service.EditorDataService
 import io.github.sushiericworkspace.sushiericservermanager.editor.session.EditorSession
@@ -189,7 +188,7 @@ abstract class EditorView<T : ManagedData<T, *>>(
     protected fun sidebarDirectoryList(): StoreResult<List<String>> =
         sidebarRefresh?.second?.let { StoreResult.Success(it) } ?: dataAccess.listDirectories()
 
-    /** 単件保存の完了結果。保存後の後処理失敗でも書き込み成功を維持します。 */
+    /** 保存の完了結果。後処理失敗でも書き込み成功を維持します。一括の対象別結果は[BatchSaveResult]で返します。 */
     enum class SaveOutcome { SAVED, SAVED_WITH_ERRORS, CANCELLED, FAILED, NOTHING_TO_SAVE, BUSY }
 
     /**
@@ -657,43 +656,7 @@ abstract class EditorView<T : ManagedData<T, *>>(
         }
 
         fun refreshSidebar() {
-            main.showOperation("保存後の一覧を取得しています")
-            saveStep({
-                val resources = when (val result = dataAccess.listStoreResources()) {
-                    is StoreResult.Success -> result.value
-                    is StoreResult.Failure -> error("一覧取得失敗: ${result.error}")
-                }
-                val directories = when (val result = dataAccess.listDirectories()) {
-                    is StoreResult.Success -> result.value
-                    is StoreResult.Failure -> error("ディレクトリ取得失敗: ${result.error}")
-                }
-                resources to directories
-            }, ::fail) { snapshot ->
-                val ids = mergeSidebarIdsWithPending(snapshot.first.map { it.id }).filterNot(::isPendingStoreDeletion)
-                val selected = currentSelectedDataId?.takeIf { it in ids } ?: ids.firstOrNull()
-                fun display() {
-                    main.showOperation("保存結果を表示しています")
-                    sidebarRefresh = snapshot
-                    try {
-                        setupSidebar(main.sidebarContainer, selected)
-                    } finally {
-                        sidebarRefresh = null
-                    }
-                    finish(SaveOutcome.SAVED)
-                }
-                if (selected != null && selected !in editingDataMap) {
-                    saveStep({ dataAccess.loadStore(selected) }, ::fail) { result ->
-                        when (result) {
-                            is StoreResult.Success -> {
-                                editingDataMap[selected] = result.value.deepCopy()
-                                originalDataMap[selected] = result.value.deepCopy()
-                                display()
-                            }
-                            is StoreResult.Failure -> error("表示対象の取得失敗: ${result.error}")
-                        }
-                    }
-                } else display()
-            }
+            refreshSavedSidebar(::fail) { finish(SaveOutcome.SAVED) }
         }
 
         fun persist(prepared: PreparedSave<T>) {
@@ -705,27 +668,7 @@ abstract class EditorView<T : ManagedData<T, *>>(
                     }
                     is StoreResult.Success -> {
                         savedDuringOperation = true
-                        val deletion = operation as? PendingStoreOperation.Delete
-                        pendingStoreOperations.remove(dataId)
-                        mergeConflicts.remove(dataId)
-                        if (deletion != null) {
-                            editingDataMap.remove(dataId)
-                            originalDataMap.remove(dataId)
-                            editHistory.remove(dataId)
-                            onPersistedDataDeleted(dataId)
-                            if (dataAccess.descriptor == EditorDataDescriptors.item) {
-                                dataService.itemReferences.deleted(deletion.sourceId)
-                            }
-                            remoteDataIds = remoteDataIds - deletion.sourceId
-                        } else {
-                            val saved = requireNotNull(result.value)
-                            editingDataMap[dataId] = saved.deepCopy()
-                            originalDataMap[dataId] = saved.deepCopy()
-                            editHistory.reset(dataId, saved)
-                            remoteDataIds = (remoteDataIds - sourceId) + dataId
-                        }
-                        removedBackupIds.add(dataId)
-                        removedBackupIds.add(sourceId)
+                        applySavedData(prepared, result.value)
                         main.showOperation("バックアップを整理しています")
                         requestBackup(allowDuringOperation = true) { success ->
                             if (success) refreshSidebar()
@@ -811,95 +754,245 @@ abstract class EditorView<T : ManagedData<T, *>>(
         }
     }
 
-    private fun prepareSave(dataId: String): PreparedSave<T>? {
-        val currentEdit = editingDataMap[dataId] ?: return null
-        val original = originalDataMap[dataId] ?: return null
-        val pendingOperation = pendingStoreOperations[dataId]
-        val contentChanged = original != currentEdit
-
-        if (!contentChanged && pendingOperation == null) return null
-
-        if (pendingOperation is PendingStoreOperation.Delete) {
-            return PreparedSave(dataId, pendingOperation, original, currentEdit, null, currentEdit, null)
+    private fun applySavedData(prepared: PreparedSave<T>, saved: T?) {
+        val id = prepared.dataId
+        val operation = prepared.operation
+        val sourceId = when (operation) {
+            is PendingStoreOperation.Rename -> operation.sourceId
+            is PendingStoreOperation.Delete -> operation.sourceId
+            else -> id
         }
-
-        val sourceId = (pendingOperation as? PendingStoreOperation.Rename)?.sourceId ?: dataId
-        val saveData = prepareSaveData(dataId, sourceId, currentEdit, original) ?: return null
-        return PreparedSave(
-            dataId,
-            pendingOperation,
-            original,
-            currentEdit,
-            saveData.automaticallyMergedData,
-            saveData.data,
-            saveData.data
-        )
-    }
-
-    private fun persistPreparedSave(prepared: PreparedSave<T>): Boolean {
-        val deletion = prepared.operation as? PendingStoreOperation.Delete
-        return if (deletion != null) {
-            persistDelete(prepared.dataId, deletion)
+        removedBackupIds.add(id)
+        removedBackupIds.add(sourceId)
+        pendingStoreOperations.remove(id)
+        mergeConflicts.remove(id)
+        if (operation is PendingStoreOperation.Delete) {
+            editingDataMap.remove(id)
+            originalDataMap.remove(id)
+            editHistory.remove(id)
+            onPersistedDataDeleted(id)
+            if (dataAccess.descriptor == EditorDataDescriptors.item) dataService.itemReferences.deleted(sourceId)
+            remoteDataIds = remoteDataIds - sourceId
         } else {
-            persistSaveData(prepared.dataId, requireNotNull(prepared.saveData), prepared.operation)
+            val data = requireNotNull(saved)
+            editingDataMap[id] = data.deepCopy()
+            originalDataMap[id] = data.deepCopy()
+            editHistory.reset(id, data)
+            remoteDataIds = (remoteDataIds - sourceId) + id
+            refreshSidebarState(id)
         }
     }
+
+    private fun refreshSavedSidebar(failed: (Throwable) -> Unit, completed: () -> Unit) {
+        main.showOperation("保存後の一覧を取得しています")
+        saveStep({
+            val resources = when (val result = dataAccess.listStoreResources()) {
+                is StoreResult.Success -> result.value
+                is StoreResult.Failure -> error("一覧取得失敗: ${result.error}")
+            }
+            val directories = when (val result = dataAccess.listDirectories()) {
+                is StoreResult.Success -> result.value
+                is StoreResult.Failure -> error("ディレクトリ取得失敗: ${result.error}")
+            }
+            resources to directories
+        }, failed) { snapshot ->
+            val ids = mergeSidebarIdsWithPending(snapshot.first.map { it.id }).filterNot(::isPendingStoreDeletion)
+            val selected = currentSelectedDataId?.takeIf { it in ids } ?: ids.firstOrNull()
+            fun display() {
+                main.showOperation("保存結果を表示しています")
+                sidebarRefresh = snapshot
+                try { setupSidebar(main.sidebarContainer, selected) }
+                finally { sidebarRefresh = null }
+                completed()
+            }
+            if (selected != null && selected !in editingDataMap) {
+                saveStep({ dataAccess.loadStore(selected) }, failed) { result ->
+                    when (result) {
+                        is StoreResult.Success -> {
+                            editingDataMap[selected] = result.value.deepCopy()
+                            originalDataMap[selected] = result.value.deepCopy()
+                            display()
+                        }
+                        is StoreResult.Failure -> error("表示対象の取得失敗: ${result.error}")
+                    }
+                }
+            } else display()
+        }
+    }
+
+    /** 一括保存の対象別結果。後処理エラーがあっても[saved]の書き込みは完了しています。 */
+    data class BatchSaveResult(
+        val outcome: SaveOutcome,
+        val saved: List<String> = emptyList(),
+        val failed: Map<String, String> = emptyMap(),
+        val cancelled: List<String> = emptyList(),
+        val notExecuted: List<String> = emptyList(),
+        val postProcessingErrors: List<String> = emptyList()
+    )
 
     /**
-     * メモリ上の変更を順番にストアへ保存します。
-     * 戻り値はストアへの保存結果です。ローカル退避の整理は背景で実行し、結果を別途表示します。
+     * 入力を確定し、開始時の対象と編集コピーを使って準備・保存を順次背景実行します。
+     * 全対象の準備後にまとめた差分を確認し、保存結果の一覧更新は最後に1回行います。
+     * [onComplete]はJavaFXスレッドで実行し、開始できない場合もBUSYまたはNOTHING_TO_SAVEを返します。
+     * 書き込み開始後の取消・自動再試行は行いません。
      */
-    fun onSaveAll(): Boolean {
-        if (storeOperationBlocked) return false
-        val targets = editingDataMap.keys.filter(::hasUnsavedChanges)
-        if (targets.isEmpty()) return false
+    fun onSaveAll(onComplete: (BatchSaveResult) -> Unit = {}) {
+        if (storeOperationBlocked || syncBusy || repairBusy) {
+            onComplete(BatchSaveResult(SaveOutcome.BUSY)); return
+        }
+        main.mainContentContainer.requestFocus()
+        commitPendingTextEdit()
+        val targets = editingDataMap.keys.filter(::hasUnsavedChanges).map { id ->
+            val local = editingDataMap.getValue(id).deepCopy()
+            PreparedSave(id, pendingStoreOperations[id], originalDataMap.getValue(id).deepCopy(), local, null, local, local)
+        }
+        if (targets.isEmpty()) { onComplete(BatchSaveResult(SaveOutcome.NOTHING_TO_SAVE)); return }
+        val prepared = mutableListOf<PreparedSave<T>>()
+        val saved = mutableListOf<String>()
+        val failed = linkedMapOf<String, String>()
+        val cancelled = mutableListOf<String>()
+        val notExecuted = mutableListOf<String>()
+        val postErrors = mutableListOf<String>()
+        sidebarPreloadGeneration++
+        dataService.beginSave()
+        main.showOperation("保存準備 0/${targets.size} 件")
+        var finished = false
 
-        val failed = mutableListOf<String>()
-        val prepared = targets.mapNotNull { dataId ->
-            prepareSave(dataId) ?: run {
-                failed += dataId
-                null
+        fun finish() {
+            if (finished) return
+            finished = true
+            val outcome = when {
+                saved.isNotEmpty() && (failed.isNotEmpty() || cancelled.isNotEmpty() || notExecuted.isNotEmpty() || postErrors.isNotEmpty()) -> SaveOutcome.SAVED_WITH_ERRORS
+                saved.isNotEmpty() -> SaveOutcome.SAVED
+                failed.isNotEmpty() -> SaveOutcome.FAILED
+                else -> SaveOutcome.CANCELLED
+            }
+            val result = BatchSaveResult(outcome, saved.toList(), failed.toMap(), cancelled.toList(), notExecuted.toList(), postErrors.toList())
+            main.finishOperation()
+            dataService.endSave()
+            refreshSyncButtonState()
+            val summary = "${saved.size} 件保存済み、${failed.size} 件失敗、${cancelled.size} 件確認キャンセル、${notExecuted.size} 件未実行"
+            main.showTimedTopLabel(summary, if (outcome == SaveOutcome.SAVED) Color.GREENYELLOW else Color.ORANGE, 5.0)
+            val details = buildList {
+                fun section(title: String, ids: List<String>) {
+                    if (ids.isNotEmpty()) { add("【$title（${ids.size} 件）】"); ids.forEach { add("・$it") } }
+                }
+                section("保存済み", saved)
+                section("失敗", failed.map { (id, reason) -> "$id: $reason" })
+                section("確認キャンセル", cancelled)
+                section("未実行", notExecuted)
+                if (postErrors.isNotEmpty()) { add("【保存後の処理で発生したエラー】"); addAll(postErrors) }
+            }
+            try {
+                CustomDialog.information().title("一括保存の結果").header(summary).content(details)
+                    .scrollableContent().owner(main.currentStage).show()
+            } finally { onComplete(result) }
+        }
+
+        fun refresh() {
+            if (saved.isEmpty()) { finish(); return }
+            refreshSavedSidebar({ error ->
+                logger.error("一括保存後の一覧更新に失敗しました", error)
+                postErrors += "一覧更新に失敗しました。保存済みの書き込みは完了しています。"
+                finish()
+            }, ::finish)
+        }
+
+        fun persist(index: Int) {
+            if (index == prepared.size) { refresh(); return }
+            val entry = prepared[index]
+            main.showOperation("保存中 $index/${prepared.size} 件: ${entry.dataId}")
+            fun next() {
+                main.showOperation("保存中 ${index + 1}/${prepared.size} 件: ${entry.dataId}")
+                Platform.runLater { persist(index + 1) }
+            }
+            saveStep({ writeSingleSave(entry) }, { error ->
+                logger.error("一括保存の書き込みに失敗しました: id={}", entry.dataId, error)
+                if (entry.dataId in saved) {
+                    postErrors += "${entry.dataId}: 保存結果の反映に失敗しました。"
+                    notExecuted += prepared.drop(index + 1).map { it.dataId }
+                    refresh()
+                } else { failed[entry.dataId] = "書き込みの結果を確認できません。ストアの状態を確認してください。"; next() }
+            }) { result ->
+                when (result) {
+                    is StoreResult.Failure -> {
+                        logger.error("一括保存に失敗しました: id={}, error={}", entry.dataId, result.error)
+                        failed[entry.dataId] = result.error.detail ?: "ストアへの書き込みに失敗しました。"
+                        next()
+                    }
+                    is StoreResult.Success -> {
+                        saved += entry.dataId
+                        applySavedData(entry, result.value)
+                        main.showOperation("保存中 $index/${prepared.size} 件: ${entry.dataId}（バックアップ整理）")
+                        requestBackup(allowDuringOperation = true) { success ->
+                            if (!success) {
+                                logger.error("一括保存のバックアップ整理に失敗しました: id={}", entry.dataId)
+                                postErrors += "${entry.dataId}: バックアップ整理に失敗しました。"
+                            }
+                            next()
+                        }
+                    }
+                }
             }
         }
-        if (prepared.isEmpty()) return false
 
-        val details = combinedSaveChangeDetails(prepared.map { entry ->
-            entry.dataId to saveChangeDetails(
-                dataId = entry.dataId,
-                operation = entry.operation,
-                original = entry.original,
-                current = entry.localData,
-                automaticallyMerged = entry.automaticallyMergedData,
-                finalData = entry.previewData.takeIf { it != entry.automaticallyMergedData },
-                itemDisplayText = ::itemDisplayText
-            )
-        }) + if (failed.isEmpty()) {
-            emptyList()
-        } else {
-            listOf("", "【保存準備に失敗したデータ】", *failed.map { "・$it" }.toTypedArray())
-        }
-        val confirmed = CustomDialog.confirmation()
-            .title("すべて保存")
-            .header("以下の変更をまとめてストアへ反映します（${prepared.size} 件）")
-            .content(details)
-            .scrollableContent()
-            .okButton("すべて保存", Color.DODGERBLUE)
-            .owner(main.currentStage)
-            .show()
-        if (!confirmed) return false
-
-        prepared.filterNot(::persistPreparedSave).mapTo(failed, PreparedSave<T>::dataId)
-        val succeededCount = targets.size - failed.size
-        if (failed.isEmpty()) {
-            main.showTimedTopLabel("$succeededCount 件のデータを保存しました", Color.GREENYELLOW)
-            return true
+        fun confirm() {
+            if (prepared.isEmpty()) { finish(); return }
+            val details = combinedSaveChangeDetails(prepared.map { entry ->
+                entry.dataId to saveChangeDetails(entry.dataId, entry.operation, entry.original, entry.localData,
+                    entry.automaticallyMergedData, entry.previewData.takeIf { it != entry.automaticallyMergedData }, ::itemDisplayText)
+            }) + failed.map { (id, reason) -> "保存準備失敗: $id（$reason）" } + cancelled.map { "確認キャンセル: $it" }
+            main.showOperation("保存準備 ${targets.size}/${targets.size} 件（まとめた差分を確認）")
+            if (CustomDialog.confirmation().title("すべて保存")
+                    .header("以下の変更をまとめてストアへ反映します（${prepared.size} 件）")
+                    .content(details).scrollableContent().okButton("すべて保存", Color.DODGERBLUE)
+                    .owner(main.currentStage).show()) persist(0)
+            else { notExecuted += prepared.map { it.dataId }; finish() }
         }
 
-        main.showTimedTopLabel(
-            "$succeededCount 件を保存し、${failed.size} 件は未保存です",
-            Color.ORANGE
-        )
-        return false
+        fun prepare(index: Int) {
+            if (index == targets.size) {
+                try { confirm() } catch (error: Exception) {
+                    logger.error("一括保存の差分確認に失敗しました", error)
+                    notExecuted += prepared.map { it.dataId }
+                    postErrors += "差分確認に失敗しました。未実行の編集内容は保持されています。"
+                    finish()
+                }
+                return
+            }
+            val entry = targets[index]
+            val operation = entry.operation
+            main.showOperation("保存準備 $index/${targets.size} 件: ${entry.dataId}")
+            fun next(preview: SaveDataPreview<T>?) {
+                if (preview == null) cancelled += entry.dataId
+                else prepared += entry.copy(automaticallyMergedData = preview.automaticallyMergedData,
+                    previewData = preview.data, saveData = preview.data.takeUnless { operation is PendingStoreOperation.Delete })
+                main.showOperation("保存準備 ${index + 1}/${targets.size} 件: ${entry.dataId}")
+                Platform.runLater { prepare(index + 1) }
+            }
+            fun fail(error: Throwable) {
+                logger.error("一括保存の準備に失敗しました: id={}", entry.dataId, error)
+                failed[entry.dataId] = "最新データの取得・保存準備に失敗しました。"
+                Platform.runLater { prepare(index + 1) }
+            }
+            if (operation is PendingStoreOperation.Delete || !dataService.isRemote) {
+                next(SaveDataPreview(entry.localData, null))
+            } else {
+                val sourceId = (operation as? PendingStoreOperation.Rename)?.sourceId ?: entry.dataId
+                saveStep({
+                    val loaded = dataAccess.load(sourceId)
+                    val merge = loaded.first?.takeIf { loaded.second == LoadResult.SUCCESS }
+                        ?.let { dataAccess.merge(entry.original, entry.localData, it) }
+                    loaded to merge
+                }, ::fail) { (loaded, merge) ->
+                    if (loaded.second in listOf(LoadResult.FAILED, LoadResult.PROFILE_NOT_SELECTED, LoadResult.SFTP_INACTIVE)) {
+                        failed[entry.dataId] = "最新データの取得に失敗しました。接続を確認してください。"
+                        Platform.runLater { prepare(index + 1) }
+                    } else next(prepareSaveData(entry.dataId, sourceId, entry.localData, entry.original, loaded, merge))
+                }
+            }
+        }
+        prepare(0)
     }
 
     private fun hasUnsavedChanges(id: String): Boolean {
@@ -1004,101 +1097,8 @@ abstract class EditorView<T : ManagedData<T, *>>(
         }
     }
 
-    private fun persistSaveData(
-        dataId: String,
-        saveData: T,
-        pendingOperation: PendingStoreOperation?
-    ): Boolean {
-        val normalizedSaveData = saveData.deepCopy().apply { id = dataId }
-        if (pendingOperation is PendingStoreOperation.Rename) {
-            when (dataAccess.renameStoreTo(pendingOperation.sourceId, dataId)) {
-                RenameResult.SUCCESS -> Unit
-                RenameResult.FILE_NOT_FOUND -> {
-                    CustomDialog.error(ErrorType.FILE_NOT_FOUND).owner(main.currentStage).show()
-                    return false
-                }
-                RenameResult.ALREADY_EXISTS -> {
-                    CustomDialog.error()
-                        .title("保存エラー")
-                        .header("変更先のIDが既に存在します")
-                        .content("対象ID: $dataId")
-                        .owner(main.currentStage)
-                        .show()
-                    return false
-                }
-                RenameResult.FAILED,
-                RenameResult.PROFILE_NOT_SELECTED,
-                RenameResult.SFTP_INACTIVE -> {
-                    CustomDialog.error(ErrorType.NETWORK_ERROR).owner(main.currentStage).show()
-                    return false
-                }
-            }
-        }
-        return when (val result = saveStoreData(dataId, normalizedSaveData)) {
-            is StoreResult.Success -> {
-                originalDataMap[dataId] = normalizedSaveData.deepCopy()
-                editingDataMap[dataId] = normalizedSaveData.deepCopy()
-                editHistory.reset(dataId, normalizedSaveData)
-                mergeConflicts.remove(dataId)
-                pendingStoreOperations.remove(dataId)
-                persistPendingStoreState()
-                refreshSyncButtonState()
-                remoteDataIds = remoteDataIds.toMutableSet().apply {
-                    if (pendingOperation is PendingStoreOperation.Rename) remove(pendingOperation.sourceId)
-                    add(dataId)
-                }
-
-                (pendingOperation as? PendingStoreOperation.Rename)?.let { operation ->
-                    removeLocalBackup(operation.sourceId)
-                }
-                removeLocalBackup(dataId)
-                setupSidebar(main.sidebarContainer, dataId.takeIf { it == currentSelectedDataId })
-                main.showTimedTopLabel("$dataId を保存しました", Color.GREENYELLOW)
-                true
-            }
-            is StoreResult.Failure -> {
-                if (pendingOperation is PendingStoreOperation.Rename) {
-                    val rollbackResult = dataAccess.renameStoreTo(dataId, pendingOperation.sourceId)
-                    if (rollbackResult != RenameResult.SUCCESS) {
-                        logger.error(
-                            "保存失敗後にID変更を元へ戻せませんでした: currentId={}, sourceId={}, result={}",
-                            dataId,
-                            pendingOperation.sourceId,
-                            rollbackResult
-                        )
-                    }
-                }
-                handleSaveFailure(result.error)
-            }
-        }
-    }
-
-    /** 種別固有の検証・書き込みを行います。単件保存では接続のI/O実行枠から呼び出します。 */
+    /** 種別固有の検証・書き込みを、接続のI/O実行枠から呼び出します。 */
     protected open fun saveStoreData(dataId: String, data: T): StoreResult<Unit> = dataAccess.saveStore(dataId, data)
-
-    private fun persistDelete(dataId: String, operation: PendingStoreOperation.Delete): Boolean {
-        return when (dataAccess.deleteStore(operation.sourceId)) {
-            DeleteResult.SUCCESS,
-            DeleteResult.FILE_NOT_FOUND -> {
-                pendingStoreOperations.remove(dataId)
-                discardLocalEditingData(dataId)
-                if (operation.sourceId != dataId) removeLocalBackup(operation.sourceId)
-                persistPendingStoreState()
-                refreshSyncButtonState()
-                remoteDataIds = remoteDataIds - operation.sourceId
-                onPersistedDataDeleted(dataId)
-                setupSidebar(main.sidebarContainer)
-                main.showTimedTopLabel("${operation.sourceId} を削除しました", Color.GREENYELLOW)
-                true
-            }
-            DeleteResult.FAILED,
-            DeleteResult.PROFILE_NOT_SELECTED,
-            DeleteResult.SFTP_INACTIVE -> {
-                CustomDialog.error(ErrorType.NETWORK_ERROR).owner(main.currentStage).show()
-                false
-            }
-        }
-    }
 
     /** 保存が確定した削除に対する、データ種別固有のUIキャッシュ破棄処理です。 */
     protected open fun onPersistedDataDeleted(id: String) = Unit

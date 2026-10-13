@@ -297,7 +297,7 @@ class EditorSingleSaveTest {
                     assertTrue(fixture.main.operationRunning)
                     assertTrue(fixture.logic.storeOperationBlocked)
                     fixture.logic.onCreateData()
-                    assertFalse(fixture.logic.onSaveAll())
+                    fixture.logic.onSaveAll { assertEquals(EditorView.SaveOutcome.BUSY, it.outcome) }
                     fixture.logic.onClose { assertFalse(it) }
                     assertFalse(closed.isDone)
                 }
@@ -343,6 +343,81 @@ class EditorSingleSaveTest {
     }
 
     @Test
+    fun `全種別の一括保存は件数を表示して一覧を最後に一回取得する`() {
+        verifyBatch(EditorDataDescriptors.item)
+        verifyBatch(EditorDataDescriptors.ore)
+        verifyBatch(EditorDataDescriptors.shop)
+        verifyBatch(EditorDataDescriptors.recipe)
+    }
+
+    private fun <T : ManagedData<T, *>> verifyBatch(descriptor: EditorDataDescriptor<T>) = withFixture(descriptor) { fixture ->
+        val second = descriptor.createDefault(if (descriptor == EditorDataDescriptors.shop) "tab.second" else "second")
+        fixture.store.memory.save(descriptor, second.id, second)
+        fx { fixture.logic.add(second, second.deepCopy().apply { completed = !completed }) }
+        val entered = CountDownLatch(1)
+        val release = CountDownLatch(1)
+        fixture.store.beforeSave = { entered.countDown(); assertTrue(release.await(10, TimeUnit.SECONDS)) }
+        val completed = CompletableFuture<EditorView.BatchSaveResult>()
+        val phases = mutableListOf<String>()
+        fx {
+            (fixture.root.lookup("#topInfoLabel") as Label).textProperty().addListener { _, _, value -> phases += value }
+            fixture.logic.onSaveAll { completed.complete(it) }
+        }
+        try {
+            assertTrue(entered.await(10, TimeUnit.SECONDS))
+            fx {
+                assertTrue(fixture.main.operationRunning)
+                assertTrue(fixture.main.mainContentContainer.isDisabled)
+                assertTrue(fixture.main.sidebarContainer.isDisabled)
+                assertTrue((fixture.root.lookup("#topInfoLabel") as Label).text.contains("保存中 0/2 件"))
+                fixture.logic.onSaveAll { assertEquals(EditorView.SaveOutcome.BUSY, it.outcome) }
+                fixture.logic.onClose { assertFalse(it) }
+                fixture.root.applyCss(); fixture.root.layout()
+            }
+        } finally { release.countDown() }
+        val result = completed.get(15, TimeUnit.SECONDS)
+        assertEquals(EditorView.SaveOutcome.SAVED, result.outcome)
+        assertEquals(2, result.saved.size)
+        assertEquals(1, fixture.store.lists)
+        assertTrue(fixture.store.ioThreads.none { it })
+        fx {
+            assertEquals(1, fixture.logic.sidebarRefreshes)
+            assertTrue(fixture.logic.unchanged())
+            assertTrue(phases.any { it.startsWith("保存準備 2/2 件") })
+            assertTrue(phases.any { it.startsWith("保存中 2/2 件") })
+            assertFalse(fixture.main.operationRunning)
+        }
+    }
+
+    private fun addItem(fixture: Fixture<MutableItemBaseData>, id: String) {
+        val base = MutableItemBaseData(id = id)
+        fixture.store.memory.save(EditorDataDescriptors.item, id, base)
+        fx { fixture.logic.add(base, base.deepCopy().apply { itemDetail.maxStackSize = 32 }) }
+    }
+
+    @Test
+    fun `一括保存の準備失敗と書込み失敗は対象別に保持して他の対象を保存する`() = withFixture(EditorDataDescriptors.item) { fixture ->
+        addItem(fixture, "read_failed")
+        addItem(fixture, "write_failed")
+        fixture.store.failedReadId = "read_failed"
+        fixture.store.failedWriteId = "write_failed"
+        val completed = CompletableFuture<EditorView.BatchSaveResult>()
+        fx { fixture.logic.onSaveAll { completed.complete(it) } }
+        val result = completed.get(15, TimeUnit.SECONDS)
+        assertEquals(EditorView.SaveOutcome.SAVED_WITH_ERRORS, result.outcome)
+        assertEquals(listOf("saved"), result.saved)
+        assertEquals(setOf("read_failed", "write_failed"), result.failed.keys)
+        assertEquals(listOf("saved", "write_failed"), fixture.store.writeIds)
+        assertEquals(1, fixture.store.lists)
+        fx {
+            assertTrue(fixture.logic.isSaved("saved"))
+            assertFalse(fixture.logic.isSaved("read_failed"))
+            assertFalse(fixture.logic.isSaved("write_failed"))
+            assertFalse(fixture.main.operationRunning)
+        }
+    }
+
+    @Test
     fun `退避中の編集を成功済みと表示せず最新要求で削除を順序付ける`() {
         val descriptor = EditorDataDescriptors.item
         val entered = CountDownLatch(1)
@@ -383,6 +458,35 @@ class EditorSingleSaveTest {
     }
 
     @Test
+    fun `背景退避の後に一括保存すると古いバックアップを復活させない`() {
+        withFixture(EditorDataDescriptors.item) { fixture ->
+            val backup = fx { fixture.logic.backup() }
+            val saved = CompletableFuture<EditorView.BatchSaveResult>()
+            fx { fixture.logic.onSaveAll { saved.complete(it) } }
+            assertTrue(backup.get(10, TimeUnit.SECONDS))
+            assertEquals(EditorView.SaveOutcome.SAVED, saved.get(15, TimeUnit.SECONDS).outcome)
+            assertNull(fixture.service.items.loadBackupPair(fixture.id))
+        }
+    }
+
+    @Test
+    fun `一括保存の退避整理失敗は保存済みと区別して返す`() = withFixture(EditorDataDescriptors.item) { fixture ->
+        val backup = fixture.service.autoSaveDirectory.resolve(fixture.service.cacheIdentity)
+            .resolve(EditorDataDescriptors.item.dataType.categoryDirName).resolve("editing/saved.yml")
+        assertTrue(backup.mkdirs())
+        backup.resolve("undeletable").writeText("test")
+        val completed = CompletableFuture<EditorView.BatchSaveResult>()
+        fx { fixture.logic.onSaveAll { completed.complete(it) } }
+        try {
+            val result = completed.get(15, TimeUnit.SECONDS)
+            assertEquals(EditorView.SaveOutcome.SAVED_WITH_ERRORS, result.outcome)
+            assertEquals(listOf("saved"), result.saved)
+            assertEquals(1, result.postProcessingErrors.size)
+            fx { assertTrue(fixture.logic.unchanged()) }
+        } finally { backup.deleteRecursively() }
+    }
+
+    @Test
     fun `最新の編集とoriginalと保留操作を新しいサービスで復元できる`() {
         val descriptor = EditorDataDescriptors.item
         withFixture(descriptor) { fixture ->
@@ -417,6 +521,104 @@ class EditorSingleSaveTest {
                 reopenedService.closeIo()
             }
         }
+    }
+
+    @Test
+    fun `一括保存後の一覧失敗は保存済みと未保存を混同しない`() = withFixture(EditorDataDescriptors.item) { fixture ->
+        addItem(fixture, "failed")
+        fixture.store.failedWriteId = "failed"
+        fixture.store.failListAfterSave = true
+        val completed = CompletableFuture<EditorView.BatchSaveResult>()
+        fx { fixture.logic.onSaveAll { completed.complete(it) } }
+        val result = completed.get(15, TimeUnit.SECONDS)
+        assertEquals(listOf("saved"), result.saved)
+        assertEquals(setOf("failed"), result.failed.keys)
+        assertEquals(1, result.postProcessingErrors.size)
+        assertEquals(1, fixture.store.lists)
+        fx { assertTrue(fixture.logic.isSaved("saved")); assertFalse(fixture.logic.isSaved("failed")); assertFalse(fixture.main.operationRunning) }
+    }
+
+    @Test
+    fun `一括差分確認の取消は書き込まず全準備対象を未実行にする`() = withFixture(EditorDataDescriptors.item) { fixture ->
+        addItem(fixture, "second")
+        fixture.cancel = true
+        val completed = CompletableFuture<EditorView.BatchSaveResult>()
+        fx { fixture.logic.onSaveAll { completed.complete(it) } }
+        val result = completed.get(15, TimeUnit.SECONDS)
+        assertEquals(EditorView.SaveOutcome.CANCELLED, result.outcome)
+        assertEquals(setOf("saved", "second"), result.notExecuted.toSet())
+        assertEquals(0, fixture.store.writes)
+        assertEquals(0, fixture.store.lists)
+        fx { assertFalse(fixture.logic.unchanged()); assertFalse(fixture.main.operationRunning) }
+    }
+
+    @Test
+    fun `一括の競合確認取消は対象を保持し承認対象だけ保存する`() = withFixture(EditorDataDescriptors.item) { fixture ->
+        addItem(fixture, "conflicted")
+        val remote = (fixture.store.memory.load(EditorDataDescriptors.item, "conflicted") as StoreResult.Success).value
+        remote.itemDetail.maxStackSize = 16
+        fixture.store.memory.save(EditorDataDescriptors.item, "conflicted", remote)
+        fx {
+            fixture.onDialog = { pane ->
+                fixture.cancel = pane.headerText == null
+            }
+        }
+        val completed = CompletableFuture<EditorView.BatchSaveResult>()
+        fx { fixture.logic.onSaveAll { completed.complete(it) } }
+        val result = completed.get(15, TimeUnit.SECONDS)
+        assertEquals(listOf("conflicted"), result.cancelled)
+        assertEquals(listOf("saved"), result.saved)
+        assertEquals(listOf("saved"), fixture.store.writeIds)
+        fx { assertEquals(32, fixture.logic.data("conflicted").itemDetail.maxStackSize) }
+    }
+
+    @Test
+    fun `一括保存は削除とID変更を背景実行して保留操作を整理する`() = withFixture(EditorDataDescriptors.item) { fixture ->
+        addItem(fixture, "delete_me")
+        fx { fixture.logic.renameId("saved", "renamed"); fixture.logic.deleteId("delete_me") }
+        val completed = CompletableFuture<EditorView.BatchSaveResult>()
+        fx { fixture.logic.onSaveAll { completed.complete(it) } }
+        val result = completed.get(15, TimeUnit.SECONDS)
+        assertEquals(EditorView.SaveOutcome.SAVED, result.outcome)
+        assertEquals(setOf("renamed", "delete_me"), result.saved.toSet())
+        assertIs<StoreResult.Success<*>>(fixture.store.memory.load(EditorDataDescriptors.item, "renamed"))
+        assertIs<StoreResult.Failure>(fixture.store.memory.load(EditorDataDescriptors.item, "saved"))
+        assertIs<StoreResult.Failure>(fixture.store.memory.load(EditorDataDescriptors.item, "delete_me"))
+        assertTrue(fixture.service.items.loadPendingStoreOperations().isEmpty())
+        assertEquals(1, fixture.store.lists)
+    }
+
+    @Test
+    fun `一括オフライン保存は最新取得を行わず対象コピーを保存する`() = withFixture(EditorDataDescriptors.item) { fixture ->
+        addItem(fixture, "second")
+        fixture.store.kind = EditorDataStoreKind.LOCAL
+        val completed = CompletableFuture<EditorView.BatchSaveResult>()
+        fx { fixture.logic.onSaveAll { completed.complete(it) } }
+        assertEquals(EditorView.SaveOutcome.SAVED, completed.get(15, TimeUnit.SECONDS).outcome)
+        assertEquals(0, fixture.store.loads)
+        assertEquals(2, fixture.store.writes)
+        assertEquals(1, fixture.store.lists)
+    }
+
+    @Test
+    fun `一括準備待機中もFXが応答し開始時の編集コピーを保存する`() = withFixture(EditorDataDescriptors.item) { fixture ->
+        addItem(fixture, "second")
+        val entered = CountDownLatch(1)
+        val release = CountDownLatch(1)
+        fixture.store.beforeLoad = { entered.countDown(); assertTrue(release.await(10, TimeUnit.SECONDS)) }
+        val completed = CompletableFuture<EditorView.BatchSaveResult>()
+        fx { fixture.logic.onSaveAll { completed.complete(it) } }
+        try {
+            assertTrue(entered.await(10, TimeUnit.SECONDS))
+            fx {
+                assertTrue((fixture.root.lookup("#topInfoLabel") as Label).text.contains("保存準備 0/2 件"))
+                fixture.logic.data("second").itemDetail.maxStackSize = 16
+                fixture.root.applyCss(); fixture.root.layout()
+            }
+        } finally { release.countDown() }
+        assertEquals(EditorView.SaveOutcome.SAVED, completed.get(15, TimeUnit.SECONDS).outcome)
+        val saved = (fixture.store.memory.load(EditorDataDescriptors.item, "second") as StoreResult.Success).value
+        assertEquals(32, saved.itemDetail.maxStackSize)
     }
 
     private fun <T : ManagedData<T, *>> withFixture(
@@ -498,12 +700,19 @@ class EditorSingleSaveTest {
         }
         fun create() { stageDataCreation(current().id) }
         fun pending(): Boolean = hasPendingStoreOperation(current().id)
+        var sidebarRefreshes = 0
+        fun add(base: T, edit: T) { originalDataMap[base.id] = base; editingDataMap[base.id] = edit }
+        fun data(id: String): T = editingDataMap.getValue(id)
+        fun isSaved(id: String): Boolean = editingDataMap[id] == originalDataMap[id]
+        fun renameId(oldId: String, newId: String) { stageDataRename(oldId, newId) }
+        fun deleteId(id: String) { stageDataDeletion(id) }
         fun current(): T = editingDataMap.getValue(currentSelectedDataId!!)
         fun unchanged(): Boolean = editingDataMap == originalDataMap
         fun rename(newId: String = "renamed") { stageDataRename("saved", newId) }
         fun delete() { stageDataDeletion("saved") }
         override fun setupSidebar(container: VBox, selectId: String?) {
             assertTrue(Platform.isFxApplicationThread())
+            sidebarRefreshes++
             assertTrue(sidebarResources().second)
             assertIs<StoreResult.Success<*>>(sidebarDirectoryList())
             selectId?.let(::selectTab)
@@ -521,6 +730,12 @@ class EditorSingleSaveTest {
         var beforeList: (() -> Unit)? = null
         var readFailure: StoreErrorCode? = null
         var loads = 0
+        var lists = 0
+        var failedReadId: String? = null
+        var failedWriteId: String? = null
+        var failedDeleteId: String? = null
+        val loadIds = mutableListOf<String>()
+        val writeIds = mutableListOf<String>()
         var writeFailure: StoreErrorCode? = null
         var failListAfterSave = false
         var failedRename: String? = null
@@ -529,6 +744,8 @@ class EditorSingleSaveTest {
         override fun <T : ManagedData<T, *>> load(descriptor: EditorDataDescriptor<T>, id: String): StoreResult<T> {
             ioThreads += Platform.isFxApplicationThread()
             loads++
+            loadIds += id
+            if (id == failedReadId) return StoreResult.Failure(StoreError(StoreErrorCode.IO_ERROR, id))
             beforeLoad?.invoke()
             readFailure?.let { return StoreResult.Failure(StoreError(it, id)) }
             return memory.load(descriptor, id)
@@ -537,6 +754,8 @@ class EditorSingleSaveTest {
             ioThreads += Platform.isFxApplicationThread()
             beforeSave?.invoke()
             writes++
+            writeIds += id
+            if (id == failedWriteId) return StoreResult.Failure(StoreError(StoreErrorCode.IO_ERROR, id))
             writeFailure?.let { return StoreResult.Failure(StoreError(it, id)) }
             data.completed = !data.completed
             savedCompleted = data.completed
@@ -544,8 +763,14 @@ class EditorSingleSaveTest {
         }
         override fun <T : ManagedData<T, *>> list(descriptor: EditorDataDescriptor<T>): StoreResult<List<StoreResource>> {
             ioThreads += Platform.isFxApplicationThread()
+            lists++
             beforeList?.invoke()
             return if (failListAfterSave && writes > 0) StoreResult.Failure(StoreError(StoreErrorCode.IO_ERROR)) else memory.list(descriptor)
+        }
+        override fun <T : ManagedData<T, *>> delete(descriptor: EditorDataDescriptor<T>, id: String): StoreResult<Unit> {
+            ioThreads += Platform.isFxApplicationThread()
+            if (id == failedDeleteId) return StoreResult.Failure(StoreError(StoreErrorCode.IO_ERROR, id))
+            return memory.delete(descriptor, id)
         }
         override fun <T : ManagedData<T, *>> rename(descriptor: EditorDataDescriptor<T>, oldId: String, newName: String): StoreResult<Unit> {
             renames += "$oldId:$newName"
