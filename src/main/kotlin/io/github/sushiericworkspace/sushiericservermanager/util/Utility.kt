@@ -6,10 +6,8 @@ import io.github.sushiericworkspace.sushiericservermanager.app.AppScreen
 import io.github.sushiericworkspace.sushiericservermanager.app.ApplicationFlow
 import io.github.sushiericworkspace.sushiericservermanager.app.appWindowTitle
 import io.github.sushiericworkspace.sushiericservermanager.editor.session.EditorSession
-import io.github.sushiericworkspace.sushiericservermanager.editor.view.EditorWindowManager
 import io.github.sushiericworkspace.sushiericservermanager.config.ServerProfile
 import javafx.fxml.FXMLLoader
-import javafx.application.Platform
 import javafx.scene.Parent
 import javafx.scene.Scene
 import javafx.scene.control.Alert
@@ -35,20 +33,14 @@ object Utility {
         return "$base/$dataRoot/$relative"
     }
 
-    /**
-     * 必要であればSSH接続を切断し、サーバー選択画面へ遷移します。
-     */
+    /** 退避と接続終了を待ち、通常接続のサーバー選択画面へ遷移します。管理接続ではモード選択へ戻ります。 */
     fun navigateToServerSelect() {
-        if (EditorWindowManager.hasRunningSave) return
         if (EditorSession.connection != null) {
             navigateToModeSelect()
             return
         }
-
-        EditorWindowManager.closeAll { success ->
-            if (!success) return@closeAll
-            Stage.getWindows().toList().filterIsInstance<Stage>().forEach { it.close() }
-            EditorSession.disconnect()
+        closeConnection {
+            EditorSession.prepareOnlineMode()
             Stage().apply {
                 title = appWindowTitle("サーバー選択")
                 scene = createScene(AppScreen.SERVER_SELECT, 600.0, 400.0)
@@ -59,38 +51,11 @@ object Utility {
     }
 
     fun navigateToModeSelect() {
-        if (EditorWindowManager.hasRunningSave) return
-        if (EditorSession.connection != null) {
-            closeConnection { ApplicationFlow.showModeSelection(Stage()) }
-            return
-        }
-        EditorWindowManager.closeAll { success ->
-            if (!success) return@closeAll
-            Stage.getWindows().toList().filterIsInstance<Stage>().forEach { it.close() }
-            EditorSession.resetMode()
-            ApplicationFlow.showModeSelection(Stage())
-        }
+        closeConnection { ApplicationFlow.showModeSelection(Stage()) }
     }
 
-    /** ローカル退避の成功後、接続の終了待ちはUIスレッド外で行います。 */
-    fun closeConnection(afterClose: () -> Unit) {
-        if (EditorWindowManager.hasRunningSave) return
-        val stage = Stage.getWindows().filterIsInstance<Stage>().first { it.isShowing }
-        val implicitExit = Platform.isImplicitExit()
-        Platform.setImplicitExit(false)
-        EditorWindowManager.closeAll { success ->
-            if (!success) {
-                Platform.setImplicitExit(implicitExit)
-                return@closeAll
-            }
-            stage.setOnCloseRequest { it.consume() }
-            ApplicationFlow.finishConnection(stage) {
-                Stage.getWindows().toList().filterIsInstance<Stage>().forEach { it.close() }
-                afterClose()
-                Platform.setImplicitExit(implicitExit)
-            }
-        }
-    }
+    /** 全画面の操作・退避と接続終了を非同期で待ち、成功後だけJavaFXスレッドで[afterClose]を実行します。 */
+    fun closeConnection(afterClose: () -> Unit) = ApplicationFlow.finishConnection(afterClose)
 
     fun navigateToHome(contextName: String) {
         val scene = createScene(AppScreen.HOME)

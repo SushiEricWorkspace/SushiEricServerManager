@@ -251,18 +251,20 @@ object EditorSession {
         dataService = EditorDataService(store).also { it.itemReferences.load() }
     }
 
+    /** 受理済みI/Oと接続の終了を待ちます。UIスレッド外で呼び出し、失敗時はsessionを保持します。 */
     fun disconnect() {
         check(dataService?.activeSaves == null || dataService?.activeSaves == 0) { "保存中の接続は切断できません。" }
         /*
          * 利用者が切断を選んだ場合は、以降の状態変化で再接続を予約しない。
          */
         autoReconnectEnabled = false
-        dataService?.itemReferences?.close()
+        dataService?.awaitIo()
         val active = connection
         if (active != null) {
             active.close()
             serverMonitor.stop()
             connection = null
+            dataService?.itemReferences?.close()
             dataService?.closeIo()
             dataService = null
             return
@@ -286,6 +288,7 @@ object EditorSession {
             managementClient.disconnect()
             sshManager.disconnect()
         }
+        dataService?.itemReferences?.close()
         dataService?.closeIo()
         dataService = null
     }

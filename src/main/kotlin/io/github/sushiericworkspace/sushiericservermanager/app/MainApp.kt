@@ -9,6 +9,7 @@ import io.github.sushiericworkspace.sushiericservermanager.update.pruneOldUpdate
 import javafx.application.Application
 import javafx.application.Platform
 import javafx.stage.Stage
+import kotlin.concurrent.thread
 import io.github.sushiericworkspace.sushiericservermanager.editor.session.EditorSession
 
 /**
@@ -43,8 +44,15 @@ open class MainApp : Application() {
 
     override fun stop() {
         val session = EditorSession
-        if (session.connection != null) session.connection?.abort() else session.disconnect()
-        SingleAppLock.release()
+        if (session.connection != null) {
+            session.connection?.abort()
+            SingleAppLock.release()
+        } else {
+            thread(name = "application-disconnect", isDaemon = false) {
+                try { session.disconnect() }
+                finally { SingleAppLock.release() }
+            }
+        }
     }
 
     /** 通常起動では正式更新経路を設定し、前回の更新結果を表示します。 */

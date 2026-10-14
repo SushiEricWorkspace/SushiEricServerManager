@@ -115,6 +115,31 @@ class EditorLoadingViewTest {
         }
     }
 
+    @Test
+    fun `接続終了を取り消すと抑止した背景取得を再開する`() {
+        fixture(EditorDataDescriptors.ore) { f ->
+            val entered = CountDownLatch(1)
+            val release = CountDownLatch(1)
+            f.store.beforeLoad = { id -> if (id == "b") { entered.countDown(); assertTrue(release.await(10, TimeUnit.SECONDS)) } }
+            try {
+                fx { f.main.switchView(f.view) }
+                assertTrue(entered.await(10, TimeUnit.SECONDS))
+                val prepared = CompletableFuture<Boolean>()
+                fx { f.view.prepareClose { prepared.complete(it) } }
+                release.countDown()
+                assertTrue(prepared.get(10, TimeUnit.SECONDS))
+                fx {
+                    assertNull(f.view.cached("b"))
+                    assertTrue(f.main.operationRunning)
+                    f.view.cancelClose()
+                    assertFalse(f.main.operationRunning)
+                }
+                awaitFx { f.view.cached("b") != null }
+                fx { assertEquals(SidebarValidationStatus.CHECKED, f.view.sidebarState("b").validationStatus) }
+            } finally { release.countDown() }
+        }
+    }
+
     private fun <T : ManagedData<T, *>> checkStartup(descriptor: EditorDataDescriptor<T>) {
         fixture(descriptor) { f ->
             val entered = CountDownLatch(1)
