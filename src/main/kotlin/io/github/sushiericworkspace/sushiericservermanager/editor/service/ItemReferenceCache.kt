@@ -1,7 +1,7 @@
 package io.github.sushiericworkspace.sushiericservermanager.editor.service
 
-import io.github.sushiericworkspace.common.data.item.model.ItemInternalId
-import io.github.sushiericworkspace.common.data.item.model.ItemBaseData
+import io.github.sushiericworkspace.sushiericdatamodel.data.item.model.ItemInternalId
+import io.github.sushiericworkspace.sushiericdatamodel.data.item.model.ItemBaseData
 import io.github.sushiericworkspace.sushiericservermanager.editor.store.StoreError
 import io.github.sushiericworkspace.sushiericservermanager.editor.store.StoreErrorCode
 import io.github.sushiericworkspace.sushiericservermanager.editor.store.StoreResult

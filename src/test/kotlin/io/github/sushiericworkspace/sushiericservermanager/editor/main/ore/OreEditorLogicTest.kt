@@ -1,10 +1,10 @@
 package io.github.sushiericworkspace.sushiericservermanager.editor.main.ore
 
-import io.github.sushiericworkspace.common.data.core.identity.VanillaBlockId
-import io.github.sushiericworkspace.common.data.drop.model.mutable.MutableDropItemData
-import io.github.sushiericworkspace.common.data.item.model.ItemInternalId
-import io.github.sushiericworkspace.common.data.ore.model.mutable.MutableOreBaseData
-import io.github.sushiericworkspace.common.stats.player.SkillType
+import io.github.sushiericworkspace.sushiericdatamodel.data.core.identity.VanillaBlockId
+import io.github.sushiericworkspace.sushiericdatamodel.data.drop.model.mutable.MutableDropItemData
+import io.github.sushiericworkspace.sushiericdatamodel.data.item.model.ItemInternalId
+import io.github.sushiericworkspace.sushiericdatamodel.data.ore.model.mutable.MutableOreBaseData
+import io.github.sushiericworkspace.sushiericdatamodel.stats.player.SkillType
 import io.github.sushiericworkspace.sushiericservermanager.editor.validation.ValidationRepairResult
 import kotlin.test.Test
 import kotlin.test.assertEquals

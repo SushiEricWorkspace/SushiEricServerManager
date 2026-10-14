@@ -1,7 +1,7 @@
 package io.github.sushiericworkspace.sushiericservermanager.editor.main.item.tree
 
-import io.github.sushiericworkspace.common.data.item.LoreLineEditor
-import io.github.sushiericworkspace.common.data.item.model.mutable.MutableItemBaseData
+import io.github.sushiericworkspace.sushiericdatamodel.data.item.LoreLineEditor
+import io.github.sushiericworkspace.sushiericdatamodel.data.item.model.mutable.MutableItemBaseData
 import io.github.sushiericworkspace.sushiericservermanager.editor.tree.TreeMoveHandler
 import javafx.scene.control.TreeItem
 

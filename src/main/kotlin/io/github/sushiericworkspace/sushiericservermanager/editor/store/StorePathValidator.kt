@@ -1,6 +1,6 @@
 package io.github.sushiericworkspace.sushiericservermanager.editor.store
 
-import io.github.sushiericworkspace.common.data.core.identity.PublicId
+import io.github.sushiericworkspace.sushiericdatamodel.data.core.identity.PublicId
 
 object StorePathValidator {
     fun isValidId(id: String): Boolean = PublicId.isValidFull(id)

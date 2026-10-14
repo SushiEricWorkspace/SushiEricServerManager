@@ -1,8 +1,8 @@
 package io.github.sushiericworkspace.sushiericservermanager.editor.main.item
 
-import io.github.sushiericworkspace.common.data.item.model.HeadSkinSource
-import io.github.sushiericworkspace.common.data.item.model.mutable.MutableHeadSkinData
-import io.github.sushiericworkspace.common.data.item.model.mutable.MutableItemDetail
+import io.github.sushiericworkspace.sushiericdatamodel.data.item.model.HeadSkinSource
+import io.github.sushiericworkspace.sushiericdatamodel.data.item.model.mutable.MutableHeadSkinData
+import io.github.sushiericworkspace.sushiericdatamodel.data.item.model.mutable.MutableItemDetail
 import kotlin.test.Test
 import kotlin.test.assertEquals
 

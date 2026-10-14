@@ -1,9 +1,9 @@
 package io.github.sushiericworkspace.sushiericservermanager.editor.main.item
 
-import io.github.sushiericworkspace.common.data.item.model.ItemType
-import io.github.sushiericworkspace.common.data.item.model.detail.PickaxeData
-import io.github.sushiericworkspace.common.data.item.model.mutable.detail.MutablePickaxeData
-import io.github.sushiericworkspace.common.stats.player.StatsPart
+import io.github.sushiericworkspace.sushiericdatamodel.data.item.model.ItemType
+import io.github.sushiericworkspace.sushiericdatamodel.data.item.model.detail.PickaxeData
+import io.github.sushiericworkspace.sushiericdatamodel.data.item.model.mutable.detail.MutablePickaxeData
+import io.github.sushiericworkspace.sushiericdatamodel.stats.player.StatsPart
 import io.github.sushiericworkspace.sushiericservermanager.ui.format.ItemDetailContentFormatter
 import kotlin.test.Test
 import kotlin.test.assertEquals

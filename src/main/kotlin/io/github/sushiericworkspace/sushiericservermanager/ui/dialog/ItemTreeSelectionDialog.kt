@@ -1,7 +1,7 @@
 package io.github.sushiericworkspace.sushiericservermanager.ui.dialog
 
-import io.github.sushiericworkspace.common.data.item.model.ItemBaseDataView
-import io.github.sushiericworkspace.common.data.item.model.ItemInternalId
+import io.github.sushiericworkspace.sushiericdatamodel.data.item.model.ItemBaseDataView
+import io.github.sushiericworkspace.sushiericdatamodel.data.item.model.ItemInternalId
 import io.github.sushiericworkspace.sushiericservermanager.app.AppScreen
 import io.github.sushiericworkspace.sushiericservermanager.editor.view.SidebarTreeNode
 import io.github.sushiericworkspace.sushiericservermanager.editor.view.buildSidebarTree

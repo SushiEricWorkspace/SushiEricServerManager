@@ -1,13 +1,13 @@
 package io.github.sushiericworkspace.sushiericservermanager.editor.main.item.diff
 
-import io.github.sushiericworkspace.common.data.item.model.ItemStatMultiplier
-import io.github.sushiericworkspace.common.stats.player.StatsType
+import io.github.sushiericworkspace.sushiericdatamodel.data.item.model.ItemStatMultiplier
+import io.github.sushiericworkspace.sushiericdatamodel.stats.player.StatsType
 import io.github.sushiericworkspace.sushiericservermanager.ui.format.ItemStatMultiplierFormatter
-import io.github.sushiericworkspace.common.data.item.model.CustomComponentLoreSection
-import io.github.sushiericworkspace.common.data.item.model.mutable.MutableItemBaseData
-import io.github.sushiericworkspace.common.data.item.model.LoreSection
-import io.github.sushiericworkspace.common.data.item.model.PlainTextLoreSection
-import io.github.sushiericworkspace.common.data.item.model.StatLoreSection
+import io.github.sushiericworkspace.sushiericdatamodel.data.item.model.CustomComponentLoreSection
+import io.github.sushiericworkspace.sushiericdatamodel.data.item.model.mutable.MutableItemBaseData
+import io.github.sushiericworkspace.sushiericdatamodel.data.item.model.LoreSection
+import io.github.sushiericworkspace.sushiericdatamodel.data.item.model.PlainTextLoreSection
+import io.github.sushiericworkspace.sushiericdatamodel.data.item.model.StatLoreSection
 import io.github.sushiericworkspace.sushiericservermanager.ui.AppTooltip
 import io.github.sushiericworkspace.sushiericservermanager.ui.format.ItemDetailContentFormatter
 import javafx.scene.control.TreeView

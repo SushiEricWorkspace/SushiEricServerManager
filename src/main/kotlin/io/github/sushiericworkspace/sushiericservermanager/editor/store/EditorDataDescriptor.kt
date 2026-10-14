@@ -1,29 +1,29 @@
 package io.github.sushiericworkspace.sushiericservermanager.editor.store
 
-import io.github.sushiericworkspace.common.data.core.SushiEricDataType
-import io.github.sushiericworkspace.common.data.core.ManagedData
-import io.github.sushiericworkspace.common.data.core.validation.SushiEricValidationError
-import io.github.sushiericworkspace.common.data.item.ItemManager
-import io.github.sushiericworkspace.common.data.item.model.ItemInternalId
-import io.github.sushiericworkspace.common.data.item.model.mutable.MutableItemBaseData
-import io.github.sushiericworkspace.common.data.ore.OreManager
-import io.github.sushiericworkspace.common.data.ore.model.mutable.MutableOreBaseData
-import io.github.sushiericworkspace.common.data.ore.model.OreBaseDataView
+import io.github.sushiericworkspace.sushiericdatamodel.data.core.SushiEricDataType
+import io.github.sushiericworkspace.sushiericdatamodel.data.core.ManagedData
+import io.github.sushiericworkspace.sushiericdatamodel.data.core.validation.SushiEricValidationError
+import io.github.sushiericworkspace.sushiericdatamodel.data.item.ItemManager
+import io.github.sushiericworkspace.sushiericdatamodel.data.item.model.ItemInternalId
+import io.github.sushiericworkspace.sushiericdatamodel.data.item.model.mutable.MutableItemBaseData
+import io.github.sushiericworkspace.sushiericdatamodel.data.ore.OreManager
+import io.github.sushiericworkspace.sushiericdatamodel.data.ore.model.mutable.MutableOreBaseData
+import io.github.sushiericworkspace.sushiericdatamodel.data.ore.model.OreBaseDataView
 import io.github.sushiericworkspace.sushiericservermanager.editor.merge.DataMerger
 import io.github.sushiericworkspace.sushiericservermanager.editor.merge.ItemDataMerger
 import io.github.sushiericworkspace.sushiericservermanager.editor.merge.OreDataMerger
 import java.io.File
-import io.github.sushiericworkspace.common.data.core.identity.PublicId
-import io.github.sushiericworkspace.common.data.core.validation.SushiEricValidationSeverity
-import io.github.sushiericworkspace.common.data.shop.ShopManager
-import io.github.sushiericworkspace.common.data.shop.model.mutable.MutableShopProductData
+import io.github.sushiericworkspace.sushiericdatamodel.data.core.identity.PublicId
+import io.github.sushiericworkspace.sushiericdatamodel.data.core.validation.SushiEricValidationSeverity
+import io.github.sushiericworkspace.sushiericdatamodel.data.shop.ShopManager
+import io.github.sushiericworkspace.sushiericdatamodel.data.shop.model.mutable.MutableShopProductData
 import io.github.sushiericworkspace.sushiericservermanager.editor.merge.ShopDataMerger
-import io.github.sushiericworkspace.common.data.recipe.RecipeManager
+import io.github.sushiericworkspace.sushiericdatamodel.data.recipe.RecipeManager
 import io.github.sushiericworkspace.sushiericservermanager.editor.merge.RecipeDataMerger
 import io.github.sushiericworkspace.sushiericservermanager.editor.service.RecipeEditorCatalog
 import io.github.sushiericworkspace.sushiericservermanager.editor.service.validateRecipeForEditor
 
-/** Commonの検証結果を優先し、未提供の版ではスキル経験値の範囲検証だけを補います。 */
+/** SushiEricDataModelの検証結果を優先し、未提供の版ではスキル経験値の範囲検証だけを補います。 */
 internal fun validateOreDataForEditor(
     data: MutableOreBaseData,
     itemIds: Set<ItemInternalId>
@@ -148,7 +148,7 @@ object EditorDataDescriptors {
     }
 }
 
-/** Commonの基本検証と価格警告を使用し、未解決の参照だけは編集を続けられる警告にします。 */
+/** SushiEricDataModelの基本検証と価格警告を使用し、未解決の参照だけは編集を続けられる警告にします。 */
 internal fun validateShopDataForEditor(data: MutableShopProductData, itemIds: Set<ItemInternalId>): List<SushiEricValidationError> =
     data.validate(itemIds).map { error ->
         if (error.property.name == "itemInternalId" && data.itemInternalId != null) {

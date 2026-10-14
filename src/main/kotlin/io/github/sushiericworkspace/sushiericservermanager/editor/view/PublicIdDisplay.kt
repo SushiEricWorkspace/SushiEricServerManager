@@ -1,6 +1,6 @@
 package io.github.sushiericworkspace.sushiericservermanager.editor.view
 
-import io.github.sushiericworkspace.common.data.core.identity.PublicId
+import io.github.sushiericworkspace.sushiericdatamodel.data.core.identity.PublicId
 import javafx.scene.control.Label
 import javafx.scene.layout.HBox
 

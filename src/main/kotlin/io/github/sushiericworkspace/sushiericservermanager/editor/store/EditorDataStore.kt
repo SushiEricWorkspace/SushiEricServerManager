@@ -1,6 +1,6 @@
 package io.github.sushiericworkspace.sushiericservermanager.editor.store
 
-import io.github.sushiericworkspace.common.data.core.ManagedData
+import io.github.sushiericworkspace.sushiericdatamodel.data.core.ManagedData
 
 interface EditorDataStore {
     val kind: EditorDataStoreKind

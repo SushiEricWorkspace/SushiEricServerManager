@@ -1,13 +1,13 @@
 package io.github.sushiericworkspace.sushiericservermanager.editor.store
 
-import io.github.sushiericworkspace.common.data.core.identity.VanillaBlockId
-import io.github.sushiericworkspace.common.data.item.ItemManager
-import io.github.sushiericworkspace.common.data.item.model.mutable.MutableItemBaseData
-import io.github.sushiericworkspace.common.data.ore.model.mutable.MutableOreBaseData
-import io.github.sushiericworkspace.common.data.drop.model.mutable.MutableDropItemData
-import io.github.sushiericworkspace.common.data.recipe.model.RecipeIngredients
-import io.github.sushiericworkspace.common.data.recipe.model.mutable.MutableRecipeData
-import io.github.sushiericworkspace.common.data.shop.model.mutable.MutableShopProductData
+import io.github.sushiericworkspace.sushiericdatamodel.data.core.identity.VanillaBlockId
+import io.github.sushiericworkspace.sushiericdatamodel.data.item.ItemManager
+import io.github.sushiericworkspace.sushiericdatamodel.data.item.model.mutable.MutableItemBaseData
+import io.github.sushiericworkspace.sushiericdatamodel.data.ore.model.mutable.MutableOreBaseData
+import io.github.sushiericworkspace.sushiericdatamodel.data.drop.model.mutable.MutableDropItemData
+import io.github.sushiericworkspace.sushiericdatamodel.data.recipe.model.RecipeIngredients
+import io.github.sushiericworkspace.sushiericdatamodel.data.recipe.model.mutable.MutableRecipeData
+import io.github.sushiericworkspace.sushiericdatamodel.data.shop.model.mutable.MutableShopProductData
 import io.github.sushiericworkspace.sushiericservermanager.communication.SshManager
 import io.github.sushiericworkspace.sushiericservermanager.config.ServerProfile
 import io.github.sushiericworkspace.sushiericservermanager.update.ManagerCompatibility

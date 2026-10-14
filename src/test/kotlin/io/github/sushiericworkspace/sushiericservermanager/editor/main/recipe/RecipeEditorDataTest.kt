@@ -1,13 +1,13 @@
 package io.github.sushiericworkspace.sushiericservermanager.editor.main.recipe
 
-import io.github.sushiericworkspace.common.data.item.model.ItemInternalId
-import io.github.sushiericworkspace.common.data.item.ItemManager
-import io.github.sushiericworkspace.common.data.item.model.mutable.MutableItemBaseData
-import io.github.sushiericworkspace.common.data.recipe.RecipeManager
-import io.github.sushiericworkspace.common.data.recipe.model.RecipeIngredients
-import io.github.sushiericworkspace.common.data.recipe.model.RecipeSize
-import io.github.sushiericworkspace.common.data.recipe.model.mutable.MutableRecipeData
-import io.github.sushiericworkspace.common.stats.player.SkillType
+import io.github.sushiericworkspace.sushiericdatamodel.data.item.model.ItemInternalId
+import io.github.sushiericworkspace.sushiericdatamodel.data.item.ItemManager
+import io.github.sushiericworkspace.sushiericdatamodel.data.item.model.mutable.MutableItemBaseData
+import io.github.sushiericworkspace.sushiericdatamodel.data.recipe.RecipeManager
+import io.github.sushiericworkspace.sushiericdatamodel.data.recipe.model.RecipeIngredients
+import io.github.sushiericworkspace.sushiericdatamodel.data.recipe.model.RecipeSize
+import io.github.sushiericworkspace.sushiericdatamodel.data.recipe.model.mutable.MutableRecipeData
+import io.github.sushiericworkspace.sushiericdatamodel.stats.player.SkillType
 import io.github.sushiericworkspace.sushiericservermanager.editor.merge.ConflictValueFormatter
 import io.github.sushiericworkspace.sushiericservermanager.editor.merge.RecipeDataMerger
 import io.github.sushiericworkspace.sushiericservermanager.editor.offline.OfflineWorkspaceMigrator
@@ -57,7 +57,7 @@ class RecipeEditorDataTest {
     }
 
     @Test
-    fun `Commonの最大スタック数と全形状組み合わせの重複検証を使用する`() {
+    fun `SushiEricDataModelの最大スタック数と全形状組み合わせの重複検証を使用する`() {
         val data = recipe()
         val output = MutableItemBaseData(id = "result", internalId = result).apply { itemDetail.maxStackSize = 2 }
         data.resultCount = 3
@@ -187,7 +187,7 @@ class RecipeEditorDataTest {
         val scan = assertIs<UploadScanResult.Success>(service.scan(UploadDataCategory.RECIPE))
         val candidate = scan.entries.single()
         assertEquals(UploadDataCategory.RECIPE, candidate.key.category)
-        assertEquals(UploadDataCategory.RECIPE, UploadDataCategory.of(io.github.sushiericworkspace.common.data.core.SushiEricDataType.Recipe))
+        assertEquals(UploadDataCategory.RECIPE, UploadDataCategory.of(io.github.sushiericworkspace.sushiericdatamodel.data.core.SushiEricDataType.Recipe))
         val uploaded = service.upload(setOf(candidate.key), emptySet(), "destination")
         assertTrue(uploaded.failed.isEmpty())
         assertEquals(listOf(candidate.key), uploaded.succeeded)

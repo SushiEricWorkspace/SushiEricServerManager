@@ -1,9 +1,9 @@
 package io.github.sushiericworkspace.sushiericservermanager.editor.main.recipe
 
-import io.github.sushiericworkspace.common.data.item.model.ItemInternalId
-import io.github.sushiericworkspace.common.data.recipe.model.RecipeIngredients
-import io.github.sushiericworkspace.common.data.recipe.model.RecipeSize
-import io.github.sushiericworkspace.common.data.recipe.model.mutable.MutableRecipeData
+import io.github.sushiericworkspace.sushiericdatamodel.data.item.model.ItemInternalId
+import io.github.sushiericworkspace.sushiericdatamodel.data.recipe.model.RecipeIngredients
+import io.github.sushiericworkspace.sushiericdatamodel.data.recipe.model.RecipeSize
+import io.github.sushiericworkspace.sushiericdatamodel.data.recipe.model.mutable.MutableRecipeData
 
 /** 形状切り替えでは材料を削除しません。盤を超える材料は追加の入力行で修正できます。 */
 internal fun changeRecipeShape(data: MutableRecipeData, shaped: Boolean) {

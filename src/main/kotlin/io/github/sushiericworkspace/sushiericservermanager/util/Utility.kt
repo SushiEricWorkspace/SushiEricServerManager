@@ -1,7 +1,7 @@
 package io.github.sushiericworkspace.sushiericservermanager.util
 
-import io.github.sushiericworkspace.common.path.SushiEricDataDirectory
-import io.github.sushiericworkspace.common.path.SushiEricPath
+import io.github.sushiericworkspace.sushiericdatamodel.path.SushiEricDataDirectory
+import io.github.sushiericworkspace.sushiericdatamodel.path.SushiEricPath
 import io.github.sushiericworkspace.sushiericservermanager.app.AppScreen
 import io.github.sushiericworkspace.sushiericservermanager.app.ApplicationFlow
 import io.github.sushiericworkspace.sushiericservermanager.app.appWindowTitle
@@ -26,7 +26,7 @@ object Utility {
         // 2. プラグインのデータフォルダまでの固定階層（plugins/SushiEricServerPlugin21）
         val dataRoot = SushiEricDataDirectory.BASE_ROOT.trim('/')
 
-        // 3. Commonから取得した相対パス（例: item_data/stats/sword.yml）
+        // 3. SushiEricDataModelから取得した相対パス（例: item_data/stats/sword.yml）
         val relative = path.getRawPath().trimStart('/')
 
         // 4. すべてを結合して「サーバー上の絶対パス」にする

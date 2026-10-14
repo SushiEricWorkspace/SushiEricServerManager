@@ -1,8 +1,8 @@
 package io.github.sushiericworkspace.sushiericservermanager.editor.upload
 
-import io.github.sushiericworkspace.common.data.core.ManagedData
-import io.github.sushiericworkspace.common.data.item.model.mutable.MutableItemBaseData
-import io.github.sushiericworkspace.common.stats.player.StatsType
+import io.github.sushiericworkspace.sushiericdatamodel.data.core.ManagedData
+import io.github.sushiericworkspace.sushiericdatamodel.data.item.model.mutable.MutableItemBaseData
+import io.github.sushiericworkspace.sushiericdatamodel.stats.player.StatsType
 import io.github.sushiericworkspace.sushiericservermanager.editor.merge.ItemDataMerger
 import io.github.sushiericworkspace.sushiericservermanager.editor.store.*
 import kotlin.io.path.createTempDirectory

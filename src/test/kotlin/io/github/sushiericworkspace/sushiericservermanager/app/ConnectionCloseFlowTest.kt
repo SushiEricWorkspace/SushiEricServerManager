@@ -1,7 +1,7 @@
 package io.github.sushiericworkspace.sushiericservermanager.app
 
-import io.github.sushiericworkspace.common.data.item.model.mutable.MutableItemBaseData
-import io.github.sushiericworkspace.common.data.core.ManagedData
+import io.github.sushiericworkspace.sushiericdatamodel.data.item.model.mutable.MutableItemBaseData
+import io.github.sushiericworkspace.sushiericdatamodel.data.core.ManagedData
 import io.github.sushiericworkspace.sushiericservermanager.editor.upload.UploadDataCategory
 import io.github.sushiericworkspace.sushiericservermanager.communication.SshManager
 import io.github.sushiericworkspace.sushiericservermanager.editor.controller.MainController

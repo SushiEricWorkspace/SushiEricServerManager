@@ -1,21 +1,21 @@
 package io.github.sushiericworkspace.sushiericservermanager.editor.main.item
 
-import io.github.sushiericworkspace.common.data.item.model.ItemStatMultiplier
-import io.github.sushiericworkspace.common.data.item.model.ItemType
-import io.github.sushiericworkspace.common.stats.player.StatsPart
-import io.github.sushiericworkspace.common.stats.player.StatsPartTarget
-import io.github.sushiericworkspace.common.stats.player.StatsType
+import io.github.sushiericworkspace.sushiericdatamodel.data.item.model.ItemStatMultiplier
+import io.github.sushiericworkspace.sushiericdatamodel.data.item.model.ItemType
+import io.github.sushiericworkspace.sushiericdatamodel.stats.player.StatsPart
+import io.github.sushiericworkspace.sushiericdatamodel.stats.player.StatsPartTarget
+import io.github.sushiericworkspace.sushiericdatamodel.stats.player.StatsType
 import kotlin.math.abs
 
 /**
  * アイテムのステータス値の初期値、補正、表示の規則です。
  *
  * ステータス追加時と追加済みステータスの編集で同じ規則を使います。
- * 0は「加算なし」を表し、保存時にCommon側で`stats`から取り除かれます。倍率だけを持つ
+ * 0は「加算なし」を表し、保存時にSushiEricDataModel側で`stats`から取り除かれます。倍率だけを持つ
  * ステータスを作れるようにするため、0も入力できる値として扱います。
  *
  * 倍率（`stat-multipliers`）はStatsTypeごとの対象Part付きの倍率リストで、既定値1.0の要素は
- * 保存時にCommon側で削除されます。`stats`とは独立して保存されるため、加算値のないステータスでも
+ * 保存時にSushiEricDataModel側で削除されます。`stats`とは独立して保存されるため、加算値のないステータスでも
  * 倍率だけを保存できます。
  */
 
@@ -109,10 +109,10 @@ internal fun formatItemStatValue(value: Double): String {
  * ─────────────────────────────
  */
 
-/** 倍率の既定値です。この値の要素は保存時にCommon側で削除されます。 */
+/** 倍率の既定値です。この値の要素は保存時にSushiEricDataModel側で削除されます。 */
 internal const val DEFAULT_ITEM_STAT_MULTIPLIER: Double = ItemStatMultiplier.DEFAULT_VALUE
 
-/** 入力できる倍率の下限です。Common側の検証（0.0以上）と一致させます。 */
+/** 入力できる倍率の下限です。SushiEricDataModel側の検証（0.0以上）と一致させます。 */
 internal const val ITEM_STAT_MULTIPLIER_MIN: Double = ItemStatMultiplier.MIN_VALUE
 
 /** 入力できる倍率の上限です。 */

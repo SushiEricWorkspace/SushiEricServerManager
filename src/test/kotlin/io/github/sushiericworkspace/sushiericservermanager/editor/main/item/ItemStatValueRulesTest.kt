@@ -1,6 +1,6 @@
 package io.github.sushiericworkspace.sushiericservermanager.editor.main.item
 
-import io.github.sushiericworkspace.common.stats.player.StatsType
+import io.github.sushiericworkspace.sushiericdatamodel.stats.player.StatsType
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse

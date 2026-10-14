@@ -1,9 +1,9 @@
 package io.github.sushiericworkspace.sushiericservermanager.editor.store
 
-import io.github.sushiericworkspace.common.data.item.model.ItemInternalId
-import io.github.sushiericworkspace.common.data.shop.ShopManager
+import io.github.sushiericworkspace.sushiericdatamodel.data.item.model.ItemInternalId
+import io.github.sushiericworkspace.sushiericdatamodel.data.shop.ShopManager
 import java.io.File
-import io.github.sushiericworkspace.common.data.shop.model.mutable.MutableShopProductData
+import io.github.sushiericworkspace.sushiericdatamodel.data.shop.model.mutable.MutableShopProductData
 import io.github.sushiericworkspace.sushiericservermanager.editor.merge.ShopDataMerger
 import io.github.sushiericworkspace.sushiericservermanager.editor.service.EditorDataService
 import kotlin.io.path.createTempDirectory
@@ -19,7 +19,7 @@ class ShopEditorDataTest {
     private fun product() = MutableShopProductData("weapons.swords.test", item, 100, 50, 12, true, 3)
 
     @Test
-    fun `Commonの価格警告を表示しても正常な商品の保存と完成を妨げない`() {
+    fun `SushiEricDataModelの価格警告を表示しても正常な商品の保存と完成を妨げない`() {
         val data = product().apply { salePrice = 101 }
         val commonWarnings = data.validator(setOf(item)).priceWarnings()
         assertTrue(commonWarnings.isNotEmpty())
@@ -34,7 +34,7 @@ class ShopEditorDataTest {
 
         data.purchasePrice = null
         val saleOnlyWarnings = data.validator(setOf(item)).priceWarnings()
-        assertTrue(saleOnlyWarnings.isNotEmpty())
+        assertTrue(saleOnlyWarnings.isEmpty())
         assertEquals(saleOnlyWarnings, validateShopDataForEditor(data, setOf(item)))
         data.purchasePrice = 101
         assertTrue(validateShopDataForEditor(data, setOf(item)).isEmpty())

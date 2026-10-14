@@ -1,6 +1,6 @@
 package io.github.sushiericworkspace.sushiericservermanager.editor.store
 
-import io.github.sushiericworkspace.common.data.core.identity.PublicId
+import io.github.sushiericworkspace.sushiericdatamodel.data.core.identity.PublicId
 
 sealed interface StoreResult<out T> {
     data class Success<T>(val value: T) : StoreResult<T>

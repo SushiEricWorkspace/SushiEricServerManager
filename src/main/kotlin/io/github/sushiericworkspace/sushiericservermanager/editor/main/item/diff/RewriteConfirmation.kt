@@ -1,6 +1,6 @@
 package io.github.sushiericworkspace.sushiericservermanager.editor.main.item.diff
 
-import io.github.sushiericworkspace.common.data.item.model.mutable.MutableItemBaseData
+import io.github.sushiericworkspace.sushiericdatamodel.data.item.model.mutable.MutableItemBaseData
 import io.github.sushiericworkspace.sushiericservermanager.app.AppScreen
 import io.github.sushiericworkspace.sushiericservermanager.util.Utility.applyCommonStyle
 import io.github.sushiericworkspace.sushiericservermanager.util.Utility.createScene

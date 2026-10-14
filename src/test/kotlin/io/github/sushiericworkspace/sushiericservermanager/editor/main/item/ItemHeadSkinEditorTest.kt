@@ -1,9 +1,9 @@
 package io.github.sushiericworkspace.sushiericservermanager.editor.main.item
 
-import io.github.sushiericworkspace.common.data.core.identity.VanillaItemId
-import io.github.sushiericworkspace.common.data.item.model.HeadSkinSource
-import io.github.sushiericworkspace.common.data.item.model.mutable.MutableHeadSkinData
-import io.github.sushiericworkspace.common.data.item.model.mutable.MutableItemBaseData
+import io.github.sushiericworkspace.sushiericdatamodel.data.core.identity.VanillaItemId
+import io.github.sushiericworkspace.sushiericdatamodel.data.item.model.HeadSkinSource
+import io.github.sushiericworkspace.sushiericdatamodel.data.item.model.mutable.MutableHeadSkinData
+import io.github.sushiericworkspace.sushiericdatamodel.data.item.model.mutable.MutableItemBaseData
 import io.github.sushiericworkspace.sushiericservermanager.editor.validation.ValidationRepairResult
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -55,7 +55,7 @@ class ItemHeadSkinEditorTest {
     }
 
     @Test
-    fun `Commonのヘッドスキン検証結果を利用できる`() {
+    fun `SushiEricDataModelのヘッドスキン検証結果を利用できる`() {
         val item = MutableItemBaseData().apply {
             itemDetail.mutableHeadSkin = MutableHeadSkinData(HeadSkinSource.PLAYER_NAME, "")
         }

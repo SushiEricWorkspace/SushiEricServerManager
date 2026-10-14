@@ -1,6 +1,6 @@
 package io.github.sushiericworkspace.sushiericservermanager.communication.managed
 
-import io.github.sushiericworkspace.common.path.SushiEricDataDirectory
+import io.github.sushiericworkspace.sushiericdatamodel.path.SushiEricDataDirectory
 import io.github.sushiericworkspace.sushiericservermanager.config.FilePath
 import io.github.sushiericworkspace.sushiericservermanager.editor.session.EditorConnection
 import io.github.sushiericworkspace.sushiericservermanager.editor.session.EditorSession

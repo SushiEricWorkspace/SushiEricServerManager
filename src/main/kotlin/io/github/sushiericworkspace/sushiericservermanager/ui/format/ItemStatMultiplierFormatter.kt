@@ -1,8 +1,8 @@
 package io.github.sushiericworkspace.sushiericservermanager.ui.format
 
-import io.github.sushiericworkspace.common.data.item.model.ItemStatMultiplier
-import io.github.sushiericworkspace.common.stats.player.StatsPart
-import io.github.sushiericworkspace.common.stats.player.StatsPartTarget
+import io.github.sushiericworkspace.sushiericdatamodel.data.item.model.ItemStatMultiplier
+import io.github.sushiericworkspace.sushiericdatamodel.stats.player.StatsPart
+import io.github.sushiericworkspace.sushiericdatamodel.stats.player.StatsPartTarget
 import io.github.sushiericworkspace.sushiericservermanager.editor.main.item.formatItemStatMultiplier
 
 /**

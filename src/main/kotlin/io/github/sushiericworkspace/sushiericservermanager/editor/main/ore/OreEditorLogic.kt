@@ -1,12 +1,12 @@
 package io.github.sushiericworkspace.sushiericservermanager.editor.main.ore
 
-import io.github.sushiericworkspace.common.data.core.identity.VanillaBlockId
-import io.github.sushiericworkspace.common.data.core.validation.SushiEricValidationError
-import io.github.sushiericworkspace.common.data.item.model.ItemInternalId
-import io.github.sushiericworkspace.common.data.ore.model.OreBaseDataView
-import io.github.sushiericworkspace.common.data.ore.model.mutable.MutableOreBaseData
-import io.github.sushiericworkspace.common.registry.VanillaIdRegistry
-import io.github.sushiericworkspace.common.stats.player.SkillType
+import io.github.sushiericworkspace.sushiericdatamodel.data.core.identity.VanillaBlockId
+import io.github.sushiericworkspace.sushiericdatamodel.data.core.validation.SushiEricValidationError
+import io.github.sushiericworkspace.sushiericdatamodel.data.item.model.ItemInternalId
+import io.github.sushiericworkspace.sushiericdatamodel.data.ore.model.OreBaseDataView
+import io.github.sushiericworkspace.sushiericdatamodel.data.ore.model.mutable.MutableOreBaseData
+import io.github.sushiericworkspace.sushiericdatamodel.registry.VanillaIdRegistry
+import io.github.sushiericworkspace.sushiericdatamodel.stats.player.SkillType
 import io.github.sushiericworkspace.sushiericservermanager.editor.component.ItemReferenceBinding
 import io.github.sushiericworkspace.sushiericservermanager.editor.component.DropItemEditorDialog
 import io.github.sushiericworkspace.sushiericservermanager.editor.component.EditorSpinnerFactory
@@ -41,7 +41,7 @@ internal fun parseHardnessInput(text: String): Double? =
  * 魔力量の入力を`Double`として解釈します。
  *
  * 空欄は既定値の0として扱い、数値として解釈できない入力や有限でない値では`null`を返します。
- * 負数は解釈できる値として返し、範囲の検証はCommonの検証結果として表示します。
+ * 負数は解釈できる値として返し、範囲の検証はSushiEricDataModelの検証結果として表示します。
  */
 internal fun parseMagicPowerAmountInput(text: String): Double? {
     val normalized = text.trim()
@@ -96,7 +96,7 @@ internal enum class ItemCatalogState {
  *
  * ドロップ参照の警告だけが対象です。未選択や試行回数など、参照先に依存しない問題は保留しません。
  *
- * @param error Common側の検証が返した結果。
+ * @param error SushiEricDataModel側の検証が返した結果。
  * @param state アイテム一覧の読込状態。
  */
 internal fun isPendingDropItemReferenceError(

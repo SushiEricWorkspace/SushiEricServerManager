@@ -1,15 +1,15 @@
 package io.github.sushiericworkspace.sushiericservermanager.editor.service
 
-import io.github.sushiericworkspace.common.data.core.ManagedData
-import io.github.sushiericworkspace.common.data.core.validation.SushiEricValidationError
-import io.github.sushiericworkspace.common.data.core.validation.SushiEricValidationSeverity
-import io.github.sushiericworkspace.common.data.item.model.ItemBaseDataView
-import io.github.sushiericworkspace.common.data.item.model.ItemInternalId
-import io.github.sushiericworkspace.common.data.recipe.model.RecipeDataView
-import io.github.sushiericworkspace.common.data.recipe.model.RecipeIngredients
-import io.github.sushiericworkspace.common.data.recipe.model.mutable.MutableRecipeData
-import io.github.sushiericworkspace.common.data.recipe.validation.RecipeIngredientOverlapValidator
-import io.github.sushiericworkspace.common.data.recipe.validation.RecipeReferenceLocation
+import io.github.sushiericworkspace.sushiericdatamodel.data.core.ManagedData
+import io.github.sushiericworkspace.sushiericdatamodel.data.core.validation.SushiEricValidationError
+import io.github.sushiericworkspace.sushiericdatamodel.data.core.validation.SushiEricValidationSeverity
+import io.github.sushiericworkspace.sushiericdatamodel.data.item.model.ItemBaseDataView
+import io.github.sushiericworkspace.sushiericdatamodel.data.item.model.ItemInternalId
+import io.github.sushiericworkspace.sushiericdatamodel.data.recipe.model.RecipeDataView
+import io.github.sushiericworkspace.sushiericdatamodel.data.recipe.model.RecipeIngredients
+import io.github.sushiericworkspace.sushiericdatamodel.data.recipe.model.mutable.MutableRecipeData
+import io.github.sushiericworkspace.sushiericdatamodel.data.recipe.validation.RecipeIngredientOverlapValidator
+import io.github.sushiericworkspace.sushiericdatamodel.data.recipe.validation.RecipeReferenceLocation
 import io.github.sushiericworkspace.sushiericservermanager.editor.store.EditorDataDescriptor
 import io.github.sushiericworkspace.sushiericservermanager.editor.store.EditorDataDescriptors
 import io.github.sushiericworkspace.sushiericservermanager.editor.store.EditorDataStore
@@ -47,7 +47,7 @@ internal data class RecipeEditorCatalog(val items: List<ItemBaseDataView>, val r
     }
 }
 
-/** Commonの詳細検証を使用し、未解決参照だけを保持可能な警告へ変換します。 */
+/** SushiEricDataModelの詳細検証を使用し、未解決参照だけを保持可能な警告へ変換します。 */
 internal fun validateRecipeForEditor(
     data: MutableRecipeData,
     items: Collection<ItemBaseDataView>,

@@ -1,7 +1,7 @@
 package io.github.sushiericworkspace.sushiericservermanager.editor.merge
 
-import io.github.sushiericworkspace.common.data.item.model.mutable.MutableItemBaseData
-import io.github.sushiericworkspace.common.data.ore.model.mutable.MutableOreBaseData
+import io.github.sushiericworkspace.sushiericdatamodel.data.item.model.mutable.MutableItemBaseData
+import io.github.sushiericworkspace.sushiericdatamodel.data.ore.model.mutable.MutableOreBaseData
 
 object ItemDataMerger : DataMerger<MutableItemBaseData> {
     override fun merge(

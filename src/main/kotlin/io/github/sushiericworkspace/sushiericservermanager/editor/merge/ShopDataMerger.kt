@@ -1,6 +1,6 @@
 package io.github.sushiericworkspace.sushiericservermanager.editor.merge
 
-import io.github.sushiericworkspace.common.data.shop.model.mutable.MutableShopProductData
+import io.github.sushiericworkspace.sushiericdatamodel.data.shop.model.mutable.MutableShopProductData
 
 /** 商品の各項目を独立に三方向マージします。 */
 object ShopDataMerger : DataMerger<MutableShopProductData> {

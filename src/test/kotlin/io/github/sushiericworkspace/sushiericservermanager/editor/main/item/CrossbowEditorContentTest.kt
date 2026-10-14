@@ -1,8 +1,8 @@
 package io.github.sushiericworkspace.sushiericservermanager.editor.main.item
 
-import io.github.sushiericworkspace.common.data.item.model.ItemType
-import io.github.sushiericworkspace.common.data.item.model.detail.CrossbowData
-import io.github.sushiericworkspace.common.data.item.model.mutable.detail.MutableCrossbowData
+import io.github.sushiericworkspace.sushiericdatamodel.data.item.model.ItemType
+import io.github.sushiericworkspace.sushiericdatamodel.data.item.model.detail.CrossbowData
+import io.github.sushiericworkspace.sushiericdatamodel.data.item.model.mutable.detail.MutableCrossbowData
 import io.github.sushiericworkspace.sushiericservermanager.ui.format.ItemDetailContentFormatter
 import kotlin.test.Test
 import kotlin.test.assertEquals

@@ -1,6 +1,6 @@
 package io.github.sushiericworkspace.sushiericservermanager.editor.validation
 
-import io.github.sushiericworkspace.common.data.core.validation.SushiEricValidationError
+import io.github.sushiericworkspace.sushiericdatamodel.data.core.validation.SushiEricValidationError
 
 /** バリデーション警告へ登録済みの修正を適用した結果です。 */
 sealed interface ValidationRepairResult {
@@ -15,7 +15,7 @@ sealed interface ValidationRepairResult {
 }
 
 /**
- * データ種別固有の警告修正を、Commonのプロパティとkeyを条件に登録します。
+ * データ種別固有の警告修正を、SushiEricDataModelのプロパティとkeyを条件に登録します。
  *
  * 共通エディター基盤は具体的なデータ型を判定せず、このRegistryだけを実行します。
  */
