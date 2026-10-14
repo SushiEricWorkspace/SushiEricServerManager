@@ -203,9 +203,12 @@ class EditorLoadingViewTest {
                 assertEquals(5.0, f.view.cached("a")!!.magicPowerAmount)
                 assertEquals(remote, f.view.original("a"))
             }
+            val failedLoad = CountDownLatch(1)
+            f.store.beforeLoad = { failedLoad.countDown() }
             f.store.loadFailure = true
             fx { f.view.selectTab("a") }
-            awaitFx { (f.root.lookup("#topInfoLabel") as Label).text.contains("失敗") }
+            assertTrue(failedLoad.await(10, TimeUnit.SECONDS))
+            awaitFx { !f.main.loadingRunning }
             fx {
                 assertEquals(17.0, f.view.cached("a")!!.hardness)
                 assertEquals(5.0, f.view.cached("a")!!.magicPowerAmount)

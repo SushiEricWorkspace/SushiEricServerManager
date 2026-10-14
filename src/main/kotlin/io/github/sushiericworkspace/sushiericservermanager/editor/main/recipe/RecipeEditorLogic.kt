@@ -265,6 +265,8 @@ internal class RecipeEditorLogic(main: MainController, dataService: EditorDataSe
             dataAccess.saveStore(dataId, data)
         }
 
+    internal override val closeBusy: Boolean get() = super.closeBusy || catalogTask != null
+
     private fun loadCatalog(force: Boolean = false) {
         if (catalogTask != null || disposed) return
         catalogFailed = false

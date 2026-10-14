@@ -12,9 +12,7 @@ import io.github.sushiericworkspace.sushiericservermanager.editor.main.item.diff
 import io.github.sushiericworkspace.sushiericservermanager.editor.service.EditorDataService
 import io.github.sushiericworkspace.sushiericservermanager.editor.view.EditorSidebar
 import io.github.sushiericworkspace.sushiericservermanager.editor.view.buildSidebarRows
-import io.github.sushiericworkspace.sushiericservermanager.editor.view.idsInSidebarDirectory
 import io.github.sushiericworkspace.sushiericservermanager.editor.view.isLocalOnlyData
-import io.github.sushiericworkspace.sushiericservermanager.editor.view.isLocalOnlyDirectory
 import io.github.sushiericworkspace.sushiericservermanager.editor.view.createPublicIdDisplay
 import io.github.sushiericworkspace.sushiericservermanager.editor.view.EditorView
 import io.github.sushiericworkspace.sushiericservermanager.editor.controller.MainController
@@ -23,8 +21,6 @@ import io.github.sushiericworkspace.sushiericservermanager.editor.main.item.tree
 import io.github.sushiericworkspace.sushiericservermanager.editor.main.item.tree.LoreDragDropTreeCell
 import io.github.sushiericworkspace.sushiericservermanager.editor.main.item.tree.LoreTreeUiIdMemory
 import io.github.sushiericworkspace.sushiericservermanager.editor.main.item.tree.TreeRow
-import io.github.sushiericworkspace.sushiericservermanager.editor.result.ValidationResult
-import io.github.sushiericworkspace.sushiericservermanager.editor.store.StoreResult
 import io.github.sushiericworkspace.sushiericservermanager.editor.tree.EditorContextMenuFactory
 import io.github.sushiericworkspace.sushiericservermanager.editor.tree.EditorFolderGraphicFactory
 import io.github.sushiericworkspace.sushiericservermanager.editor.validation.ValidationRepairRegistry
@@ -240,7 +236,7 @@ class ItemEditorLogic(
         noResultsText = "該当するItemがありません",
         stateFor = ::sidebarState,
         onSelect = ::selectTab,
-        createDataMenu = { id -> createSidebarContextMenu(id, registeredSidebarIds) },
+        createDataMenu = { id -> createSidebarContextMenu(id) },
         createDirectoryMenu = ::createDirectoryContextMenu,
         onMove = ::moveData,
         expandedState = sidebarExpandedState,
@@ -304,76 +300,10 @@ class ItemEditorLogic(
         if (directory.isNotEmpty()) {
             items += MenuItem("削除").apply {
                 styleClass.add("menu-item-danger")
-                onAction = EventHandler { requestDeleteDirectory(directory) }
+                onAction = EventHandler { requestDeleteDirectory(directory, ::removeCachedData) }
             }
         }
         return ContextMenu(*items.toTypedArray())
-    }
-
-    private fun requestCreateDirectory(parent: String) {
-        if (storeOperationBlocked) return
-        val name = main.requestInput("ディレクトリを追加") { input ->
-            when {
-                input.isBlank() -> ValidationResult.Error("名前を入力してください")
-                !PublicId.isValid(input) -> ValidationResult.Error(PublicId.DESCRIPTION)
-                else -> ValidationResult.Success
-            }
-        } ?: return
-        val directory = PublicId.join(parent.split('.').filter(String::isNotEmpty), name)
-        runStoreAction("ディレクトリを作成しています", { dataAccess.createDirectory(directory) }) { result ->
-            when (result) {
-                is StoreResult.Success -> setupSidebar(main.sidebarContainer, currentSelectedDataId)
-                is StoreResult.Failure -> showDirectoryError("ディレクトリを作成できませんでした")
-            }
-        }
-    }
-
-    private fun requestDeleteDirectory(directory: String) {
-        if (storeOperationBlocked) return
-        val affected = idsInSidebarDirectory(sidebarItemIds, directory)
-        val localOnly = isLocalOnlyDirectory(
-            directory = directory,
-            affectedIds = affected,
-            remoteDataIds = remoteDataIds,
-            remoteDirectories = sidebarDirectories
-        )
-        val confirmed = CustomDialog.confirmation()
-            .title("ディレクトリを削除")
-            .header(if (localOnly) "ローカルの編集内容を破棄します" else "配下のデータも削除されます")
-            .content(
-                (listOf(
-                    "ディレクトリ: $directory",
-                    "",
-                    if (localOnly) {
-                        "サーバー上のファイルは削除せず、配下の編集内容と自動保存を破棄します。"
-                    } else {
-                        "サーバー上のディレクトリと配下のデータを削除します。"
-                    },
-                    "",
-                    "削除対象:"
-                ) + affected).joinToString("\n")
-            )
-            .okButton("削除", Color.RED)
-            .owner(main.currentStage)
-            .show()
-        if (!confirmed || storeOperationBlocked) return
-
-        if (localOnly) {
-            affected.forEach(::discardItemData)
-            main.showTimedTopLabel("$directory のローカル編集内容を破棄しました", Color.GREENYELLOW)
-            setupSidebar(main.sidebarContainer)
-            return
-        }
-
-        runStoreAction("ディレクトリを削除しています", { dataAccess.deleteDirectory(directory) }) { result ->
-            when (result) {
-                is StoreResult.Success -> {
-                    affected.forEach(::discardItemData)
-                    setupSidebar(main.sidebarContainer)
-                }
-                is StoreResult.Failure -> showDirectoryError("ディレクトリを削除できませんでした")
-            }
-        }
     }
 
     private fun moveData(id: String, directory: String): Boolean {
@@ -384,15 +314,14 @@ class ItemEditorLogic(
             showDirectoryError("移動先に同名のデータがあります")
             return false
         }
-        finishRename(id, newId)
-        return true
+        return renameData(id, newId) { finishRename(id, newId) }
     }
 
     private fun showDirectoryError(message: String) {
         CustomDialog.error().title("ディレクトリ操作エラー").header(message).owner(main.currentStage).show()
     }
 
-    private fun createSidebarContextMenu(id: String, existingIds: Set<String>): ContextMenu {
+    private fun createSidebarContextMenu(id: String): ContextMenu {
         if (isPendingStoreDeletion(id)) {
             return ContextMenu(
                 MenuItem("削除を保存").apply {
@@ -402,7 +331,7 @@ class ItemEditorLogic(
                     onAction = EventHandler {
                         if (cancelPendingStoreDeletion(id)) {
                             main.showTimedTopLabel("$id の削除を取り消しました", Color.GREENYELLOW)
-                            setupSidebar(main.sidebarContainer, id)
+                            refreshLocalSidebar(id)
                         }
                     }
                 }
@@ -413,7 +342,7 @@ class ItemEditorLogic(
             onAction = EventHandler { onSave(id) }
         }
         val renameItem = MenuItem("IDを変更").apply {
-            onAction = EventHandler { requestRename(id, existingIds) }
+            onAction = EventHandler { requestRename(id) }
         }
         val deleteItem = MenuItem("削除").apply {
             styleClass.add("menu-item-danger")
@@ -432,7 +361,7 @@ class ItemEditorLogic(
             validationItems.repairWarnings,
             validationItems.repairErrors,
             MenuItem("複製").apply {
-                onAction = EventHandler { requestDuplicate(id, existingIds) }
+                onAction = EventHandler { requestDuplicate(id) }
             },
             renameItem,
             deleteItem
@@ -471,7 +400,7 @@ class ItemEditorLogic(
         }
         val cached = editingDataMap[id]
         if (cached != null) copy(cached)
-        else runStoreAction("内部IDを取得しています", { dataAccess.load(id).first }, ::copy)
+        else runStoreOperation("内部IDを取得しています", { dataAccess.loadStore(id) }, ::copy)
     }
 
     private fun copyText(value: String, notification: String) {
@@ -482,54 +411,10 @@ class ItemEditorLogic(
         main.showTimedTopLabel(notification, Color.GREENYELLOW)
     }
 
-    private fun requestDuplicate(id: String, existingIds: Set<String>) {
-        if (storeOperationBlocked) return
-        fun duplicate(source: MutableItemBaseData?) {
-            if (source == null) {
-                CustomDialog.error()
-                    .title("複製エラー")
-                    .header("複製元のアイテムを読み込めませんでした")
-                    .content("対象アイテム: $id")
-                    .owner(main.currentStage)
-                    .show()
-                return
-            }
-
-            val directory = PublicId.directoryOf(id)
-            val newName = main.requestInput("アイテムを複製") { input ->
-                when {
-                    input.isBlank() -> ValidationResult.Error("名前を入力してください")
-                    !PublicId.isValid(input) -> ValidationResult.Error(PublicId.DESCRIPTION)
-                    PublicId.join(directory, input) in existingIds -> ValidationResult.Error("重複した名称です")
-                    else -> ValidationResult.Success
-                }
-            } ?: return
-
-            if (storeOperationBlocked) return
-            val newId = PublicId.join(directory, newName)
-            val duplicate = dataAccess.duplicateAsNew(source, newId)
-            editingDataMap[newId] = duplicate
-            originalDataMap[newId] = duplicate.deepCopy()
-            stageDataCreation(newId)
-            main.showTimedTopLabel("$id から $newId への複製を保留しました", Color.GREENYELLOW)
-            setupSidebar(main.sidebarContainer, newId)
-        }
-        val cached = editingDataMap[id]?.deepCopy()
-        if (cached != null) duplicate(cached)
-        else runStoreAction("複製元を読み込んでいます", { dataAccess.load(id).first?.deepCopy() }, ::duplicate)
-    }
-
-    private fun requestRename(id: String, existingIds: Set<String>) {
+    private fun requestRename(id: String) {
         if (storeOperationBlocked) return
         val directory = PublicId.directoryOf(id)
-        val newName = main.requestInput("名前変更") { input ->
-            when {
-                input.isBlank() -> ValidationResult.Error("名前を入力してください")
-                !PublicId.isValid(input) -> ValidationResult.Error(PublicId.DESCRIPTION)
-                PublicId.join(directory, input) in existingIds -> ValidationResult.Error("重複した名称です")
-                else -> ValidationResult.Success
-            }
-        } ?: return
+        val newName = requestDataName("名前変更", directory) ?: return
 
         /*
          * 永続識別子で解決するため、公開IDの変更で既存アイテムは無効化されない。
@@ -537,17 +422,14 @@ class ItemEditorLogic(
         */
         if (storeOperationBlocked) return
         val newId = PublicId.join(directory, newName)
-        finishRename(id, newId)
+        renameData(id, newId) { finishRename(id, newId) }
     }
 
     private fun finishRename(oldId: String, newId: String) {
-        stageDataRename(oldId, newId)
         treeCache.remove(oldId)?.let { treeCache[newId] = it }
         expandedStateCache.remove(oldId)?.let { expandedStateCache[newId] = it }
         loreTreeUiIdMemory.renameItem(oldItemId = oldId, newItemId = newId)
 
-        main.showTimedTopLabel("$oldId から $newId へのID変更を保留しました", Color.GREENYELLOW)
-        setupSidebar(main.sidebarContainer, newId)
     }
 
     private fun requestDelete(id: String) {
@@ -580,16 +462,11 @@ class ItemEditorLogic(
         if (stageDataDeletion(id)) {
             removeCachedData(id)
             main.showTimedTopLabel("$id の追加を取り消しました", Color.GREENYELLOW)
-            setupSidebar(main.sidebarContainer)
+            refreshLocalSidebar()
         } else {
             main.showTimedTopLabel("$id の削除を保留しました。保存すると反映されます", Color.GREENYELLOW)
-            setupSidebar(main.sidebarContainer)
+            refreshLocalSidebar()
         }
-    }
-
-    private fun discardItemData(id: String) {
-        discardLocalEditingData(id)
-        removeCachedData(id)
     }
 
     private fun removeCachedData(id: String) {

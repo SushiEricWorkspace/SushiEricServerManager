@@ -27,7 +27,7 @@ object LocalDataUploader {
      * @param dataService 元データの読み込み先と接続単位のI/Oキュー。保存は行いません。
      * @param profileName 接続先の表示名。
      * @param category 読み込むデータの種別。
-     * @param onBusyChanged 処理中かどうかが変わったときの通知。
+     * @param onBusyChanged 走査から確認・編集反映・結果表示までの受付中はtrue、取消・失敗を含む終了時はfalseを通知。
      * @param descriptor 読み込むデータの型付き定義。
      * @param editingIds 編集キャッシュの宛先も上書き確認に含めるために取得するID。
      * @param onBeforeLoad 上書き承認後、読み込みを始める直前の通知。
@@ -57,8 +57,8 @@ object LocalDataUploader {
             if (!isActive()) { onBusyChanged(false); return@setOnSucceeded }
             when (val result = scanTask.value) {
                 is UploadScanResult.Failure -> {
-                    onBusyChanged(false)
-                    showError(owner, result.error.code.name, result.error.detail)
+                    try { showError(owner, result.error.code.name, result.error.detail) }
+                    finally { onBusyChanged(false) }
                 }
                 is UploadScanResult.Success -> selectAndLoad(
                     owner, dataService, profileName, category, descriptor,
@@ -69,9 +69,10 @@ object LocalDataUploader {
             }
         }
         scanTask.setOnFailed {
-            onBusyChanged(false)
-            logger.error("読み込み対象の確認に失敗しました", scanTask.exception)
-            if (isActive()) showError(owner, "INTERNAL_ERROR", scanTask.exception?.message)
+            try {
+                logger.error("読み込み対象の確認に失敗しました", scanTask.exception)
+                if (isActive()) showError(owner, "INTERNAL_ERROR", scanTask.exception?.message)
+            } finally { onBusyChanged(false) }
         }
         dataService.executeIo(scanTask)
     }
@@ -90,12 +91,13 @@ object LocalDataUploader {
         onLoaded: (List<LocalEditImport<T>>, (Boolean) -> Unit) -> Unit
     ) {
         if (scan.entries.isEmpty()) {
-            onBusyChanged(false)
-            CustomDialog.information()
-                .title("ローカルデータの読み込み")
-                .header("読み込める${category.displayName}がありません")
-                .owner(owner)
-                .show()
+            try {
+                CustomDialog.information()
+                    .title("ローカルデータの読み込み")
+                    .header("読み込める${category.displayName}がありません")
+                    .owner(owner)
+                    .show()
+            } finally { onBusyChanged(false) }
             return
         }
         val selection = OfflineUploadDialog.select(owner, profileName, category, scan, forEditing = true)
@@ -141,28 +143,30 @@ object LocalDataUploader {
             if (!isActive()) { onBusyChanged(false); return@setOnSucceeded }
             val result = loadTask.value
             fun complete(applied: Boolean) {
-                onBusyChanged(false)
-                if (!applied || !isActive()) return
-                val failureText = result.failed.joinToString("\n") {
-                    "${it.key.id}: ${it.error.code}${it.error.detail?.let { detail -> "（$detail）" }.orEmpty()}"
-                }
-                CustomDialog.information()
-                    .title("ローカルデータの読み込み結果")
-                    .header("読み込み ${result.entries.size} 件、失敗 ${result.failed.size} 件")
-                    .content(listOf(
-                        "未保存の編集として読み込みました。内容を確認し、保存するとサーバーへ反映されます。ローカルデータは保持されています。",
-                        failureText
-                    ))
-                    .owner(owner)
-                    .show()
+                if (!applied || !isActive()) { onBusyChanged(false); return }
+                try {
+                    val failureText = result.failed.joinToString("\n") {
+                        "${it.key.id}: ${it.error.code}${it.error.detail?.let { detail -> "（$detail）" }.orEmpty()}"
+                    }
+                    CustomDialog.information()
+                        .title("ローカルデータの読み込み結果")
+                        .header("読み込み ${result.entries.size} 件、失敗 ${result.failed.size} 件")
+                        .content(listOf(
+                            "未保存の編集として読み込みました。内容を確認し、保存するとサーバーへ反映されます。ローカルデータは保持されています。",
+                            failureText
+                        ))
+                        .owner(owner)
+                        .show()
+                } finally { onBusyChanged(false) }
             }
             if (result.entries.isEmpty()) complete(true)
             else onLoaded(result.entries, ::complete)
         }
         loadTask.setOnFailed {
-            onBusyChanged(false)
-            logger.error("ローカルデータの読み込みに失敗しました", loadTask.exception)
-            if (isActive()) showError(owner, "INTERNAL_ERROR", loadTask.exception?.message)
+            try {
+                logger.error("ローカルデータの読み込みに失敗しました", loadTask.exception)
+                if (isActive()) showError(owner, "INTERNAL_ERROR", loadTask.exception?.message)
+            } finally { onBusyChanged(false) }
         }
         dataService.executeIo(loadTask)
     }

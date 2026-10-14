@@ -3,9 +3,7 @@ package io.github.sushiericworkspace.sushiericservermanager.editor.view
 import io.github.sushiericworkspace.common.data.core.ManagedData
 import io.github.sushiericworkspace.common.data.core.identity.PublicId
 import io.github.sushiericworkspace.sushiericservermanager.editor.controller.MainController
-import io.github.sushiericworkspace.sushiericservermanager.editor.result.ValidationResult
 import io.github.sushiericworkspace.sushiericservermanager.editor.service.EditorDataService
-import io.github.sushiericworkspace.sushiericservermanager.editor.store.StoreResult
 import io.github.sushiericworkspace.sushiericservermanager.ui.dialog.CustomDialog
 import javafx.event.EventHandler
 import javafx.geometry.Insets
@@ -54,7 +52,7 @@ internal abstract class ManagedDataEditorView<T : ManagedData<T, *>>(
         noResultsText = "該当する${dataAccess.displayName}がありません",
         stateFor = ::sidebarState,
         onSelect = ::selectTab,
-        createDataMenu = { id -> createSidebarContextMenu(id, registeredSidebarIds) },
+        createDataMenu = { id -> createSidebarContextMenu(id) },
         createDirectoryMenu = ::createDirectoryContextMenu,
         onMove = ::moveData,
         expandedState = sidebarExpandedState,
@@ -116,76 +114,10 @@ internal abstract class ManagedDataEditorView<T : ManagedData<T, *>>(
         if (directory.isNotEmpty()) {
             items += MenuItem("削除").apply {
                 styleClass.add("menu-item-danger")
-                onAction = EventHandler { requestDeleteDirectory(directory) }
+                onAction = EventHandler { requestDeleteDirectory(directory, ::onDataDeleted) }
             }
         }
         return ContextMenu(*items.toTypedArray())
-    }
-
-    private fun requestCreateDirectory(parent: String) {
-        if (storeOperationBlocked) return
-        val name = main.requestInput("ディレクトリを追加") { input ->
-            when {
-                input.isBlank() -> ValidationResult.Error("名前を入力してください")
-                !PublicId.isValid(input) -> ValidationResult.Error(PublicId.DESCRIPTION)
-                else -> ValidationResult.Success
-            }
-        } ?: return
-        val directory = PublicId.join(parent.split('.').filter(String::isNotEmpty), name)
-        runStoreAction("ディレクトリを作成しています", { dataAccess.createDirectory(directory) }) { result ->
-            when (result) {
-                is StoreResult.Success -> setupSidebar(main.sidebarContainer, currentSelectedDataId)
-                is StoreResult.Failure -> showDirectoryError("ディレクトリを作成できませんでした")
-            }
-        }
-    }
-
-    private fun requestDeleteDirectory(directory: String) {
-        if (storeOperationBlocked) return
-        val affected = idsInSidebarDirectory(sidebarDataIds, directory)
-        val localOnly = isLocalOnlyDirectory(
-            directory = directory,
-            affectedIds = affected,
-            remoteDataIds = remoteDataIds,
-            remoteDirectories = sidebarDirectories
-        )
-        val confirmed = CustomDialog.confirmation()
-            .title("ディレクトリを削除")
-            .header(if (localOnly) "ローカルの編集内容を破棄します" else "配下のデータも削除されます")
-            .content(
-                (listOf(
-                    "ディレクトリ: $directory",
-                    "",
-                    if (localOnly) {
-                        "サーバー上のファイルは削除せず、配下の編集内容と自動保存を破棄します。"
-                    } else {
-                        "サーバー上のディレクトリと配下のデータを削除します。"
-                    },
-                    "",
-                    "削除対象:"
-                ) + affected).joinToString("\n")
-            )
-            .okButton("削除", Color.RED)
-            .owner(main.currentStage)
-            .show()
-        if (!confirmed || storeOperationBlocked) return
-
-        if (localOnly) {
-            affected.forEach(::discardData)
-            main.showTimedTopLabel("$directory のローカル編集内容を破棄しました", Color.GREENYELLOW)
-            setupSidebar(main.sidebarContainer)
-            return
-        }
-
-        runStoreAction("ディレクトリを削除しています", { dataAccess.deleteDirectory(directory) }) { result ->
-            when (result) {
-                is StoreResult.Success -> {
-                    affected.forEach(::discardData)
-                    setupSidebar(main.sidebarContainer)
-                }
-                is StoreResult.Failure -> showDirectoryError("ディレクトリを削除できませんでした")
-            }
-        }
     }
 
     private fun moveData(id: String, directory: String): Boolean {
@@ -200,18 +132,14 @@ internal abstract class ManagedDataEditorView<T : ManagedData<T, *>>(
             showDirectoryError("移動先に同名のデータがあります")
             return false
         }
-        stageDataRename(id, newId)
-        onDataRenamed(id, newId)
-        main.showTimedTopLabel("$id から $newId への移動を保留しました", Color.GREENYELLOW)
-        setupSidebar(main.sidebarContainer, newId)
-        return true
+        return renameData(id, newId) { onDataRenamed(id, newId) }
     }
 
     private fun showDirectoryError(message: String) {
         CustomDialog.error().title("ディレクトリ操作エラー").header(message).owner(main.currentStage).show()
     }
 
-    private fun createSidebarContextMenu(id: String, existingIds: Set<String>): ContextMenu {
+    private fun createSidebarContextMenu(id: String): ContextMenu {
         if (isPendingStoreDeletion(id)) {
             return ContextMenu(
                 MenuItem("削除を保存").apply {
@@ -221,7 +149,7 @@ internal abstract class ManagedDataEditorView<T : ManagedData<T, *>>(
                     onAction = EventHandler {
                         if (cancelPendingStoreDeletion(id)) {
                             main.showTimedTopLabel("$id の削除を取り消しました", Color.GREENYELLOW)
-                            setupSidebar(main.sidebarContainer, id)
+                            refreshLocalSidebar(id)
                         }
                     }
                 }
@@ -239,10 +167,10 @@ internal abstract class ManagedDataEditorView<T : ManagedData<T, *>>(
             validationItems.repairWarnings,
             validationItems.repairErrors,
             MenuItem("複製").apply {
-                onAction = EventHandler { requestDuplicate(id, existingIds) }
+                onAction = EventHandler { requestDuplicate(id) }
             },
             MenuItem("IDを変更").apply {
-                onAction = EventHandler { requestRename(id, existingIds) }
+                onAction = EventHandler { requestRename(id) }
             },
             MenuItem("削除").apply {
                 styleClass.add("menu-item-danger")
@@ -263,44 +191,13 @@ internal abstract class ManagedDataEditorView<T : ManagedData<T, *>>(
         main.showTimedTopLabel("コピーしました: $id", Color.GREENYELLOW)
     }
 
-    private fun requestDuplicate(id: String, existingIds: Set<String>) {
-        if (storeOperationBlocked) return
-        fun duplicate(source: T?) {
-            if (source == null) {
-                CustomDialog.error()
-                    .title("複製エラー")
-                    .header("複製元の${dataAccess.displayName}を読み込めませんでした")
-                    .content("対象ID: $id")
-                    .owner(main.currentStage)
-                    .show()
-                return
-            }
-            val directory = PublicId.directoryOf(id)
-            val newName = requestNewId("${dataAccess.displayName}を複製", directory, existingIds) ?: return
-            if (storeOperationBlocked) return
-            val newId = PublicId.join(directory, newName)
-            val duplicate = dataAccess.duplicateAsNew(source, newId)
-            editingDataMap[newId] = duplicate
-            originalDataMap[newId] = duplicate.deepCopy()
-            stageDataCreation(newId)
-            main.showTimedTopLabel("$id から $newId への複製を保留しました", Color.GREENYELLOW)
-            setupSidebar(main.sidebarContainer, newId)
-        }
-        val cached = editingDataMap[id]?.deepCopy()
-        if (cached != null) duplicate(cached)
-        else runStoreAction("複製元を読み込んでいます", { dataAccess.load(id).first?.deepCopy() }, ::duplicate)
-    }
-
-    private fun requestRename(id: String, existingIds: Set<String>) {
+    private fun requestRename(id: String) {
         if (storeOperationBlocked) return
         val directory = PublicId.directoryOf(id)
-        val newName = requestNewId("名前変更", directory, existingIds) ?: return
+        val newName = requestDataName("名前変更", directory) ?: return
         if (storeOperationBlocked) return
         val newId = PublicId.join(directory, newName)
-        stageDataRename(id, newId)
-        onDataRenamed(id, newId)
-        main.showTimedTopLabel("$id から $newId へのID変更を保留しました", Color.GREENYELLOW)
-        setupSidebar(main.sidebarContainer, newId)
+        renameData(id, newId) { onDataRenamed(id, newId) }
     }
 
     private fun requestDelete(id: String) {
@@ -326,31 +223,12 @@ internal abstract class ManagedDataEditorView<T : ManagedData<T, *>>(
         if (stageDataDeletion(id)) {
             onDataDeleted(id)
             main.showTimedTopLabel("$id の追加を取り消しました", Color.GREENYELLOW)
-            setupSidebar(main.sidebarContainer)
+            refreshLocalSidebar()
         } else {
             main.showTimedTopLabel("$id の削除を保留しました。保存すると反映されます", Color.GREENYELLOW)
-            setupSidebar(main.sidebarContainer)
+            refreshLocalSidebar()
         }
     }
-
-    private fun discardData(id: String) {
-        discardLocalEditingData(id)
-        onDataDeleted(id)
-    }
-
-    private fun requestNewId(
-        title: String,
-        directory: List<String>,
-        existingIds: Set<String>
-    ): String? =
-        main.requestInput(title) { input ->
-            when {
-                input.isBlank() -> ValidationResult.Error("名前を入力してください")
-                !PublicId.isValid(input) -> ValidationResult.Error(PublicId.DESCRIPTION)
-                PublicId.join(directory, input) in existingIds -> ValidationResult.Error("重複した名称です")
-                else -> ValidationResult.Success
-            }
-        }
 
     protected open fun onDataRenamed(oldId: String, newId: String) = Unit
 

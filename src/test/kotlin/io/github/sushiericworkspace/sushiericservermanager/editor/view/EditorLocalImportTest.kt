@@ -167,6 +167,7 @@ class EditorLocalImportTest {
         awaitFx { !f.status().isVisible }
         fx { assertEquals(7.0, f.view.cached()?.hardness); assertFalse(f.main.operationRunning) }
         assertEquals(0, f.store.saves)
+        fx { assertEquals(true, f.backupFailureBusy) }
     }
 
     private fun fixture(backupFailure: Boolean = false, block: (Fixture) -> Unit) {
@@ -196,6 +197,9 @@ class EditorLocalImportTest {
                     Window.getWindows().toList().mapNotNull { it.scene?.root as? DialogPane }.forEach { pane ->
                         val changing = pane.headerText.orEmpty().contains("読み込み中に編集内容が変わりました")
                         if (changing) f.confirmations++
+                        if (pane.headerText.orEmpty().contains("退避に失敗しました")) {
+                            f.backupFailureBusy = f.view.closeBusy
+                        }
                         val button = if (changing && !f.approveChanges) {
                             pane.buttonTypes.first { it.buttonData.isCancelButton }
                         } else pane.buttonTypes.first()
@@ -225,6 +229,7 @@ class EditorLocalImportTest {
     ) {
         var approveChanges = true
         var confirmations = 0
+        var backupFailureBusy: Boolean? = null
         fun status() = root.lookup("#importStatus") as Label
         fun progress() = root.lookup("#importProgress") as ProgressIndicator
         fun startImport() {
@@ -243,7 +248,7 @@ class EditorLocalImportTest {
         val selected get() = currentSelectedDataId
         fun cached() = editingDataMap["one"]
         fun readStore(onComplete: () -> Unit) {
-            runStoreAction("複製元を取得しています", { dataAccess.load("one") }) { onComplete() }
+            runStoreOperation("複製元を取得しています", { dataAccess.loadStore("one") }) { onComplete() }
         }
         override fun setupMainContent(selectData: MutableOreBaseData) {
             main.mainContentContainer.children.setAll(Label(selectData.id))
