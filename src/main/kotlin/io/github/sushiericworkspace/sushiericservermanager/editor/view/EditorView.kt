@@ -119,17 +119,22 @@ abstract class EditorView<T : ManagedData<T, *>>(
     protected val registeredSidebarIds = mutableSetOf<String>()
     private val sidebarStates = mutableMapOf<String, SidebarDataState>()
     private var sidebarView: EditorSidebar? = null
+    private val sidebarValidation = mutableMapOf<String, SidebarValidationStatus>()
+    private var sidebarProgress: (() -> Unit)? = null
 
     internal fun registerSidebar(ids: Collection<String>, view: EditorSidebar) {
         registeredSidebarIds.clear()
         registeredSidebarIds.addAll(ids)
         sidebarStates.clear()
+        sidebarValidation.keys.retainAll(ids.toSet())
         sidebarView = view
         ids.forEach { id ->
             sidebarStates[id] = SidebarDataState(
                 selected = id == currentSelectedDataId,
                 modified = false, hasWarnings = false, hasErrors = false,
-                localOnly = id !in remoteDataIds, pendingDeletion = isPendingStoreDeletion(id)
+                localOnly = id !in remoteDataIds, pendingDeletion = isPendingStoreDeletion(id),
+                validationStatus = if (id in editingDataMap) SidebarValidationStatus.CHECKED
+                    else sidebarValidation[id] ?: SidebarValidationStatus.UNCHECKED
             )
         }
     }
@@ -246,7 +251,7 @@ abstract class EditorView<T : ManagedData<T, *>>(
     /** 一覧とディレクトリを背景で取得します。保存後は既に取得した一覧をそのまま渡します。 */
     protected fun loadSidebar(onFailed: () -> Unit, onLoaded: (List<String>, List<String>) -> Unit) {
         val generation = ++loadGeneration
-        sidebarPreloadGeneration++
+        cancelSidebarPreload()
         val supplied = sidebarRefresh
         fun display(snapshot: Pair<List<StoreResource>, List<String>>) {
             remoteDataIds = snapshot.first.mapTo(mutableSetOf()) { it.id }
@@ -669,6 +674,8 @@ abstract class EditorView<T : ManagedData<T, *>>(
             displaySelected(targetId)
             return
         }
+        sidebarValidation[targetId] = SidebarValidationStatus.CHECKING
+        refreshSidebarState(targetId)
         main.showLoading("$targetId の最新データを取得しています")
         val task = object : Task<StoreResult<T>>() {
             override fun call(): StoreResult<T> = dataAccess.loadStore(targetId)
@@ -689,18 +696,24 @@ abstract class EditorView<T : ManagedData<T, *>>(
                     }
                 }
                 is StoreResult.Failure -> {
+                    sidebarValidation[targetId] = SidebarValidationStatus.FAILED
+                    refreshSidebarState(targetId)
                     if (local != null) displaySelected(targetId)
                     else main.mainContentContainer.children.clear()
                     if (local == null || result.error.code != StoreErrorCode.FILE_NOT_FOUND) {
                         showReadFailure(targetId, result.error)
                     }
+                    startPendingPreload()
                 }
             }
         }
         task.setOnFailed {
             if (!acceptsLoad(generation)) return@setOnFailed
+            sidebarValidation[targetId] = SidebarValidationStatus.FAILED
+            refreshSidebarState(targetId)
             if (local != null) displaySelected(targetId)
             showReadFailure(targetId, StoreError(StoreErrorCode.IO_ERROR, cause = task.exception))
+            startPendingPreload()
         }
         dataService.executeIo(task)
     }
@@ -715,9 +728,14 @@ abstract class EditorView<T : ManagedData<T, *>>(
         installHistoryCommitFilter()
         loadEditorReferences()
         showRestoredCount()
-        val preloadIds = pendingPreloadIds
+        startPendingPreload()
+    }
+
+    private fun startPendingPreload() {
+        val ids = pendingPreloadIds
         pendingPreloadIds = emptyList()
-        if (preloadIds.isNotEmpty()) preloadSidebarDataForVisualStates(preloadIds)
+        if (ids.isNotEmpty()) preloadSidebarDataForVisualStates(ids)
+        else sidebarProgress?.invoke()
     }
 
     private fun showRestoredCount() {
@@ -745,6 +763,7 @@ abstract class EditorView<T : ManagedData<T, *>>(
             if (!acceptsLoad(generation)) return@setOnFailed
             displaySelected(targetId)
             showReadFailure(targetId, StoreError(StoreErrorCode.IO_ERROR, cause = task.exception))
+            startPendingPreload()
         }
         dataService.executeIo(task)
     }
@@ -773,7 +792,7 @@ abstract class EditorView<T : ManagedData<T, *>>(
         }
         savedDuringOperation = false
         loadGeneration++
-        sidebarPreloadGeneration++
+        cancelSidebarPreload()
         dataService.beginSave()
         main.showOperation("保存前の最新データを取得しています")
 
@@ -783,6 +802,7 @@ abstract class EditorView<T : ManagedData<T, *>>(
             finished = true
             main.finishOperation()
             dataService.endSave()
+            preloadSidebarDataForVisualStates(registeredSidebarIds)
             refreshSyncButtonState()
             when (outcome) {
                 SaveOutcome.SAVED -> main.showTimedTopLabel("$dataId を保存しました", Color.GREENYELLOW)
@@ -1004,7 +1024,7 @@ abstract class EditorView<T : ManagedData<T, *>>(
         val cancelled = mutableListOf<String>()
         val notExecuted = mutableListOf<String>()
         val postErrors = mutableListOf<String>()
-        sidebarPreloadGeneration++
+        cancelSidebarPreload()
         dataService.beginSave()
         main.showOperation("保存準備 0/${targets.size} 件")
         var finished = false
@@ -1021,6 +1041,7 @@ abstract class EditorView<T : ManagedData<T, *>>(
             val result = BatchSaveResult(outcome, saved.toList(), failed.toMap(), cancelled.toList(), notExecuted.toList(), postErrors.toList())
             main.finishOperation()
             dataService.endSave()
+            preloadSidebarDataForVisualStates(registeredSidebarIds)
             refreshSyncButtonState()
             val summary = "${saved.size} 件保存済み、${failed.size} 件失敗、${cancelled.size} 件確認キャンセル、${notExecuted.size} 件未実行"
             main.showTimedTopLabel(summary, if (outcome == SaveOutcome.SAVED) Color.GREENYELLOW else Color.ORANGE, 5.0)
@@ -1330,13 +1351,14 @@ abstract class EditorView<T : ManagedData<T, *>>(
         closing = true
         loadGeneration++
         finishLoading()
-        sidebarPreloadGeneration++
+        cancelSidebarPreload()
         stopAutoSaveTimer()
         main.showOperation("終了前のバックアップ完了を待っています")
         val completeClose: (Boolean) -> Unit = { success ->
             main.finishOperation()
             closing = false
             if (!success) {
+                preloadSidebarDataForVisualStates(registeredSidebarIds)
                 startAutoSaveTimer()
                 main.showTimedTopLabel("退避に失敗しました。編集内容を保持しています。終了操作で再試行できます。", Color.ORANGERED, 10.0)
                 onComplete(false)
@@ -1412,7 +1434,9 @@ abstract class EditorView<T : ManagedData<T, *>>(
             hasWarnings = validationErrors.any(SushiEricValidationError::isWarning),
             hasErrors = validationErrors.any(SushiEricValidationError::isError),
             localOnly = id !in remoteDataIds,
-            pendingDeletion = pendingDeletion
+            pendingDeletion = pendingDeletion,
+            validationStatus = if (data != null) SidebarValidationStatus.CHECKED
+                else sidebarValidation[id] ?: SidebarValidationStatus.UNCHECKED
         )
 
         sidebarStates[id] = state
@@ -1716,43 +1740,81 @@ abstract class EditorView<T : ManagedData<T, *>>(
      *
      * 既に編集キャッシュが存在するデータは上書きしません。
      */
-    protected fun preloadSidebarDataForVisualStates(ids: Collection<String>) {
+    protected fun preloadSidebarDataForVisualStates(ids: Collection<String>, retryFailed: Boolean = false) {
+        if (closed || closing || !dataService.store.isAvailable || (sessionBound && EditorSession.dataService !== dataService)) return
         if (main.loadingRunning) {
             pendingPreloadIds = ids.toList()
             return
         }
-        val generation = ++sidebarPreloadGeneration
-        val missingIds = ids.filterNot(editingDataMap::containsKey)
-        if (missingIds.isEmpty()) return
-
+        cancelSidebarPreload()
+        val generation = sidebarPreloadGeneration
+        val missingIds = ids.distinct().filter { it in registeredSidebarIds && it !in editingDataMap && !isPendingStoreDeletion(it) &&
+            (retryFailed || sidebarValidation[it] != SidebarValidationStatus.FAILED) }
+        val total = missingIds.size
+        var loaded = 0
+        var finished = 0
+        fun accepts() = !closed && !closing && generation == sidebarPreloadGeneration &&
+            dataService.store.isAvailable && (!sessionBound || EditorSession.dataService === dataService)
+        fun progress() {
+            val failed = registeredSidebarIds.count { sidebarValidation[it] == SidebarValidationStatus.FAILED && it !in editingDataMap }
+            main.showSidebarStatus("検証用データ取得 $loaded / $total 件" +
+                (if (finished < total) "（確認中）" else "（完了）") +
+                (if (failed > 0) " / 取得失敗 $failed 件" else ""),
+                if (finished == total && failed > 0) ({
+                    if (!storeOperationBlocked && !saveRunning) preloadSidebarDataForVisualStates(
+                        registeredSidebarIds.filter { sidebarValidation[it] == SidebarValidationStatus.FAILED }, retryFailed = true)
+                }) else null)
+        }
+        sidebarProgress = ::progress
+        if (total == 0) {
+            if (registeredSidebarIds.any { sidebarValidation[it] == SidebarValidationStatus.FAILED && it !in editingDataMap }) progress()
+            else { sidebarProgress = null; main.showSidebarStatus("") }
+            return
+        }
+        missingIds.forEach { sidebarValidation[it] = SidebarValidationStatus.CHECKING; refreshSidebarState(it) }
+        progress()
         fun loadNext(index: Int) {
-            if (closed || generation != sidebarPreloadGeneration || index >= missingIds.size) return
+            if (!accepts() || index >= total) return
             val id = missingIds[index]
+            fun apply(result: StoreResult<T>) {
+                if (!accepts()) return
+                finished++
+                when (result) {
+                    is StoreResult.Success -> {
+                        loaded++
+                        if (id in registeredSidebarIds && id !in editingDataMap && !isPendingStoreDeletion(id)) {
+                            editingDataMap[id] = result.value.deepCopy()
+                            originalDataMap[id] = result.value.deepCopy()
+                        }
+                        sidebarValidation[id] = SidebarValidationStatus.CHECKED
+                    }
+                    is StoreResult.Failure -> {
+                        sidebarValidation[id] = SidebarValidationStatus.FAILED
+                        logger.warn("サイドバー状態確認用データを読み込めませんでした: {}", result.error)
+                    }
+                }
+                refreshSidebarState(id)
+                progress()
+                loadNext(index + 1)
+            }
             val task = object : Task<StoreResult<T>>() {
                 override fun call(): StoreResult<T> = dataAccess.loadStore(id)
             }
-            task.setOnSucceeded {
-                if (closed || !dataService.store.isAvailable || (sessionBound && EditorSession.dataService !== dataService) || generation != sidebarPreloadGeneration || saveRunning) return@setOnSucceeded
-                when (val result = task.value) {
-                    is StoreResult.Success -> {
-                        if (id in registeredSidebarIds && id !in editingDataMap) {
-                            editingDataMap[id] = result.value.deepCopy()
-                            originalDataMap[id] = result.value.deepCopy()
-                            refreshSidebarState(id)
-                        }
-                    }
-                    is StoreResult.Failure -> logger.warn("サイドバー状態確認用データを読み込めませんでした: {}", result.error)
-                }
-                loadNext(index + 1)
-            }
-            task.setOnFailed {
-                if (closed || generation != sidebarPreloadGeneration) return@setOnFailed
-                logger.error("サイドバー状態確認用データの読み込み中に例外が発生しました", task.exception)
-                loadNext(index + 1)
-            }
+            task.setOnSucceeded { apply(task.value) }
+            task.setOnFailed { apply(StoreResult.Failure(StoreError(StoreErrorCode.IO_ERROR, id, cause = task.exception))) }
             dataService.executeIo(task)
         }
         loadNext(0)
+    }
+
+    private fun cancelSidebarPreload() {
+        sidebarProgress = null
+        sidebarPreloadGeneration++
+        sidebarValidation.filterValues { it == SidebarValidationStatus.CHECKING }.keys.toList().forEach {
+            sidebarValidation[it] = SidebarValidationStatus.UNCHECKED
+            refreshSidebarState(it)
+        }
+        main.showSidebarStatus("")
     }
 
     /** 保存確認へ表示するアイテム識別子を返します。公開IDを解決できる画面では上書きします。 */

@@ -65,7 +65,7 @@ internal class ShopEditorLogic(main: MainController, dataService: EditorDataServ
             val messages = mutableListOf<Node>()
             if (!catalogLoaded) messages += Label(
                 if (catalogFailed) "アイテム一覧を取得できませんでした。対象アイテムの存在は確認できません。"
-                else "対象アイテム一覧を読み込み中..."
+                else "対象アイテム一覧を読み込み中... ${dataService.itemReferences.snapshot.loadedCount} / ${dataService.itemReferences.snapshot.totalCount} 件"
             ).apply { styleClass.add("warning-label"); isWrapText = true }
             validationErrors(selectData).forEach { error ->
                 messages += Label(error.message).apply {

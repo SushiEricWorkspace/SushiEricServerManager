@@ -11,7 +11,9 @@ internal enum class ItemReferenceStatus { EMPTY, LOADING, READY, FAILED }
 
 internal data class ItemReferenceSnapshot(
     val status: ItemReferenceStatus = ItemReferenceStatus.EMPTY,
-    val items: List<ItemBaseData> = emptyList()
+    val items: List<ItemBaseData> = emptyList(),
+    val loadedCount: Int = 0,
+    val totalCount: Int = 0
 ) {
     val byInternalId: Map<ItemInternalId, ItemBaseData> = items.associateBy { it.internalId }
 }
@@ -51,7 +53,7 @@ internal class ItemReferenceCache(private val service: EditorDataService) : Auto
         }
         val future = CompletableFuture<StoreResult<List<ItemBaseData>>>()
         loading = future
-        publish(ItemReferenceStatus.LOADING, snapshot.items)
+        publish(ItemReferenceStatus.LOADING, snapshot.items, 0, 0)
         service.executeIo(Runnable {
             while (true) {
                 val startedAt = synchronized(this) { revision }
@@ -90,11 +92,19 @@ internal class ItemReferenceCache(private val service: EditorDataService) : Auto
             is StoreResult.Success -> result.value
             is StoreResult.Failure -> return result
         }
+        synchronized(this) {
+            if (closed) return unavailable()
+            publish(ItemReferenceStatus.LOADING, snapshot.items, 0, resources.size)
+        }
         val items = mutableListOf<ItemBaseData>()
         for (resource in resources) {
             when (val result = service.items.loadStore(resource.id)) {
                 is StoreResult.Success -> items += result.value.freeze().copy(id = resource.id)
                 is StoreResult.Failure -> return result
+            }
+            synchronized(this) {
+                if (closed) return unavailable()
+                publish(ItemReferenceStatus.LOADING, snapshot.items, items.size, resources.size)
             }
         }
         return StoreResult.Success(items)
@@ -118,8 +128,11 @@ internal class ItemReferenceCache(private val service: EditorDataService) : Auto
         publish(snapshot.status, items.values.toList())
     }
 
-    private fun publish(status: ItemReferenceStatus, items: List<ItemBaseData>) {
-        snapshot = ItemReferenceSnapshot(status, items)
+    private fun publish(
+        status: ItemReferenceStatus, items: List<ItemBaseData>,
+        loadedCount: Int = snapshot.loadedCount, totalCount: Int = snapshot.totalCount
+    ) {
+        snapshot = ItemReferenceSnapshot(status, items, loadedCount, totalCount)
         listeners.toList().forEach { it(snapshot) }
     }
 
