@@ -36,6 +36,7 @@ import io.github.sushiericworkspace.sushiericservermanager.ui.dialog.MergeConfli
 import io.github.sushiericworkspace.sushiericservermanager.ui.shortcut.EditorShortcut
 import io.github.sushiericworkspace.common.data.core.SushiEricDataType
 import javafx.animation.Animation
+import javafx.animation.PauseTransition
 import javafx.animation.KeyFrame
 import javafx.animation.Timeline
 import io.github.sushiericworkspace.sushiericservermanager.editor.service.LocalBackupSnapshot
@@ -168,11 +169,13 @@ abstract class EditorView<T : ManagedData<T, *>>(
     private var repairErrorsMenuItem: MenuItem? = null
     private var repairAllErrorsMenuItem: MenuItem? = null
     private var uploadMenuItem: MenuItem? = null
-    private var uploadBusy = false
+    private var importBusy = false
+    private var importApplying = false
+    private var importGeneration = 0
     private var repairBusy = false
     private var syncBusy = false
     val saveRunning: Boolean get() = main.operationRunning
-    internal open val closeBusy: Boolean get() = saveRunning || main.loadingRunning || dataService.activeSaves > 0 || syncBusy || repairBusy || uploadBusy || closing
+    internal open val closeBusy: Boolean get() = saveRunning || main.loadingRunning || dataService.activeSaves > 0 || syncBusy || repairBusy || importBusy || closing
     internal val storeOperationBlocked: Boolean get() = dataService.activeSaves > 0 || main.loadingRunning || repairBusy || closing || closed || EditorWindowManager.isClosing
     private val saveListener = ChangeListener<Number> { _, _, count ->
         main.actionButtonContainer.isDisable = count.toInt() > 0 || main.loadingRunning || main.operationRunning || closing
@@ -568,54 +571,120 @@ abstract class EditorView<T : ManagedData<T, *>>(
 
     /** ローカルデータを、宛先ディレクトリを指定して未保存の編集として取り込みます。 */
     private fun onUploadLocalData(category: UploadDataCategory) {
-        if (storeOperationBlocked) return
+        if (storeOperationBlocked || importBusy || syncBusy || repairBusy) return
+        val generation = ++importGeneration
+        fun active(): Boolean = generation == importGeneration && !closing && !closed &&
+            dataService.store.isAvailable && (!sessionBound || EditorSession.dataService === dataService)
         val profileName = dataService.currentProfileName ?: return
         var editingBeforeLoad: Map<String, T> = emptyMap()
         var operationsBeforeLoad: Map<String, PendingStoreOperation> = emptyMap()
         LocalDataUploader.start(
             owner = main.currentStage,
-            remoteStore = dataService.store,
+            dataService = dataService,
             profileName = profileName,
             category = category,
             descriptor = dataAccess.descriptor,
             editingIds = { editingDataMap.keys.toSet() },
             onBeforeLoad = {
+                main.mainContentContainer.requestFocus()
+                commitPendingTextEdit()
                 editingBeforeLoad = editingDataMap.mapValues { it.value.deepCopy() }
                 operationsBeforeLoad = pendingStoreOperations.toMap()
             },
-            onBusyChanged = { busy -> uploadBusy = busy; uploadMenuItem?.isDisable = busy },
-            onLoaded = loaded@ { entries ->
-                if (closing || closed) return@loaded false
-                val changedWhileLoading = entries.filter { entry ->
-                    val id = entry.data.id
-                    editingDataMap[id] != editingBeforeLoad[id] ||
-                        pendingStoreOperations[id] != operationsBeforeLoad[id]
-                }
-                if (changedWhileLoading.isNotEmpty() && !CustomDialog.confirmation()
-                        .title("読み込み中に変更された編集内容の確認")
-                        .header("読み込み中に編集内容が変わりました。置き換えますか？")
-                        .content(changedWhileLoading.map { it.data.id })
-                        .owner(main.currentStage)
-                        .show()
-                ) {
-                    false
-                } else {
-                    entries.forEach { entry ->
-                        val id = entry.data.id
-                        val hasOriginal = id in originalDataMap
-                        originalDataMap.putIfAbsent(id, (entry.original ?: dataAccess.createDefault(id)).deepCopy())
-                        editingDataMap[id] = entry.data.deepCopy()
-                        mergeConflicts.remove(id)
-                        editHistory.reset(id, entry.data)
-                        cancelPendingStoreDeletion(id)
-                        if (!hasOriginal && entry.original == null) stageDataCreation(id)
-                        persistContentChangeBackup(id)
+            onBusyChanged = busyChanged@ { busy ->
+                if (generation != importGeneration) return@busyChanged
+                importBusy = busy
+                uploadMenuItem?.isDisable = busy
+                if (!busy) main.finishImportProgress()
+            },
+            isActive = ::active,
+            onProgress = main::showImportProgress,
+            onLoaded = { entries, onComplete ->
+                fun applyWhenReady() {
+                    if (!active()) { onComplete(false); return }
+                    if (dataService.activeSaves > 0 || main.loadingRunning || closing || closed || saveRunning || syncBusy || repairBusy) {
+                        main.showImportProgress("取り込み結果の適用を待っています", -1.0)
+                        PauseTransition(Duration.millis(100.0)).apply {
+                            setOnFinished { applyWhenReady() }
+                            play()
+                        }
+                        return
                     }
-                    persistPendingStoreState()
-                    setupSidebar(main.sidebarContainer, entries.first().data.id)
-                    refreshSyncButtonState()
-                    true
+                    importApplying = true
+                    dataService.beginSave()
+                    main.showOperation("取り込み結果を確認しています")
+                    main.showImportProgress("取り込み結果を確認しています", -1.0)
+                    fun finish(applied: Boolean) {
+                        if (importApplying) {
+                            importApplying = false
+                            main.finishOperation()
+                            dataService.endSave()
+                            refreshSyncButtonState()
+                        }
+                        onComplete(applied)
+                    }
+                    try {
+                        main.mainContentContainer.requestFocus()
+                        commitPendingTextEdit()
+                        val changedWhileLoading = entries.filter { entry ->
+                            val id = entry.data.id
+                            editingDataMap[id] != editingBeforeLoad[id] ||
+                                pendingStoreOperations[id] != operationsBeforeLoad[id]
+                        }
+                        if (changedWhileLoading.isNotEmpty() && !CustomDialog.confirmation()
+                                .title("読み込み中に変更された編集内容の確認")
+                                .header("読み込み中に編集内容が変わりました。置き換えますか？")
+                                .content(changedWhileLoading.map { it.data.id })
+                                .owner(main.currentStage)
+                                .show()
+                        ) {
+                            finish(false)
+                            return
+                        }
+                        if (!active()) { finish(false); return }
+                        main.showImportProgress("取り込み ${entries.size} 件を編集へ適用しています", -1.0)
+                        entries.forEach { entry ->
+                            val id = entry.data.id
+                            val hasOriginal = id in originalDataMap
+                            originalDataMap.putIfAbsent(id, (entry.original ?: dataAccess.createDefault(id)).deepCopy())
+                            editingDataMap[id] = entry.data.deepCopy()
+                            mergeConflicts.remove(id)
+                            editHistory.reset(id, entry.data)
+                            val deletion = pendingStoreOperations[id] as? PendingStoreOperation.Delete
+                            if (deletion != null) {
+                                if (deletion.sourceId == id) pendingStoreOperations.remove(id)
+                                else pendingStoreOperations[id] = PendingStoreOperation.Rename(deletion.sourceId, id)
+                            }
+                            if (!hasOriginal && entry.original == null) {
+                                pendingStoreOperations[id] = PendingStoreOperation.Create(id)
+                            }
+                        }
+                        pendingStoreOperations.entries.removeIf { !it.value.isEffective() }
+                        main.showImportProgress("取り込み後の一覧を更新しています", -1.0)
+                        refreshLocalSidebar(entries.first().data.id)
+                        importApplying = false
+                        main.finishOperation()
+                        dataService.endSave()
+                        refreshSyncButtonState()
+                        main.showImportProgress("取り込み結果をローカルに退避しています", -1.0)
+                        requestBackup { backedUp ->
+                            if (!active()) { onComplete(false); return@requestBackup }
+                            if (!backedUp) {
+                                CustomDialog.error().header("取り込みは編集へ反映済みですが、退避に失敗しました")
+                                    .content("編集内容は保持されています。終了前にバックアップを再試行してください。")
+                                    .owner(main.currentStage).show()
+                            }
+                            onComplete(true)
+                        }
+                    } catch (error: Exception) {
+                        logger.error("取り込み結果の適用に失敗しました", error)
+                        finish(false)
+                        CustomDialog.error().header("取り込み結果の適用に失敗しました")
+                            .content("編集内容は保持されています。内容を確認してください。")
+                            .owner(main.currentStage).show()
+                    }
                 }
+                applyWhenReady()
             }
         )
     }
@@ -1345,10 +1414,14 @@ abstract class EditorView<T : ManagedData<T, *>>(
     /** 接続終了前の退避だけを行い、終了証明が得られるまで編集キャッシュを保持します。 */
     internal fun prepareClose(onComplete: (Boolean) -> Unit) {
         if (closed) { onComplete(true); return }
-        if (saveRunning || dataService.activeSaves > 0 || syncBusy || repairBusy || uploadBusy || closing) { onComplete(false); return }
+        if (saveRunning || dataService.activeSaves > 0 || syncBusy || repairBusy || importApplying || closing) { onComplete(false); return }
         main.mainContentContainer.requestFocus()
         commitPendingTextEdit()
         closing = true
+        importGeneration++
+        importBusy = false
+        uploadMenuItem?.isDisable = false
+        main.finishImportProgress()
         loadGeneration++
         finishLoading()
         cancelSidebarPreload()
@@ -2411,7 +2484,7 @@ abstract class EditorView<T : ManagedData<T, *>>(
         Platform.runLater { if (!closed && saveRunning) main.showOperation(phase) }
     }
 
-    private fun <R> runStoreOperation(phase: String, operation: () -> StoreResult<R>, onSuccess: (R) -> Unit) {
+    protected fun <R> runStoreOperation(phase: String, operation: () -> StoreResult<R>, onSuccess: (R) -> Unit) {
         if (storeOperationBlocked || syncBusy || repairBusy || saveRunning) return
         val generation = ++loadGeneration
         cancelSidebarPreload()

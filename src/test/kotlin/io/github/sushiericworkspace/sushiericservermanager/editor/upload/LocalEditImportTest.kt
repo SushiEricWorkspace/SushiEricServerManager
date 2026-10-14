@@ -99,6 +99,35 @@ class LocalEditImportTest {
         }
     }
 
+    @Test
+    fun `大量取り込みの進捗は宛先重複と読み込み失敗を含む最終件数に一致する`() {
+        val root = createTempDirectory("local-edit-progress").toFile().canonicalFile
+        try {
+            val descriptor = EditorDataDescriptors.item
+            val local = LocalEditorDataStore(root)
+            val keys = (1..80).mapTo(linkedSetOf()) { index ->
+                val id = "data.n$index"
+                assertIs<StoreResult.Success<Unit>>(local.save(descriptor, id, item(id, id)))
+                UploadKey(UploadDataCategory.ITEM, id)
+            }
+            local.save(descriptor, "duplicate.n1", item("duplicate.n1", "duplicate"))
+            keys += UploadKey(UploadDataCategory.ITEM, "duplicate.n1")
+            keys += UploadKey(UploadDataCategory.ITEM, "missing")
+            val progress = mutableListOf<Triple<Int, Int, String?>>()
+            val remote = InMemoryEditorDataStore("server")
+            val result = OfflineUploadService(root, SaveForbiddenStore(remote)).loadForEditing(
+                descriptor, keys, emptySet(), "target"
+            ) { done, total, name -> progress += Triple(done, total, name) }
+            assertEquals(80, result.entries.size)
+            assertEquals(2, result.failed.size)
+            assertEquals((0..keys.size).toList(), progress.map { it.first })
+            assertTrue(progress.all { it.second == keys.size })
+            assertEquals(keys.map { it.id }.sorted(), progress.drop(1).map { it.third })
+            assertTrue(remote.list(descriptor).success().isEmpty())
+            assertIs<StoreResult.Success<MutableItemBaseData>>(local.load(descriptor, "data.n1"))
+        } finally { root.deleteRecursively() }
+    }
+
     private fun item(id: String, name: String) =
         MutableItemBaseData(id = id).apply { display.displayName = name }
 

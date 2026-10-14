@@ -384,20 +384,23 @@ class ItemEditorLogic(
 
     private fun copyInternalId(id: String) {
         if (storeOperationBlocked) return
-        val internalId = resolveItemInternalId(editingDataMap[id]) {
-            dataAccess.load(id).first
-        }
-        if (internalId == null) {
-            CustomDialog.error()
-                .title("コピーエラー")
-                .header("内部IDをコピーできませんでした")
-                .content("対象アイテム: $id")
-                .owner(main.currentStage)
-                .show()
-            return
-        }
+        fun copy(data: MutableItemBaseData?) {
+            val internalId = resolveItemInternalId(data) { null }
+            if (internalId == null) {
+                CustomDialog.error()
+                    .title("コピーエラー")
+                    .header("内部IDをコピーできませんでした")
+                    .content("対象アイテム: $id")
+                    .owner(main.currentStage)
+                    .show()
+                return
+            }
 
-        copyText(internalId, "内部IDをコピーしました: $internalId")
+            copyText(internalId, "内部IDをコピーしました: $internalId")
+        }
+        val cached = editingDataMap[id]
+        if (cached != null) copy(cached)
+        else runStoreOperation("内部IDを取得しています", { dataAccess.loadStore(id) }, ::copy)
     }
 
     private fun copyText(value: String, notification: String) {
