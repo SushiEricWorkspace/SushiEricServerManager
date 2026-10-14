@@ -1,7 +1,7 @@
 package io.github.sushiericworkspace.sushiericservermanager.feature.moneyhistory
 
-import io.github.sushiericworkspace.common.stats.player.AchievementCategory
-import io.github.sushiericworkspace.common.stats.player.AchievementType
+import io.github.sushiericworkspace.sushiericdatamodel.stats.player.AchievementCategory
+import io.github.sushiericworkspace.sushiericdatamodel.stats.player.AchievementType
 import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneOffset

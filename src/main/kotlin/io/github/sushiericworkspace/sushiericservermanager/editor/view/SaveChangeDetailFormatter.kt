@@ -1,11 +1,11 @@
 package io.github.sushiericworkspace.sushiericservermanager.editor.view
 
-import io.github.sushiericworkspace.common.data.core.ManagedData
-import io.github.sushiericworkspace.common.data.shop.model.mutable.MutableShopProductData
-import io.github.sushiericworkspace.common.data.item.model.ItemInternalId
-import io.github.sushiericworkspace.common.data.item.model.mutable.MutableItemBaseData
-import io.github.sushiericworkspace.common.data.ore.model.mutable.MutableOreBaseData
-import io.github.sushiericworkspace.common.data.recipe.model.mutable.MutableRecipeData
+import io.github.sushiericworkspace.sushiericdatamodel.data.core.ManagedData
+import io.github.sushiericworkspace.sushiericdatamodel.data.shop.model.mutable.MutableShopProductData
+import io.github.sushiericworkspace.sushiericdatamodel.data.item.model.ItemInternalId
+import io.github.sushiericworkspace.sushiericdatamodel.data.item.model.mutable.MutableItemBaseData
+import io.github.sushiericworkspace.sushiericdatamodel.data.ore.model.mutable.MutableOreBaseData
+import io.github.sushiericworkspace.sushiericdatamodel.data.recipe.model.mutable.MutableRecipeData
 import io.github.sushiericworkspace.sushiericservermanager.editor.merge.ConflictValueFormatter
 
 /** 保存確認に表示する、操作と項目単位の変更内容を組み立てます。 */
@@ -175,8 +175,8 @@ private fun MutableList<Change>.addMap(
 
 private fun formatValue(value: Any?, itemDisplayText: (ItemInternalId) -> String): String {
     val normalized = ConflictValueFormatter.format(value, itemDisplayText)
-    if (value is Pair<*, *> && value.first is io.github.sushiericworkspace.common.data.recipe.model.RecipeSize &&
-        value.second is io.github.sushiericworkspace.common.data.recipe.model.RecipeIngredients
+    if (value is Pair<*, *> && value.first is io.github.sushiericworkspace.sushiericdatamodel.data.recipe.model.RecipeSize &&
+        value.second is io.github.sushiericworkspace.sushiericdatamodel.data.recipe.model.RecipeIngredients
     ) return normalized
     val singleLine = normalized.replace(Regex("\\s+"), " ").trim()
     return if (singleLine.length <= 180) singleLine else singleLine.take(177) + "..."

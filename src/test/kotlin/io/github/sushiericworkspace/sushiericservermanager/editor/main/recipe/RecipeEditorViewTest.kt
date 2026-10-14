@@ -1,9 +1,9 @@
 package io.github.sushiericworkspace.sushiericservermanager.editor.main.recipe
 
-import io.github.sushiericworkspace.common.data.item.model.ItemInternalId
-import io.github.sushiericworkspace.common.data.recipe.model.RecipeIngredients
-import io.github.sushiericworkspace.common.data.recipe.model.RecipeSize
-import io.github.sushiericworkspace.common.data.recipe.model.mutable.MutableRecipeData
+import io.github.sushiericworkspace.sushiericdatamodel.data.item.model.ItemInternalId
+import io.github.sushiericworkspace.sushiericdatamodel.data.recipe.model.RecipeIngredients
+import io.github.sushiericworkspace.sushiericdatamodel.data.recipe.model.RecipeSize
+import io.github.sushiericworkspace.sushiericdatamodel.data.recipe.model.mutable.MutableRecipeData
 import io.github.sushiericworkspace.sushiericservermanager.app.AppScreen
 import io.github.sushiericworkspace.sushiericservermanager.editor.controller.MainController
 import io.github.sushiericworkspace.sushiericservermanager.editor.service.EditorDataService
@@ -22,7 +22,7 @@ import javafx.scene.control.TreeView
 import javafx.scene.control.TreeCell
 import javafx.stage.Window
 import javafx.scene.paint.Color
-import io.github.sushiericworkspace.common.data.item.model.mutable.MutableItemBaseData
+import io.github.sushiericworkspace.sushiericdatamodel.data.item.model.mutable.MutableItemBaseData
 import io.github.sushiericworkspace.sushiericservermanager.editor.view.SidebarTreeNode
 import io.github.sushiericworkspace.sushiericservermanager.ui.dialog.ItemTreeSelectionDialog
 import io.github.sushiericworkspace.sushiericservermanager.ui.dialog.ItemTreeSelection

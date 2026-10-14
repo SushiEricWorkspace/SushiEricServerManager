@@ -1,7 +1,7 @@
 package io.github.sushiericworkspace.sushiericservermanager.editor.view
 
-import io.github.sushiericworkspace.common.data.item.model.ItemInternalId
-import io.github.sushiericworkspace.common.data.shop.model.mutable.MutableShopProductData
+import io.github.sushiericworkspace.sushiericdatamodel.data.item.model.ItemInternalId
+import io.github.sushiericworkspace.sushiericdatamodel.data.shop.model.mutable.MutableShopProductData
 import kotlin.test.Test
 import kotlin.test.assertTrue
 import kotlin.test.assertFalse

@@ -1,6 +1,6 @@
 package io.github.sushiericworkspace.sushiericservermanager.editor.upload
 
-import io.github.sushiericworkspace.common.data.core.ManagedData
+import io.github.sushiericworkspace.sushiericdatamodel.data.core.ManagedData
 import io.github.sushiericworkspace.sushiericservermanager.config.FilePath
 import io.github.sushiericworkspace.sushiericservermanager.editor.service.EditorDataService
 import io.github.sushiericworkspace.sushiericservermanager.editor.store.EditorDataDescriptor

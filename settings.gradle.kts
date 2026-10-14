@@ -9,22 +9,22 @@ dependencyResolutionManagement {
 
     repositories {
         maven {
-            name = "commonDevelopment"
-            url = uri(providers.gradleProperty("commonDevelopmentRepository").orElse("../.common-dev-repository").get())
+            name = "dataModelDevelopment"
+            url = uri(providers.gradleProperty("dataModelDevelopmentRepository").orElse("../.datamodel-dev-repository").get())
             content {
                 includeModule(
                     "io.github.sushiericworkspace",
-                    "sushieric-common-editor-dev"
+                    "sushieric-datamodel-editor-dev"
                 )
             }
         }
         maven {
-            name = "commonRelease"
-            url = uri(providers.gradleProperty("commonReleaseRepository").orElse("../.common-release-repository").get())
+            name = "dataModelRelease"
+            url = uri(providers.gradleProperty("dataModelReleaseRepository").orElse("../.datamodel-release-repository").get())
             content {
                 includeModule(
                     "io.github.sushiericworkspace",
-                    "sushieric-common"
+                    "sushieric-datamodel"
                 )
             }
         }

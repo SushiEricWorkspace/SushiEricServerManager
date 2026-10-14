@@ -16,40 +16,40 @@ plugins {
 group = "io.github.sushiericworkspace.sushiericservermanager"
 version = "1.0-SNAPSHOT"
 
-val commonReleaseVersion = providers.gradleProperty("commonReleaseVersion")
+val dataModelReleaseVersion = providers.gradleProperty("dataModelReleaseVersion")
     .orNull
     ?.trim()
     ?.takeIf { it.isNotEmpty() }
 
-if (commonReleaseVersion?.startsWith("v") == true) {
-    throw GradleException("Commonの正式版バージョンにはvを付けないでください: $commonReleaseVersion")
+if (dataModelReleaseVersion?.startsWith("v") == true) {
+    throw GradleException("SushiEricDataModelの正式版バージョンにはvを付けないでください: $dataModelReleaseVersion")
 }
 
 val releaseTaskNames = setOf("releaseWindowsInstaller", "releaseMacDmg")
 val releaseTaskRequested = gradle.startParameter.taskNames.any {
     it.substringAfterLast(':') in releaseTaskNames
 }
-if (releaseTaskRequested && commonReleaseVersion == null) {
+if (releaseTaskRequested && dataModelReleaseVersion == null) {
     throw GradleException(
-        "正式リリース成果物の作成には-PcommonReleaseVersion=<version>が必要です。"
+        "正式リリース成果物の作成には-PdataModelReleaseVersion=<version>が必要です。"
     )
 }
 
-val commonDevelopmentCoordinate = providers.gradleProperty("commonDevelopmentCoordinate").orNull
-if (commonDevelopmentCoordinate != null && (commonReleaseVersion != null || !Regex(
-        """io\.github\.sushiericworkspace:sushieric-common-editor-dev:0\.1\.0-dev\.[a-zA-Z0-9.-]+"""
-    ).matches(commonDevelopmentCoordinate))) {
-    throw GradleException("開発Commonは完全なEditor用固定座標で指定し、正式版指定と併用しないでください。")
+val dataModelDevelopmentCoordinate = providers.gradleProperty("dataModelDevelopmentCoordinate").orNull
+if (dataModelDevelopmentCoordinate != null && (dataModelReleaseVersion != null || !Regex(
+        """io\.github\.sushiericworkspace:sushieric-datamodel-editor-dev:0\.1\.0-dev\.[a-zA-Z0-9.-]+"""
+    ).matches(dataModelDevelopmentCoordinate))) {
+    throw GradleException("開発SushiEricDataModelは完全なEditor用固定座標で指定し、正式版指定と併用しないでください。")
 }
 
-val commonDependency = commonDevelopmentCoordinate ?: if (commonReleaseVersion == null) {
-    "io.github.sushiericworkspace:sushieric-common-editor-dev:0.1.0-dev.+"
+val dataModelDependency = dataModelDevelopmentCoordinate ?: if (dataModelReleaseVersion == null) {
+    "io.github.sushiericworkspace:sushieric-datamodel-editor-dev:0.1.0-dev.+"
 } else {
-    "io.github.sushiericworkspace:sushieric-common:$commonReleaseVersion"
+    "io.github.sushiericworkspace:sushieric-datamodel:$dataModelReleaseVersion"
 }
 
 dependencies {
-    api(commonDependency)
+    api(dataModelDependency)
 
     // GUI 関連ライブラリ
     implementation("org.controlsfx:controlsfx:11.2.1")
@@ -593,9 +593,9 @@ val verifyReleaseContents = tasks.register("verifyReleaseContents") {
             "通常runtimeがdevelopmentモジュールへ依存しています。"
         }
         verifyDistributionFiles(runtime.get().files + tasks.jar.get().archiveFile.get().asFile)
-        if (commonReleaseVersion != null) {
-            check(runtime.get().files.none { it.name.startsWith("sushieric-common-editor-dev-") }) {
-                "正式配布へ開発Commonが混入しています。"
+        if (dataModelReleaseVersion != null) {
+            check(runtime.get().files.none { it.name.startsWith("sushieric-datamodel-editor-dev-") }) {
+                "正式配布へ開発SushiEricDataModelが混入しています。"
             }
         }
     }

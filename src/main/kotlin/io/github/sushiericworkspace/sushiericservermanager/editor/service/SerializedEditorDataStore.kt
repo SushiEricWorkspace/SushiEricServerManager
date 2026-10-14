@@ -1,6 +1,6 @@
 package io.github.sushiericworkspace.sushiericservermanager.editor.service
 
-import io.github.sushiericworkspace.common.data.core.ManagedData
+import io.github.sushiericworkspace.sushiericdatamodel.data.core.ManagedData
 import io.github.sushiericworkspace.sushiericservermanager.editor.store.EditorDataStore
 import io.github.sushiericworkspace.sushiericservermanager.editor.store.EditorDataDescriptor
 import io.github.sushiericworkspace.sushiericservermanager.editor.store.StoreResult

@@ -1,6 +1,6 @@
 package io.github.sushiericworkspace.sushiericservermanager.editor.main.item
 
-import io.github.sushiericworkspace.common.data.item.model.HeadSkinSource
+import io.github.sushiericworkspace.sushiericdatamodel.data.item.model.HeadSkinSource
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertIs

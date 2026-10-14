@@ -1,7 +1,7 @@
 # ローカル・SSH監督への管理接続
 
 分離テスト枠をManagerで編集し、貸出・世代・起動識別を固定する接続方式です。
-非管理のSSH/オフライン接続は維持します。CommonやModの保存形式・#504互換判定を複製しません。
+非管理のSSH/オフライン接続は維持します。SushiEricDataModelやModの保存形式・#504互換判定を複製しません。
 監督側のCLIと終了証明は、兄弟`.github`の`scripts/dev_server/writer-guide.md`を参照してください。
 
 ## モジュールと起動
@@ -9,7 +9,7 @@
 通常Managerはルートプロジェクトの`Launcher`で起動し、`development`へ依存しません。
 管理接続の選択画面、ManagedSession、SupervisorClient、ManagedEditorDataStore、管理送信経路は
 `development`モジュールだけに配置します。通常側との境界はEditorConnection、ManagementTransport、
-EditorDataStoreのオフライン領域です。Commonモデルや通常SSH/SFTPのライブラリは通常側に残します。
+EditorDataStoreのオフライン領域です。SushiEricDataModelモデルや通常SSH/SFTPのライブラリは通常側に残します。
 
 開発用は`DevelopmentLauncher`から通常の編集機能と開発モジュールを組み合わせます。
 正式版への起動時更新・必須更新操作・前回更新結果処理は利用しません。
@@ -17,9 +17,9 @@ EditorDataStoreのオフライン領域です。Commonモデルや通常SSH/SFTP
 正式更新の配布・jpackage・リリースタスクへ渡しません。
 
 ```text
-gradlew :run -PcommonDevelopmentRepository=<Maven絶対パス>
-gradlew :development:run -PcommonDevelopmentRepository=<Maven絶対パス>
-gradlew :development:installDist -PcommonDevelopmentRepository=<Maven絶対パス>
+gradlew :run -PdataModelDevelopmentRepository=<Maven絶対パス>
+gradlew :development:run -PdataModelDevelopmentRepository=<Maven絶対パス>
+gradlew :development:installDist -PdataModelDevelopmentRepository=<Maven絶対パス>
 ```
 
 ## 初回設定
@@ -124,7 +124,7 @@ tokenはstdinとこのprivate記録だけに置き、argv・通常ログ・Git�
 ローカルはstdin付きCLI、SSHは接続先ホスト上の仲介を使用します。
 SSHのwriter登録は仲介自身のnative PID・開始識別・cwdです。外部ManagerのPIDを登録しません。
 貸出操作用仲介とwriter用仲介を分け、writerが正常切断した後もManager取得分のrenewを維持します。
-EditorDataDescriptorのSerializer/Validator・レシピの最新ストア検証を再利用し、CommonモデルやYAMLを再実装しません。
+EditorDataDescriptorのSerializer/Validator・レシピの最新ストア検証を再利用し、SushiEricDataModelモデルやYAMLを再実装しません。
 cacheは取得本文のSerializer用コピーであり、管理rootをLocalStoreとして開きません。
 rename/moveはファイル内IDも再出力し、監督の1操作で移動します。途中失敗は再試行・rollback削除せず保留します。
 鉱石の魔力量は`magic-power-amount`キーで保存します。既存の開発用鉱石データは自動移行されないため、魔力量を再設定するかデータを再生成してください。
@@ -172,10 +172,10 @@ snapshot/restore/recoverや非協調的な登録外writerの証明はこの接�
 
 ## 自動検証と実機の分離
 
-JDK 21、完全なEditor Common座標とrepositoryで実行します。
+JDK 21、完全なEditor SushiEricDataModel座標とrepositoryで実行します。
 
 ```text
-gradlew build verifyReleaseDistribution -PcommonDevelopmentCoordinate=io.github.sushiericworkspace:sushieric-common-editor-dev:<固定dev版> -PcommonDevelopmentRepository=<Maven絶対パス>
+gradlew build verifyReleaseDistribution -PdataModelDevelopmentCoordinate=io.github.sushiericworkspace:sushieric-datamodel-editor-dev:<固定dev版> -PdataModelDevelopmentRepository=<Maven絶対パス>
 ```
 
 ManagedSession/ManagedLease/ManagedManagementClient/ManagedEditorDataStoreの試験はGUI・Minecraftを起動せず、合成監督と使い捨てWebSocketを使用します。
@@ -204,7 +204,7 @@ OS固有native仲介・認証失敗・切断・キャンセルも確認し、実
 `build`のcheckで通常JARとruntime classpathのクラス・型参照・resourceを検査します。
 `verifyReleaseDistribution`は通常installDistのlibも検査します。管理固有の外部ライブラリは現在なく、
 SSH/SFTP・JSON・ロギングなど既存機能にも必要な依存を通常側に維持しています。
-正式Commonを指定した場合はEditor専用Commonの混入も拒否します。
+正式SushiEricDataModelを指定した場合はEditor専用SushiEricDataModelの混入も拒否します。
 
 Windows installer・macOS dmg・各app imageの作成は、検査済み通常installDistだけを入力にします。
 app imageは生成後のJARも検査します。OS包装は当該OS上で、依頼された場合だけ実行します。
@@ -228,8 +228,8 @@ python scripts/extract-windows-installer.py --installer build/installer/SushiEri
 gradlew verifyPackagedApplication -PpackagedApplicationDirectory=build/windows-installer-inspection/application
 ```
 
-Editor専用Commonで生成した包装の検査は開発検証です。正式Commonの配布確認と区別してください。
-正式版の検査では、実装と互換性のある正式Common版とリポジトリを指定します。
+Editor専用SushiEricDataModelで生成した包装の検査は開発検証です。正式SushiEricDataModelの配布確認と区別してください。
+正式版の検査では、実装と互換性のある正式SushiEricDataModel版とリポジトリを指定します。
 
 実Mod二枠の保存・正常切断・snapshot/別枠復元とprivate設定は、
 [統合検証ガイド](../../../SushiEricServerMod/docs/core/manager-integration-guide.md)と

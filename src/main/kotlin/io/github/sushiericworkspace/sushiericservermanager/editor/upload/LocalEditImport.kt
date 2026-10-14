@@ -1,6 +1,6 @@
 package io.github.sushiericworkspace.sushiericservermanager.editor.upload
 
-import io.github.sushiericworkspace.common.data.core.ManagedData
+import io.github.sushiericworkspace.sushiericdatamodel.data.core.ManagedData
 
 /** 保存前の取り込みデータと、競合確認の基準になるサーバーの読み込み時点のデータです。 */
 data class LocalEditImport<T : ManagedData<T, *>>(

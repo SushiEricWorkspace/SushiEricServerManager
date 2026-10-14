@@ -1,6 +1,6 @@
 package io.github.sushiericworkspace.sushiericservermanager.editor.main.item.diff
 
-import io.github.sushiericworkspace.common.stats.player.StatsType
+import io.github.sushiericworkspace.sushiericdatamodel.stats.player.StatsType
 
 /**
  * 差分を検出する対象フィールドの定義

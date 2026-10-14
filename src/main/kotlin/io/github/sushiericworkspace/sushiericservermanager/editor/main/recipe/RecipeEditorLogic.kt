@@ -1,12 +1,12 @@
 package io.github.sushiericworkspace.sushiericservermanager.editor.main.recipe
 
-import io.github.sushiericworkspace.common.data.core.validation.SushiEricValidationError
-import io.github.sushiericworkspace.common.data.item.model.ItemInternalId
-import io.github.sushiericworkspace.common.data.recipe.model.RecipeIngredients
-import io.github.sushiericworkspace.common.data.recipe.model.RecipeSize
-import io.github.sushiericworkspace.common.data.recipe.model.mutable.MutableRecipeData
-import io.github.sushiericworkspace.common.stats.player.AchievementType
-import io.github.sushiericworkspace.common.stats.player.SkillType
+import io.github.sushiericworkspace.sushiericdatamodel.data.core.validation.SushiEricValidationError
+import io.github.sushiericworkspace.sushiericdatamodel.data.item.model.ItemInternalId
+import io.github.sushiericworkspace.sushiericdatamodel.data.recipe.model.RecipeIngredients
+import io.github.sushiericworkspace.sushiericdatamodel.data.recipe.model.RecipeSize
+import io.github.sushiericworkspace.sushiericdatamodel.data.recipe.model.mutable.MutableRecipeData
+import io.github.sushiericworkspace.sushiericdatamodel.stats.player.AchievementType
+import io.github.sushiericworkspace.sushiericdatamodel.stats.player.SkillType
 import io.github.sushiericworkspace.sushiericservermanager.editor.component.ItemReferenceBinding
 import io.github.sushiericworkspace.sushiericservermanager.editor.component.SearchableComboBox
 import io.github.sushiericworkspace.sushiericservermanager.editor.controller.MainController

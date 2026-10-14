@@ -1,6 +1,6 @@
 package io.github.sushiericworkspace.sushiericservermanager.editor.upload
 
-import io.github.sushiericworkspace.common.data.core.identity.PublicId
+import io.github.sushiericworkspace.sushiericdatamodel.data.core.identity.PublicId
 import io.github.sushiericworkspace.sushiericservermanager.editor.store.EditorDataDescriptors
 import io.github.sushiericworkspace.sushiericservermanager.editor.store.StoreError
 import io.github.sushiericworkspace.sushiericservermanager.editor.store.StoreErrorCode

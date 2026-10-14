@@ -97,7 +97,7 @@
 
 - primaryや他ownerのworktreeで作業しない。primaryの移動・checkout変更をAIが行わない。
 - 作成・一覧・担当引継ぎ・削除は`.github/scripts/setup-worktrees.py`を使用する。task-id、Issue番号、単一の変更repo（`--repos`）、同時書込ownerを明示し、記録された基準commitから`feature/issue-<番号>`を作成する。確定依存は反復可能な`--dependency REPO=COMMIT`で完全commit hashを指定し、detached HEADとして登録する。依存ソースは編集・commit・pushせず、変更が必要なら別Issueで確定commitを作る。使い方は`.github/scripts/dev_server/worktrees-guide.md`を参照する。
-- 基準はrepoごとの最新origin開発ブランチを用いる（Common・ServerManager・CombatCoreはdevelop、ServerMod・.githubはmain）。前提Issueへ依存する場合は、repoごとに依存commitを明示する。現在のprimaryやorigin/HEADのリリースブランチから推測しない。
+- 基準はrepoごとの最新origin開発ブランチを用いる（SushiEricDataModel・ServerManager・CombatCoreはdevelop、ServerMod・.githubはmain）。前提Issueへ依存する場合は、repoごとに依存commitを明示する。現在のprimaryやorigin/HEADのリリースブランチから推測しない。
 - 同一タスクの担当交代はownerを引き継ぐ。別worktreeを追加して同じタスクを二重実行しない。Gitのworktree lockは編集排他ではない。owner記録は同一ユーザー間の協調契約であり、他ownerは直接書き込まない。
 - 既存branch/worktreeを上書きしない。引継ぎは旧ownerの書込み停止後、未コミット変更を保持してowner登録のみを更新する。未コミット変更がある作業の作成再実行・削除・削除復旧は拒否する。依存repoは引継ぎ・ビルドでもdetached HEAD・固定commit・cleanを照合する。形式3は旧taskのbranch登録と記録を保持し、既存multi-repo taskを勝手に依存へ変換しない。途中失敗や登録不一致は既存の実体を残し、勝手に修復・強制削除しない。
 - タスクworktreeへ`run/`や`.idea/`を複製しない。`build/`とプロジェクト`.gradle/`はworktreeごとに独立する。サーバーの永続instance、snapshot、artifactはworktreeの削除対象にしない。
@@ -114,7 +114,7 @@
 - 管理対象rootは`.github/scripts/dev-server.py`で操作する。初期化前にoperator、絶対root、二永続枠のport、GameTest同時数、quota/reserve、別物理媒体のbackup先を明示して承認を得る。測定値と未確認項目は`scripts/dev_server/acceptance-guide.md`に従って残す。
 - ソースworktreeではtest/buildと固定runtime出力だけを行う。管理対象への起動はacquireで取得したlease/epoch/世代を付けてtemplate-initまたはrestore/reset後にstartし、GameTestは固定bundleからgametestで実行する。直接runServer、手動JVM、管理外SFTP・ファイル編集で管理rootへ書き込まない。非管理の人間用runは明示的な移行依頼まで維持する。
 - 人間が別の初期データを明示しない限り、実機確認サーバーはOS別の登録済みワールドから作成する。WindowsのsourceRootは`C:/Users/ryuma/IdeaProjects/SushiEricWorkspace/minecraft-dev/windows-managed`、templateIdは`initial-world-windows-v1`、Macは`/Users/ryuman/IdeaProjects/SushiEricWorkspace/minecraft-dev/human-16-macos`、`initial-world-macos-v1`を使う。同じroot・artifactではreset、新しいrootまたはartifactではtemplate-initを選ぶ。dry-runのtemplateHashと新artifactを確認し、起動・正常保存停止を検証する。テンプレート不足・不一致時は止め、prepareへ切り替えない。空worldが目的の自動試験・明示された新規worldだけprepareを使う。
-- 同じtaskのGradle生成は管理ビルドスクリプトのOS lockで直列化し、Common等の成果物はtask専用発行先と完全座標・hashで固定する。完成bundleの実行時にworktree/buildへ戻らず、bundleの作成OSを越えて流用しない。
+- 同じtaskのGradle生成は管理ビルドスクリプトのOS lockで直列化し、SushiEricDataModel等の成果物はtask専用発行先と完全座標・hashで固定する。完成bundleの実行時にworktree/buildへ戻らず、bundleの作成OSを越えて流用しない。
 - 人間による実機確認は起動するroot・枠・portと確認事項の許可を得る。管理対象はstartがrunServer相当の開発profileを起動する。待受なしの自動GameTestと、クライアント・JavaFXの実機確認を区別する。
 - 停止は管理CLIのstopを使い、識別済みRCON、保存結果、writer drain、JVM/child終了を照合する。タイムアウト・IPC切断・結果不明は保全して診断し、新しいoperationIdで再試行、自動kill、期限切れだけの再貸出しを行わない。RCONが使えなくても強制終了は別の明示許可を要する。
 - snapshot/restoreは正常停止・協調Manager writer終了・世代一致を確認してから行う。旧世代・失敗データ・予約・journalを削除して成功扱いにせず、recoverは同じ要求と証跡を照合する明示操作で行う。DBを手編集して保留を解除しない。
@@ -204,9 +204,9 @@ commitとpushを依頼された場合は、次を簡潔に報告する。
 ## プロジェクト構成
 
 - 通常ManagerはルートGradleプロジェクト、管理接続は`development`サブプロジェクトで構成する。通常Managerから`development`への依存や型参照を追加しない。
-- `Common`は独立したリポジトリ・Gradleプロジェクトとして管理し、ローカルでは`../Common`の`publishDevelopment`で発行されたEditor専用artifactを兄弟共通の`.common-dev-repository`から参照する。
-- データモデル、データ種別、Manager、Validator、Serializer、共通RegistryはCommon側を正とし、ServerManager側へ重複定義しない。
-- JavaFXなどEditor固有の依存をCommonへ持ち込まない。
+- `SushiEricDataModel`は独立したリポジトリ・Gradleプロジェクトとして管理し、ローカルでは`../SushiEricDataModel`の`publishDevelopment`で発行されたEditor専用artifactを兄弟共通の`.datamodel-dev-repository`から参照する。
+- データモデル、データ種別、Manager、Validator、Serializer、共通RegistryはSushiEricDataModel側を正とし、ServerManager側へ重複定義しない。
+- JavaFXなどEditor固有の依存をSushiEricDataModelへ持ち込まない。
 - JavaFX画面、FXML Controller、編集ロジック、View、Service、SSH/SFTP通信、設定、アップデート処理を既存の`src`配下の責務に合わせて配置する。
 
 ## データ設計
@@ -282,7 +282,7 @@ commitとpushを依頼された場合は、次を簡潔に報告する。
 ## 検証
 
 - コード変更後は可能な環境で`./gradlew build`を実行する。
-- Common変更後は兄弟ディレクトリのCommonで`./gradlew publishDevelopment`を実行してから確認する。
+- SushiEricDataModel変更後は兄弟ディレクトリのSushiEricDataModelで`./gradlew publishDevelopment`を実行してから確認する。
 - 関連するテストが存在する場合は実行する。
 - JavaFX画面を変更した場合は、FXMLロード、画面表示、主要操作を確認する。
 - データ形式を変更した場合は、既存YAMLの読み込み、保存、再読み込みを確認する。

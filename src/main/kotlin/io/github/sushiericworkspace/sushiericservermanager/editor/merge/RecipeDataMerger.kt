@@ -1,6 +1,6 @@
 package io.github.sushiericworkspace.sushiericservermanager.editor.merge
 
-import io.github.sushiericworkspace.common.data.recipe.model.mutable.MutableRecipeData
+import io.github.sushiericworkspace.sushiericdatamodel.data.recipe.model.mutable.MutableRecipeData
 
 /** 盤サイズと材料は一体として扱い、完成品と解放条件は独立にマージします。 */
 object RecipeDataMerger : DataMerger<MutableRecipeData> {

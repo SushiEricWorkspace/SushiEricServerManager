@@ -1,8 +1,8 @@
 package io.github.sushiericworkspace.sushiericservermanager.editor.component
 
-import io.github.sushiericworkspace.common.data.drop.model.mutable.MutableDropItemData
-import io.github.sushiericworkspace.common.data.item.model.ItemInternalId
-import io.github.sushiericworkspace.common.data.item.model.mutable.MutableItemBaseData
+import io.github.sushiericworkspace.sushiericdatamodel.data.drop.model.mutable.MutableDropItemData
+import io.github.sushiericworkspace.sushiericdatamodel.data.item.model.ItemInternalId
+import io.github.sushiericworkspace.sushiericdatamodel.data.item.model.mutable.MutableItemBaseData
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -34,7 +34,7 @@ class DropItemEditorDialogTest {
     }
 
     @Test
-    fun `解決できない内部IDは保持してCommonの警告を返す`() {
+    fun `解決できない内部IDは保持してSushiEricDataModelの警告を返す`() {
         val unresolvedId = ItemInternalId("missing-internal-id")
         val dropItem = MutableDropItemData(itemId = unresolvedId)
         val catalog = DropItemCatalog(emptyList())

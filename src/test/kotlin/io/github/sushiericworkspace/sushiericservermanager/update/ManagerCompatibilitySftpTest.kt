@@ -1,6 +1,6 @@
 package io.github.sushiericworkspace.sushiericservermanager.update
 
-import io.github.sushiericworkspace.common.path.SushiEricDataDirectory
+import io.github.sushiericworkspace.sushiericdatamodel.path.SushiEricDataDirectory
 import io.github.sushiericworkspace.sushiericservermanager.communication.HostKeyApprovalHandler
 import io.github.sushiericworkspace.sushiericservermanager.communication.SshManager
 import io.github.sushiericworkspace.sushiericservermanager.communication.SshResult

@@ -1,6 +1,6 @@
 package io.github.sushiericworkspace.sushiericservermanager.editor.component
 
-import io.github.sushiericworkspace.common.value.SushiEricHexColor
+import io.github.sushiericworkspace.sushiericdatamodel.value.SushiEricHexColor
 import io.github.sushiericworkspace.sushiericservermanager.app.AppScreen
 import io.github.sushiericworkspace.sushiericservermanager.util.toCssHex
 import javafx.scene.control.ButtonType

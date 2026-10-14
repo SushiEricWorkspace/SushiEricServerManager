@@ -1,9 +1,9 @@
 package io.github.sushiericworkspace.sushiericservermanager.editor.store
 
-import io.github.sushiericworkspace.common.path.SushiEricDataDirectory
-import io.github.sushiericworkspace.common.data.core.ManagedData
-import io.github.sushiericworkspace.common.data.core.identity.PublicId
-import io.github.sushiericworkspace.common.data.item.model.ItemInternalId
+import io.github.sushiericworkspace.sushiericdatamodel.path.SushiEricDataDirectory
+import io.github.sushiericworkspace.sushiericdatamodel.data.core.ManagedData
+import io.github.sushiericworkspace.sushiericdatamodel.data.core.identity.PublicId
+import io.github.sushiericworkspace.sushiericdatamodel.data.item.model.ItemInternalId
 import io.github.sushiericworkspace.sushiericservermanager.communication.SshManager
 import io.github.sushiericworkspace.sushiericservermanager.util.Utility
 import net.schmizz.sshj.sftp.FileMode

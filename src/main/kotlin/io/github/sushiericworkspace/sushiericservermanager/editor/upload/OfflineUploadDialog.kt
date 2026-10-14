@@ -1,6 +1,6 @@
 package io.github.sushiericworkspace.sushiericservermanager.editor.upload
 
-import io.github.sushiericworkspace.common.data.core.identity.PublicId
+import io.github.sushiericworkspace.sushiericdatamodel.data.core.identity.PublicId
 import io.github.sushiericworkspace.sushiericservermanager.app.AppScreen
 import javafx.geometry.Insets
 import javafx.geometry.Pos

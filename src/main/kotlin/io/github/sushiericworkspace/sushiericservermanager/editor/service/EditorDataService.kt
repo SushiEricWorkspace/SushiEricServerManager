@@ -1,13 +1,13 @@
 package io.github.sushiericworkspace.sushiericservermanager.editor.service
 
-import io.github.sushiericworkspace.common.data.core.SushiEricDataType
-import io.github.sushiericworkspace.common.data.core.ManagedData
-import io.github.sushiericworkspace.common.data.core.identity.PublicId
-import io.github.sushiericworkspace.common.data.core.validation.SushiEricValidationError
-import io.github.sushiericworkspace.common.data.item.model.mutable.MutableItemBaseData
-import io.github.sushiericworkspace.common.data.item.model.ItemInternalId
-import io.github.sushiericworkspace.common.data.ore.model.mutable.MutableOreBaseData
-import io.github.sushiericworkspace.common.path.SushiEricDataDirectory
+import io.github.sushiericworkspace.sushiericdatamodel.data.core.SushiEricDataType
+import io.github.sushiericworkspace.sushiericdatamodel.data.core.ManagedData
+import io.github.sushiericworkspace.sushiericdatamodel.data.core.identity.PublicId
+import io.github.sushiericworkspace.sushiericdatamodel.data.core.validation.SushiEricValidationError
+import io.github.sushiericworkspace.sushiericdatamodel.data.item.model.mutable.MutableItemBaseData
+import io.github.sushiericworkspace.sushiericdatamodel.data.item.model.ItemInternalId
+import io.github.sushiericworkspace.sushiericdatamodel.data.ore.model.mutable.MutableOreBaseData
+import io.github.sushiericworkspace.sushiericdatamodel.path.SushiEricDataDirectory
 import io.github.sushiericworkspace.sushiericservermanager.communication.RemoteResource
 import io.github.sushiericworkspace.sushiericservermanager.communication.SshManager
 import io.github.sushiericworkspace.sushiericservermanager.config.FilePath
@@ -168,7 +168,7 @@ class EditorDataService(
         fun duplicateAsNew(data: T, newId: String): T = descriptor.duplicateAsNew(data, newId)
 
         /**
-         * Common側で定義された検証処理を使って、編集中データの問題を取得します。
+         * SushiEricDataModel側で定義された検証処理を使って、編集中データの問題を取得します。
          *
          * @param data 検証対象のデータ。
          * @param availableIds 参照先として利用できるアイテム内部ID。

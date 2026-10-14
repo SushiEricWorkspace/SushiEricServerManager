@@ -1,15 +1,15 @@
 package io.github.sushiericworkspace.sushiericservermanager.editor.store
 
-import io.github.sushiericworkspace.common.data.core.identity.VanillaItemId
-import io.github.sushiericworkspace.common.data.core.identity.VanillaBlockId
-import io.github.sushiericworkspace.common.data.drop.model.mutable.MutableDropItemData
-import io.github.sushiericworkspace.common.data.item.model.ItemInternalId
-import io.github.sushiericworkspace.common.data.item.model.mutable.MutableItemBaseData
-import io.github.sushiericworkspace.common.data.item.model.mutable.MutablePlainTextLoreSection
-import io.github.sushiericworkspace.common.data.item.model.HeadSkinSource
-import io.github.sushiericworkspace.common.data.item.model.mutable.MutableHeadSkinData
-import io.github.sushiericworkspace.common.data.ore.model.mutable.MutableOreBaseData
-import io.github.sushiericworkspace.common.stats.player.SkillType
+import io.github.sushiericworkspace.sushiericdatamodel.data.core.identity.VanillaItemId
+import io.github.sushiericworkspace.sushiericdatamodel.data.core.identity.VanillaBlockId
+import io.github.sushiericworkspace.sushiericdatamodel.data.drop.model.mutable.MutableDropItemData
+import io.github.sushiericworkspace.sushiericdatamodel.data.item.model.ItemInternalId
+import io.github.sushiericworkspace.sushiericdatamodel.data.item.model.mutable.MutableItemBaseData
+import io.github.sushiericworkspace.sushiericdatamodel.data.item.model.mutable.MutablePlainTextLoreSection
+import io.github.sushiericworkspace.sushiericdatamodel.data.item.model.HeadSkinSource
+import io.github.sushiericworkspace.sushiericdatamodel.data.item.model.mutable.MutableHeadSkinData
+import io.github.sushiericworkspace.sushiericdatamodel.data.ore.model.mutable.MutableOreBaseData
+import io.github.sushiericworkspace.sushiericdatamodel.stats.player.SkillType
 import org.junit.jupiter.api.condition.EnabledOnOs
 import org.junit.jupiter.api.condition.OS
 import java.nio.file.Files

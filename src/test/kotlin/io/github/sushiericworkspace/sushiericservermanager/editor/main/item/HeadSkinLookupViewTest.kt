@@ -1,9 +1,9 @@
 package io.github.sushiericworkspace.sushiericservermanager.editor.main.item
 
-import io.github.sushiericworkspace.common.data.core.identity.VanillaItemId
-import io.github.sushiericworkspace.common.data.item.model.HeadSkinSource
-import io.github.sushiericworkspace.common.data.item.model.mutable.MutableHeadSkinData
-import io.github.sushiericworkspace.common.data.item.model.mutable.MutableItemBaseData
+import io.github.sushiericworkspace.sushiericdatamodel.data.core.identity.VanillaItemId
+import io.github.sushiericworkspace.sushiericdatamodel.data.item.model.HeadSkinSource
+import io.github.sushiericworkspace.sushiericdatamodel.data.item.model.mutable.MutableHeadSkinData
+import io.github.sushiericworkspace.sushiericdatamodel.data.item.model.mutable.MutableItemBaseData
 import io.github.sushiericworkspace.sushiericservermanager.editor.main.item.tree.TreeRow
 import javafx.application.Platform
 import javafx.scene.Node

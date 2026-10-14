@@ -22,15 +22,15 @@ jpackageの版で先頭に1を足すのは、macOSのjpackageが先頭の数字�
 ## 成果物の作成
 
 成果物は、対応するOS上で作る。Windows用はWindows、macOS用はMacで実行する。
-どちらも、正式版のCommonを使うため`-PcommonReleaseVersion=<version>`（`v`を付けない）が必要である。
+どちらも、正式版のSushiEricDataModelを使うため`-PdataModelReleaseVersion=<version>`（`v`を付けない）が必要である。
 
 | OS | コマンド |
 |---|---|
-| Windows | `./gradlew releaseWindowsInstaller -PcommonReleaseVersion=<version>` |
-| macOS | `./gradlew releaseMacDmg -PcommonReleaseVersion=<version>` |
+| Windows | `./gradlew releaseWindowsInstaller -PdataModelReleaseVersion=<version>` |
+| macOS | `./gradlew releaseMacDmg -PdataModelReleaseVersion=<version>` |
 
-タスクworktreeなどCommonの正式artifactが兄弟配置にない環境では、
-`-PcommonReleaseRepository=<Mavenリポジトリの絶対パス>`で保存先を指定する。
+タスクworktreeなどSushiEricDataModelの正式artifactが兄弟配置にない環境では、
+`-PdataModelReleaseRepository=<Mavenリポジトリの絶対パス>`で保存先を指定する。
 
 出力先は`build/release-installer/`で、ファイル名は上の表の名前になる。
 
@@ -39,13 +39,13 @@ jpackageの版で先頭に1を足すのは、macOSのjpackageが先頭の数字�
 別のOSの機械を使わずに作るために、GitHub Actionsのworkflow（`.github/workflows/build-installer.yml`）がある。
 手動実行（`workflow_dispatch`）だけで動き、push、pull_request、scheduleでは動かない。**人間の明示的な許可なく実行しない**（AIも同様。[AGENTS.md](../../AGENTS.md)を参照する）。
 
-準備として、Commonが非公開のため、リポジトリのシークレット`COMMON_REPO_TOKEN`に、Commonの内容を読み取れるトークン（読み取り専用）を登録する。未登録の場合、workflowはビルドの前に失敗する。
+準備として、SushiEricDataModelが非公開のため、リポジトリのシークレット`DATA_MODEL_REPO_TOKEN`に、SushiEricDataModelの内容を読み取れるトークン（読み取り専用）を登録する。未登録の場合、workflowはビルドの前に失敗する。
 
 | 入力 | 内容 |
 |---|---|
 | `os` | 作成するOS。`windows`、`macos`、`both`から選ぶ。既定は`windows` |
-| `common_ref` | ビルドに使うCommonのブランチまたはタグ。既定は`develop` |
-| `common_release_version` | Commonの正式版のバージョン（`X.Y.Z`、`v`なし）。省略すると、開発版のCommonで作り、指定すると正式版のCommonを発行して`releaseWindowsInstaller`、`releaseMacDmg`で作る |
+| `data_model_ref` | ビルドに使うSushiEricDataModelのブランチまたはタグ。既定は`develop` |
+| `data_model_release_version` | SushiEricDataModelの正式版のバージョン（`X.Y.Z`、`v`なし）。省略すると、開発版のSushiEricDataModelで作り、指定すると正式版のSushiEricDataModelを発行して`releaseWindowsInstaller`、`releaseMacDmg`で作る |
 
 - 成果物は、実行結果のartifact（`installer-windows`、`installer-macos-arm64`）として3日間保持される。Releaseへの添付は、手動で行う。
 - macOSの成果物は、`macos-latest`（Apple Silicon）で作るため、arm64専用である。

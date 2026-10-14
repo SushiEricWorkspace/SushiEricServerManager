@@ -1,8 +1,8 @@
 package io.github.sushiericworkspace.sushiericservermanager.editor.component
 
-import io.github.sushiericworkspace.common.data.effect.model.MutableLeveledTimedEffectData
-import io.github.sushiericworkspace.common.data.effect.model.SushiEricEffectType
-import io.github.sushiericworkspace.common.data.effect.validation.PotionEffectValidator
+import io.github.sushiericworkspace.sushiericdatamodel.data.effect.model.MutableLeveledTimedEffectData
+import io.github.sushiericworkspace.sushiericdatamodel.data.effect.model.SushiEricEffectType
+import io.github.sushiericworkspace.sushiericdatamodel.data.effect.validation.PotionEffectValidator
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertIs
@@ -32,7 +32,7 @@ class PotionEffectEditorDialogTest {
     }
 
     @Test
-    fun `入力項目はCommonのmarker interfaceから決定する`() {
+    fun `入力項目はSushiEricDataModelのmarker interfaceから決定する`() {
         assertEquals(
             setOf(EffectEditorField.LEVEL, EffectEditorField.TIME),
             visibleEffectEditorFields(SushiEricEffectType.REGENERATION)
@@ -40,7 +40,7 @@ class PotionEffectEditorDialogTest {
     }
 
     @Test
-    fun `EffectTypeの表示にはCommonの表示名を使用する`() {
+    fun `EffectTypeの表示にはSushiEricDataModelの表示名を使用する`() {
         SushiEricEffectType.entries.forEach { type ->
             assertEquals(type.display, effectDisplayText(type))
             assertNotEquals(type.name, effectDisplayText(type))
@@ -48,7 +48,7 @@ class PotionEffectEditorDialogTest {
     }
 
     @Test
-    fun `LevelとTimeの入力最小値はCommonの制約に従う`() {
+    fun `LevelとTimeの入力最小値はSushiEricDataModelの制約に従う`() {
         assertEquals(PotionEffectValidator.MIN_LEVEL, MIN_EDITOR_EFFECT_LEVEL)
         assertEquals(1, MIN_EDITOR_EFFECT_TIME_SECONDS)
         assertEquals(MIN_EDITOR_EFFECT_LEVEL, normalizeEffectLevelForEditor(0))
@@ -84,7 +84,7 @@ class PotionEffectEditorDialogTest {
     }
 
     @Test
-    fun `入力値の正否はCommon Validatorで判定する`() {
+    fun `入力値の正否はSushiEricDataModel Validatorで判定する`() {
         val invalidEffect = assertIs<MutableLeveledTimedEffectData>(
             createEditorEffectData(
                 type = SushiEricEffectType.REGENERATION,

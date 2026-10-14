@@ -1,12 +1,12 @@
 package io.github.sushiericworkspace.sushiericservermanager.editor.main.item
 
-import io.github.sushiericworkspace.common.data.core.identity.PublicId
-import io.github.sushiericworkspace.common.data.core.validation.SushiEricValidationError
-import io.github.sushiericworkspace.common.data.item.LoreLineEditor
-import io.github.sushiericworkspace.common.data.item.model.HeadSkinSource
-import io.github.sushiericworkspace.common.data.item.model.mutable.MutableItemBaseData
-import io.github.sushiericworkspace.common.data.item.model.mutable.MutableItemDetail
-import io.github.sushiericworkspace.common.data.item.model.LoreSectionType
+import io.github.sushiericworkspace.sushiericdatamodel.data.core.identity.PublicId
+import io.github.sushiericworkspace.sushiericdatamodel.data.core.validation.SushiEricValidationError
+import io.github.sushiericworkspace.sushiericdatamodel.data.item.LoreLineEditor
+import io.github.sushiericworkspace.sushiericdatamodel.data.item.model.HeadSkinSource
+import io.github.sushiericworkspace.sushiericdatamodel.data.item.model.mutable.MutableItemBaseData
+import io.github.sushiericworkspace.sushiericdatamodel.data.item.model.mutable.MutableItemDetail
+import io.github.sushiericworkspace.sushiericdatamodel.data.item.model.LoreSectionType
 import io.github.sushiericworkspace.sushiericservermanager.ui.dialog.CustomDialog
 import io.github.sushiericworkspace.sushiericservermanager.editor.main.item.diff.ItemDiffField
 import io.github.sushiericworkspace.sushiericservermanager.editor.service.EditorDataService
@@ -118,7 +118,7 @@ class ItemEditorLogic(
     /**
      * 頭アイテム以外ではヘッドスキンの検証結果を出しません。
      *
-     * Commonの検証は適用対象を判定しないため、バニラIDを頭以外へ変更した後も
+     * SushiEricDataModelの検証は適用対象を判定しないため、バニラIDを頭以外へ変更した後も
      * 以前の指定に対するエラーと警告が残るためです。指定自体はバニラIDの変更時に取り除きます。
      */
     override fun isHiddenValidationError(

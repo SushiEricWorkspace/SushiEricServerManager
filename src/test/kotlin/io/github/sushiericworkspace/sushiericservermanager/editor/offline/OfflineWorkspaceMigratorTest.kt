@@ -1,6 +1,6 @@
 package io.github.sushiericworkspace.sushiericservermanager.editor.offline
 
-import io.github.sushiericworkspace.common.data.item.model.mutable.MutableItemBaseData
+import io.github.sushiericworkspace.sushiericdatamodel.data.item.model.mutable.MutableItemBaseData
 import io.github.sushiericworkspace.sushiericservermanager.editor.store.EditorDataDescriptors
 import io.github.sushiericworkspace.sushiericservermanager.editor.store.LocalEditorDataStore
 import io.github.sushiericworkspace.sushiericservermanager.editor.store.StoreErrorCode

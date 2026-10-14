@@ -1,11 +1,11 @@
 package io.github.sushiericworkspace.sushiericservermanager.editor.component
 
-import io.github.sushiericworkspace.common.data.core.validation.SushiEricValidationError
-import io.github.sushiericworkspace.common.data.drop.model.DropItemDataView
-import io.github.sushiericworkspace.common.data.drop.model.mutable.MutableDropItemData
-import io.github.sushiericworkspace.common.data.drop.validation.DropItemValidator
-import io.github.sushiericworkspace.common.data.item.model.ItemBaseDataView
-import io.github.sushiericworkspace.common.data.item.model.ItemInternalId
+import io.github.sushiericworkspace.sushiericdatamodel.data.core.validation.SushiEricValidationError
+import io.github.sushiericworkspace.sushiericdatamodel.data.drop.model.DropItemDataView
+import io.github.sushiericworkspace.sushiericdatamodel.data.drop.model.mutable.MutableDropItemData
+import io.github.sushiericworkspace.sushiericdatamodel.data.drop.validation.DropItemValidator
+import io.github.sushiericworkspace.sushiericdatamodel.data.item.model.ItemBaseDataView
+import io.github.sushiericworkspace.sushiericdatamodel.data.item.model.ItemInternalId
 import io.github.sushiericworkspace.sushiericservermanager.app.AppScreen
 import javafx.geometry.Insets
 import javafx.geometry.Pos

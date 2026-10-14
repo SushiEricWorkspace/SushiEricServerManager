@@ -1,19 +1,19 @@
 package io.github.sushiericworkspace.sushiericservermanager.ui.format
 
-import io.github.sushiericworkspace.common.data.item.model.detail.ArmorContent
-import io.github.sushiericworkspace.common.data.item.model.detail.AxeData
-import io.github.sushiericworkspace.common.data.item.model.detail.BowContent
-import io.github.sushiericworkspace.common.data.item.model.detail.CrossbowData
-import io.github.sushiericworkspace.common.data.item.model.detail.ItemDetailContent
-import io.github.sushiericworkspace.common.data.item.model.detail.LongSwordData
-import io.github.sushiericworkspace.common.data.item.model.detail.OtherData
-import io.github.sushiericworkspace.common.data.item.model.detail.PotionData
-import io.github.sushiericworkspace.common.data.item.model.detail.ShieldData
-import io.github.sushiericworkspace.common.data.item.model.detail.ShortBowData
-import io.github.sushiericworkspace.common.data.item.model.detail.ShortSwordData
-import io.github.sushiericworkspace.common.data.item.model.detail.OtherWeaponData
-import io.github.sushiericworkspace.common.data.item.model.detail.PickaxeData
-import io.github.sushiericworkspace.common.data.item.model.detail.SwordData
+import io.github.sushiericworkspace.sushiericdatamodel.data.item.model.detail.ArmorContent
+import io.github.sushiericworkspace.sushiericdatamodel.data.item.model.detail.AxeData
+import io.github.sushiericworkspace.sushiericdatamodel.data.item.model.detail.BowContent
+import io.github.sushiericworkspace.sushiericdatamodel.data.item.model.detail.CrossbowData
+import io.github.sushiericworkspace.sushiericdatamodel.data.item.model.detail.ItemDetailContent
+import io.github.sushiericworkspace.sushiericdatamodel.data.item.model.detail.LongSwordData
+import io.github.sushiericworkspace.sushiericdatamodel.data.item.model.detail.OtherData
+import io.github.sushiericworkspace.sushiericdatamodel.data.item.model.detail.PotionData
+import io.github.sushiericworkspace.sushiericdatamodel.data.item.model.detail.ShieldData
+import io.github.sushiericworkspace.sushiericdatamodel.data.item.model.detail.ShortBowData
+import io.github.sushiericworkspace.sushiericdatamodel.data.item.model.detail.ShortSwordData
+import io.github.sushiericworkspace.sushiericdatamodel.data.item.model.detail.OtherWeaponData
+import io.github.sushiericworkspace.sushiericdatamodel.data.item.model.detail.PickaxeData
+import io.github.sushiericworkspace.sushiericdatamodel.data.item.model.detail.SwordData
 
 /**
  * アイテムの種別固有データを、エディター画面へ表示するための文字列へ整形します。
@@ -22,7 +22,7 @@ import io.github.sushiericworkspace.common.data.item.model.detail.SwordData
  * - 種別名を先頭に置き、その種別が持つ値を続けます。
  * - [SwordData] などプロパティを持たない種別は種別名だけを返します。
  *   これらは通常クラスのため既定の `toString()` がオブジェクト参照になり、そのままでは表示に使えません。
- * - Common側のデータモデルへ表示用の情報を追加しないため、整形はエディター側のこのクラスへ集約します。
+ * - SushiEricDataModel側のデータモデルへ表示用の情報を追加しないため、整形はエディター側のこのクラスへ集約します。
  *
  * 差分表示と競合解決ダイアログの双方から使用します。
  */

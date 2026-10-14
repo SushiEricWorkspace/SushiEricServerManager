@@ -1,6 +1,6 @@
 package io.github.sushiericworkspace.sushiericservermanager.communication.managed
 
-import io.github.sushiericworkspace.common.data.item.model.mutable.MutableItemBaseData
+import io.github.sushiericworkspace.sushiericdatamodel.data.item.model.mutable.MutableItemBaseData
 import io.github.sushiericworkspace.sushiericservermanager.communication.management.ServerManagementListener
 import io.github.sushiericworkspace.sushiericservermanager.communication.management.ServerManagementResponse
 import io.github.sushiericworkspace.sushiericservermanager.editor.store.EditorDataDescriptors

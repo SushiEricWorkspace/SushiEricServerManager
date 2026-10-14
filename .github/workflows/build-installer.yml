@@ -7,7 +7,7 @@
 #   Linuxの10倍、Windowsは2倍の分数を消費する。
 #
 # 事前の準備:
-# - Commonは非公開のため、リポジトリのシークレットCOMMON_REPO_TOKENに、Commonの内容を読み取れるトークンを登録する。
+# - SushiEricDataModelは非公開のため、リポジトリのシークレットDATA_MODEL_REPO_TOKENに、SushiEricDataModelの内容を読み取れるトークンを登録する。
 #
 # 手順は docs/update/release-guide.md を参照する。
 name: Build Installer
@@ -23,12 +23,12 @@ on:
           - macos
           - both
         default: windows
-      common_ref:
-        description: 'ビルドに使うCommonのブランチまたはタグ'
+      data_model_ref:
+        description: 'ビルドに使うSushiEricDataModelのブランチまたはタグ'
         type: string
         default: develop
-      common_release_version:
-        description: 'Commonの正式版のバージョン（例: 0.2.0）。省略すると、開発版のCommonで作成する'
+      data_model_release_version:
+        description: 'SushiEricDataModelの正式版のバージョン（例: 0.2.0）。省略すると、開発版のSushiEricDataModelで作成する'
         type: string
         default: ''
 
@@ -41,8 +41,8 @@ concurrency:
 
 env:
   # 入力値は、スクリプトへ直接埋め込まず、環境変数として渡す。
-  COMMON_REF: ${{ inputs.common_ref }}
-  COMMON_RELEASE_VERSION: ${{ inputs.common_release_version }}
+  DATA_MODEL_REF: ${{ inputs.data_model_ref }}
+  DATA_MODEL_RELEASE_VERSION: ${{ inputs.data_model_release_version }}
 
 jobs:
   windows:
@@ -55,14 +55,14 @@ jobs:
     steps:
       - name: 入力とトークンを確認する
         env:
-          COMMON_REPO_TOKEN: ${{ secrets.COMMON_REPO_TOKEN }}
+          DATA_MODEL_REPO_TOKEN: ${{ secrets.DATA_MODEL_REPO_TOKEN }}
         run: |
-          if [ -z "$COMMON_REPO_TOKEN" ]; then
-            echo "::error::シークレットCOMMON_REPO_TOKENが登録されていません。Commonを読み取れるトークンを登録してください。"
+          if [ -z "$DATA_MODEL_REPO_TOKEN" ]; then
+            echo "::error::シークレットDATA_MODEL_REPO_TOKENが登録されていません。SushiEricDataModelを読み取れるトークンを登録してください。"
             exit 1
           fi
-          if [ -n "$COMMON_RELEASE_VERSION" ] && ! [[ "$COMMON_RELEASE_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-            echo "::error::common_release_versionはX.Y.Z形式で指定してください（vを付けない）: $COMMON_RELEASE_VERSION"
+          if [ -n "$DATA_MODEL_RELEASE_VERSION" ] && ! [[ "$DATA_MODEL_RELEASE_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::data_model_release_versionはX.Y.Z形式で指定してください（vを付けない）: $DATA_MODEL_RELEASE_VERSION"
             exit 1
           fi
 
@@ -72,10 +72,10 @@ jobs:
 
       - uses: actions/checkout@v4
         with:
-          repository: SushiEricWorkspace/Common
-          ref: ${{ inputs.common_ref }}
-          token: ${{ secrets.COMMON_REPO_TOKEN }}
-          path: Common
+          repository: SushiEricWorkspace/SushiEricDataModel
+          ref: ${{ inputs.data_model_ref }}
+          token: ${{ secrets.DATA_MODEL_REPO_TOKEN }}
+          path: SushiEricDataModel
 
       - uses: actions/setup-java@v4
         with:
@@ -84,11 +84,11 @@ jobs:
 
       - uses: gradle/actions/setup-gradle@v4
 
-      - name: Commonを発行する
-        working-directory: Common
+      - name: SushiEricDataModelを発行する
+        working-directory: SushiEricDataModel
         run: |
-          if [ -n "$COMMON_RELEASE_VERSION" ]; then
-            ./gradlew publishRelease "-PcommonReleaseVersion=$COMMON_RELEASE_VERSION"
+          if [ -n "$DATA_MODEL_RELEASE_VERSION" ]; then
+            ./gradlew publishRelease "-PdataModelReleaseVersion=$DATA_MODEL_RELEASE_VERSION"
           else
             ./gradlew publishDevelopment
           fi
@@ -105,8 +105,8 @@ jobs:
       - name: インストーラーを作成する
         working-directory: SushiEricServerManager
         run: |
-          if [ -n "$COMMON_RELEASE_VERSION" ]; then
-            ./gradlew releaseWindowsInstaller "-PcommonReleaseVersion=$COMMON_RELEASE_VERSION"
+          if [ -n "$DATA_MODEL_RELEASE_VERSION" ]; then
+            ./gradlew releaseWindowsInstaller "-PdataModelReleaseVersion=$DATA_MODEL_RELEASE_VERSION"
           else
             ./gradlew renameWindowsInstaller
           fi
@@ -126,14 +126,14 @@ jobs:
     steps:
       - name: 入力とトークンを確認する
         env:
-          COMMON_REPO_TOKEN: ${{ secrets.COMMON_REPO_TOKEN }}
+          DATA_MODEL_REPO_TOKEN: ${{ secrets.DATA_MODEL_REPO_TOKEN }}
         run: |
-          if [ -z "$COMMON_REPO_TOKEN" ]; then
-            echo "::error::シークレットCOMMON_REPO_TOKENが登録されていません。Commonを読み取れるトークンを登録してください。"
+          if [ -z "$DATA_MODEL_REPO_TOKEN" ]; then
+            echo "::error::シークレットDATA_MODEL_REPO_TOKENが登録されていません。SushiEricDataModelを読み取れるトークンを登録してください。"
             exit 1
           fi
-          if [ -n "$COMMON_RELEASE_VERSION" ] && ! [[ "$COMMON_RELEASE_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-            echo "::error::common_release_versionはX.Y.Z形式で指定してください（vを付けない）: $COMMON_RELEASE_VERSION"
+          if [ -n "$DATA_MODEL_RELEASE_VERSION" ] && ! [[ "$DATA_MODEL_RELEASE_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::data_model_release_versionはX.Y.Z形式で指定してください（vを付けない）: $DATA_MODEL_RELEASE_VERSION"
             exit 1
           fi
 
@@ -143,10 +143,10 @@ jobs:
 
       - uses: actions/checkout@v4
         with:
-          repository: SushiEricWorkspace/Common
-          ref: ${{ inputs.common_ref }}
-          token: ${{ secrets.COMMON_REPO_TOKEN }}
-          path: Common
+          repository: SushiEricWorkspace/SushiEricDataModel
+          ref: ${{ inputs.data_model_ref }}
+          token: ${{ secrets.DATA_MODEL_REPO_TOKEN }}
+          path: SushiEricDataModel
 
       - uses: actions/setup-java@v4
         with:
@@ -155,11 +155,11 @@ jobs:
 
       - uses: gradle/actions/setup-gradle@v4
 
-      - name: Commonを発行する
-        working-directory: Common
+      - name: SushiEricDataModelを発行する
+        working-directory: SushiEricDataModel
         run: |
-          if [ -n "$COMMON_RELEASE_VERSION" ]; then
-            ./gradlew publishRelease "-PcommonReleaseVersion=$COMMON_RELEASE_VERSION"
+          if [ -n "$DATA_MODEL_RELEASE_VERSION" ]; then
+            ./gradlew publishRelease "-PdataModelReleaseVersion=$DATA_MODEL_RELEASE_VERSION"
           else
             ./gradlew publishDevelopment
           fi
@@ -167,8 +167,8 @@ jobs:
       - name: インストーラーを作成する
         working-directory: SushiEricServerManager
         run: |
-          if [ -n "$COMMON_RELEASE_VERSION" ]; then
-            ./gradlew releaseMacDmg "-PcommonReleaseVersion=$COMMON_RELEASE_VERSION"
+          if [ -n "$DATA_MODEL_RELEASE_VERSION" ]; then
+            ./gradlew releaseMacDmg "-PdataModelReleaseVersion=$DATA_MODEL_RELEASE_VERSION"
           else
             ./gradlew renameMacDmg
           fi

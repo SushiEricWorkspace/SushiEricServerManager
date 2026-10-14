@@ -1,6 +1,6 @@
 package io.github.sushiericworkspace.sushiericservermanager.communication
 
-import io.github.sushiericworkspace.common.path.SushiEricDataDirectory
+import io.github.sushiericworkspace.sushiericdatamodel.path.SushiEricDataDirectory
 import io.github.sushiericworkspace.sushiericservermanager.update.ManagerCompatibility
 import io.github.sushiericworkspace.sushiericservermanager.update.evaluateManagerCompatibility
 import net.schmizz.sshj.sftp.SFTPClient

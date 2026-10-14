@@ -173,7 +173,7 @@ ManagerのファイルはSFTPで書き込むため、Management APIのトーク�
 
 ### 互換ファイル
 
-Modが起動時に、Modの設定ディレクトリ（`config/SushiEricServerMod/`）へ`manager-compat.json`を書き出す。パスの定義は、Commonの`SushiEricDataDirectory`に追加する。
+Modが起動時に、Modの設定ディレクトリ（`config/SushiEricServerMod/`）へ`manager-compat.json`を書き出す。パスの定義は、SushiEricDataModelの`SushiEricDataDirectory.ManagerCompat`を使用する。
 
 ```json
 {
@@ -191,7 +191,7 @@ Modは、`minManagerVersion`を自分のコードの定数として持つ。デ�
 
 Managerは、SFTPで接続したあと、書き込みを行う前に`manager-compat.json`を読む。
 
-`communication/ManagerCompatibilityReader.kt`がCommonのパス定義を使って最大64KiBを読み、`update/ManagerCompatibility.kt`が版を評価する。接続先ディレクトリの書き込みテストも評価後に行い、読み取り専用の場合は省略する。`RemoteEditorDataStore`と`SshManager`の両方で変更を遮断するため、ディレクトリ操作やバックアップを含むSFTP書き込みも開始しない。評価結果は接続ごとに保持し、再接続時に読み直す。
+`communication/ManagerCompatibilityReader.kt`がSushiEricDataModelのパス定義を使って最大64KiBを読み、`update/ManagerCompatibility.kt`が版を評価する。接続先ディレクトリの書き込みテストも評価後に行い、読み取り専用の場合は省略する。`RemoteEditorDataStore`と`SshManager`の両方で変更を遮断するため、ディレクトリ操作やバックアップを含むSFTP書き込みも開始しない。評価結果は接続ごとに保持し、再接続時に読み直す。
 
 | 状態 | 動作 |
 |---|---|
@@ -226,6 +226,6 @@ Managerは、SFTPで接続したあと、書き込みを行う前に`manager-com
 | SushiEricServerManager#168 | 更新確認とダウンロード（Releases API、SHA-256、進捗UI、失敗時の継続） |
 | SushiEricServerManager#169 | Updater（Windows） |
 | SushiEricServerManager#170 | Updater（macOS） |
-| Common#88 | 互換ファイル`manager-compat.json`のパス定義 |
+| SushiEricDataModel#88 | 互換ファイル`manager-compat.json`のパス定義 |
 | SushiEricServerMod#504 | 起動時の互換ファイルの書き出し |
 | SushiEricServerManager#171 | 互換ファイルの確認と、読み取り専用モード |

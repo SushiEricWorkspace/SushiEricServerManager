@@ -1,16 +1,16 @@
 package io.github.sushiericworkspace.sushiericservermanager.editor.component
 
-import io.github.sushiericworkspace.common.data.effect.model.EffectLevelSupport
-import io.github.sushiericworkspace.common.data.effect.model.EffectTimeSupport
-import io.github.sushiericworkspace.common.data.effect.model.MutableLevelLessInstantEffectData
-import io.github.sushiericworkspace.common.data.effect.model.MutableLevelLessTimedEffectData
-import io.github.sushiericworkspace.common.data.effect.model.MutableLeveledInstantEffectData
-import io.github.sushiericworkspace.common.data.effect.model.MutableLeveledTimedEffectData
-import io.github.sushiericworkspace.common.data.effect.model.MutablePotionEffectData
-import io.github.sushiericworkspace.common.data.effect.model.SushiEricEffectType
-import io.github.sushiericworkspace.common.data.effect.model.createMutableEffectData
-import io.github.sushiericworkspace.common.data.effect.validation.PotionEffectValidator
-import io.github.sushiericworkspace.common.data.item.model.mutable.detail.MutablePotionData
+import io.github.sushiericworkspace.sushiericdatamodel.data.effect.model.EffectLevelSupport
+import io.github.sushiericworkspace.sushiericdatamodel.data.effect.model.EffectTimeSupport
+import io.github.sushiericworkspace.sushiericdatamodel.data.effect.model.MutableLevelLessInstantEffectData
+import io.github.sushiericworkspace.sushiericdatamodel.data.effect.model.MutableLevelLessTimedEffectData
+import io.github.sushiericworkspace.sushiericdatamodel.data.effect.model.MutableLeveledInstantEffectData
+import io.github.sushiericworkspace.sushiericdatamodel.data.effect.model.MutableLeveledTimedEffectData
+import io.github.sushiericworkspace.sushiericdatamodel.data.effect.model.MutablePotionEffectData
+import io.github.sushiericworkspace.sushiericdatamodel.data.effect.model.SushiEricEffectType
+import io.github.sushiericworkspace.sushiericdatamodel.data.effect.model.createMutableEffectData
+import io.github.sushiericworkspace.sushiericdatamodel.data.effect.validation.PotionEffectValidator
+import io.github.sushiericworkspace.sushiericdatamodel.data.item.model.mutable.detail.MutablePotionData
 import io.github.sushiericworkspace.sushiericservermanager.app.AppScreen
 import javafx.geometry.Insets
 import javafx.geometry.Pos

@@ -1,7 +1,7 @@
 package io.github.sushiericworkspace.sushiericservermanager.editor.main.item
 
-import io.github.sushiericworkspace.common.data.item.model.ItemType
-import io.github.sushiericworkspace.common.data.item.model.mutable.MutableItemBaseData
+import io.github.sushiericworkspace.sushiericdatamodel.data.item.model.ItemType
+import io.github.sushiericworkspace.sushiericdatamodel.data.item.model.mutable.MutableItemBaseData
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -18,7 +18,7 @@ class ItemMaxStackSizeEditorTest {
     }
 
     @Test
-    fun `OTHERから他種類へ変更するとCommonモデルが1へ正規化する`() {
+    fun `OTHERから他種類へ変更するとSushiEricDataModelモデルが1へ正規化する`() {
         val item = MutableItemBaseData().apply {
             itemDetail.content = ItemType.OTHER.createMutableContent()
             itemDetail.maxStackSize = 64

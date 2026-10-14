@@ -1,7 +1,7 @@
 package io.github.sushiericworkspace.sushiericservermanager.editor.store
 
-import io.github.sushiericworkspace.common.data.item.model.mutable.MutableItemBaseData
-import io.github.sushiericworkspace.common.data.item.model.mutable.MutablePlainTextLoreSection
+import io.github.sushiericworkspace.sushiericdatamodel.data.item.model.mutable.MutableItemBaseData
+import io.github.sushiericworkspace.sushiericdatamodel.data.item.model.mutable.MutablePlainTextLoreSection
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertIs

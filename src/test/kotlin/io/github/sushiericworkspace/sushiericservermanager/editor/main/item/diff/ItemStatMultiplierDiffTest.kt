@@ -1,9 +1,9 @@
 package io.github.sushiericworkspace.sushiericservermanager.editor.main.item.diff
 
-import io.github.sushiericworkspace.common.data.item.model.ItemStatMultiplier
-import io.github.sushiericworkspace.common.stats.player.StatsPart
-import io.github.sushiericworkspace.common.stats.player.StatsPartTarget
-import io.github.sushiericworkspace.common.stats.player.StatsType
+import io.github.sushiericworkspace.sushiericdatamodel.data.item.model.ItemStatMultiplier
+import io.github.sushiericworkspace.sushiericdatamodel.stats.player.StatsPart
+import io.github.sushiericworkspace.sushiericdatamodel.stats.player.StatsPartTarget
+import io.github.sushiericworkspace.sushiericdatamodel.stats.player.StatsType
 import io.github.sushiericworkspace.sushiericservermanager.ui.format.ItemStatMultiplierFormatter
 import kotlin.test.Test
 import kotlin.test.assertEquals

@@ -1,6 +1,6 @@
 package io.github.sushiericworkspace.sushiericservermanager.editor.main.item
 
-import io.github.sushiericworkspace.common.data.item.model.ItemBaseDataView
+import io.github.sushiericworkspace.sushiericdatamodel.data.item.model.ItemBaseDataView
 import javafx.scene.Group
 import javafx.scene.Node
 import javafx.scene.SnapshotParameters

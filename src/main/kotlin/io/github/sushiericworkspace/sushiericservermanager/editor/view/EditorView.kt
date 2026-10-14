@@ -1,12 +1,12 @@
 package io.github.sushiericworkspace.sushiericservermanager.editor.view
 
-import io.github.sushiericworkspace.common.data.core.identity.PublicId
-import io.github.sushiericworkspace.common.data.core.ManagedData
-import io.github.sushiericworkspace.common.data.ore.model.OreBaseData
-import io.github.sushiericworkspace.common.data.item.model.ItemBaseData
-import io.github.sushiericworkspace.common.data.item.model.ItemInternalId
-import io.github.sushiericworkspace.common.data.item.model.mutable.MutableItemBaseData
-import io.github.sushiericworkspace.common.data.core.validation.SushiEricValidationError
+import io.github.sushiericworkspace.sushiericdatamodel.data.core.identity.PublicId
+import io.github.sushiericworkspace.sushiericdatamodel.data.core.ManagedData
+import io.github.sushiericworkspace.sushiericdatamodel.data.ore.model.OreBaseData
+import io.github.sushiericworkspace.sushiericdatamodel.data.item.model.ItemBaseData
+import io.github.sushiericworkspace.sushiericdatamodel.data.item.model.ItemInternalId
+import io.github.sushiericworkspace.sushiericdatamodel.data.item.model.mutable.MutableItemBaseData
+import io.github.sushiericworkspace.sushiericdatamodel.data.core.validation.SushiEricValidationError
 import io.github.sushiericworkspace.sushiericservermanager.editor.controller.MainController
 import io.github.sushiericworkspace.sushiericservermanager.config.AppSettingsManager
 import io.github.sushiericworkspace.sushiericservermanager.editor.result.ValidationResult
@@ -34,7 +34,7 @@ import io.github.sushiericworkspace.sushiericservermanager.ui.dialog.CustomDialo
 import io.github.sushiericworkspace.sushiericservermanager.ui.dialog.ErrorType
 import io.github.sushiericworkspace.sushiericservermanager.ui.dialog.MergeConflictDialog
 import io.github.sushiericworkspace.sushiericservermanager.ui.shortcut.EditorShortcut
-import io.github.sushiericworkspace.common.data.core.SushiEricDataType
+import io.github.sushiericworkspace.sushiericdatamodel.data.core.SushiEricDataType
 import javafx.animation.Animation
 import javafx.animation.PauseTransition
 import javafx.animation.KeyFrame
@@ -1657,7 +1657,7 @@ abstract class EditorView<T : ManagedData<T, *>>(
      * 項目の結果を出したくない場合に、各エディターが上書きします。既定では何も外しません。
      *
      * @param data 検証対象のデータ。
-     * @param error Common側の検証が返した結果。
+     * @param error SushiEricDataModel側の検証が返した結果。
      * @return 表示・集計の対象から外す場合は`true`。
      */
     protected open fun isHiddenValidationError(data: T, error: SushiEricValidationError): Boolean = false

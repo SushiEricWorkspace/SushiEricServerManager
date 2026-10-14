@@ -1,10 +1,10 @@
 package io.github.sushiericworkspace.sushiericservermanager.editor.main.item
 
-import io.github.sushiericworkspace.common.data.core.identity.VanillaItemId
-import io.github.sushiericworkspace.common.data.core.validation.SushiEricValidationError
-import io.github.sushiericworkspace.common.data.item.model.HeadSkinSource
-import io.github.sushiericworkspace.common.data.item.model.detail.ItemDetailView
-import io.github.sushiericworkspace.common.data.item.model.mutable.MutableHeadSkinData
+import io.github.sushiericworkspace.sushiericdatamodel.data.core.identity.VanillaItemId
+import io.github.sushiericworkspace.sushiericdatamodel.data.core.validation.SushiEricValidationError
+import io.github.sushiericworkspace.sushiericdatamodel.data.item.model.HeadSkinSource
+import io.github.sushiericworkspace.sushiericdatamodel.data.item.model.detail.ItemDetailView
+import io.github.sushiericworkspace.sushiericdatamodel.data.item.model.mutable.MutableHeadSkinData
 
 internal val PLAYER_HEAD_VANILLA_ID = VanillaItemId("player_head")
 
@@ -14,7 +14,7 @@ internal fun isHeadSkinEditableVanillaId(vanillaId: VanillaItemId): Boolean =
 /**
  * ヘッドスキンに関する検証結果かどうかを返します。
  *
- * Commonの検証は適用対象が頭アイテムかどうかを判定しないため、頭アイテム以外では
+ * SushiEricDataModelの検証は適用対象が頭アイテムかどうかを判定しないため、頭アイテム以外では
  * この結果を表示の対象から外します。
  */
 internal fun isHeadSkinValidationError(error: SushiEricValidationError): Boolean =

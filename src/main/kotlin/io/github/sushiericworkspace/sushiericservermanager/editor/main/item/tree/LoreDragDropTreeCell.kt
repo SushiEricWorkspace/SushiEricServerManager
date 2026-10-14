@@ -1,6 +1,6 @@
 package io.github.sushiericworkspace.sushiericservermanager.editor.main.item.tree
 
-import io.github.sushiericworkspace.common.data.item.model.mutable.MutableItemBaseData
+import io.github.sushiericworkspace.sushiericdatamodel.data.item.model.mutable.MutableItemBaseData
 import io.github.sushiericworkspace.sushiericservermanager.editor.main.item.ItemEditorFactory
 import io.github.sushiericworkspace.sushiericservermanager.editor.tree.EditorContextMenuFactory
 import io.github.sushiericworkspace.sushiericservermanager.editor.tree.EditorFolderGraphicFactory

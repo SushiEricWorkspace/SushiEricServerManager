@@ -1,15 +1,15 @@
 package io.github.sushiericworkspace.sushiericservermanager.editor.store
 
-import io.github.sushiericworkspace.common.data.core.ManagedData
-import io.github.sushiericworkspace.common.data.core.identity.PublicId
-import io.github.sushiericworkspace.common.data.item.model.ItemInternalId
+import io.github.sushiericworkspace.sushiericdatamodel.data.core.ManagedData
+import io.github.sushiericworkspace.sushiericdatamodel.data.core.identity.PublicId
+import io.github.sushiericworkspace.sushiericdatamodel.data.item.model.ItemInternalId
 import io.github.sushiericworkspace.sushiericservermanager.communication.managed.ManagedSession
 import io.github.sushiericworkspace.sushiericservermanager.communication.managed.SupervisorFailure
 import io.github.sushiericworkspace.sushiericservermanager.update.ManagerCompatibility
 import kotlinx.serialization.json.*
 import java.nio.file.Files
 
-/** 管理rootのhandleを持たず、監督経由のUTF-8本文をCommonの既存Serializerへ渡します。 */
+/** 管理rootのhandleを持たず、監督経由のUTF-8本文をSushiEricDataModelの既存Serializerへ渡します。 */
 class ManagedEditorDataStore(val session: ManagedSession, private val compatibility: ManagerCompatibility) : EditorDataStore {
     override val kind = EditorDataStoreKind.REMOTE
     override val identity = "managed-${session.identity}"

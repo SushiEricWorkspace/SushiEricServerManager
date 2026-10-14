@@ -1,7 +1,7 @@
 package io.github.sushiericworkspace.sushiericservermanager.editor.upload
 
-import io.github.sushiericworkspace.common.data.core.ManagedData
-import io.github.sushiericworkspace.common.data.core.SushiEricDataType
+import io.github.sushiericworkspace.sushiericdatamodel.data.core.ManagedData
+import io.github.sushiericworkspace.sushiericdatamodel.data.core.SushiEricDataType
 import io.github.sushiericworkspace.sushiericservermanager.editor.offline.ManifestReadResult
 import io.github.sushiericworkspace.sushiericservermanager.editor.offline.OfflineFormatVersion
 import io.github.sushiericworkspace.sushiericservermanager.editor.offline.OfflineManifestRepository

@@ -1,6 +1,6 @@
 package io.github.sushiericworkspace.sushiericservermanager.app
 
-import io.github.sushiericworkspace.common.registry.VanillaIdRegistry
+import io.github.sushiericworkspace.sushiericdatamodel.registry.VanillaIdRegistry
 import io.github.sushiericworkspace.sushiericservermanager.config.OS
 import javafx.application.Application
 import kotlin.system.exitProcess
@@ -22,7 +22,7 @@ object Launcher {
     @JvmStatic
     fun main(args: Array<String>) = launch(MainApp::class.java, args)
 
-    /** OSとCommonの初期化を確認して指定したJavaFX入口を起動します。 */
+    /** OSとSushiEricDataModelの初期化を確認して指定したJavaFX入口を起動します。 */
     fun launch(application: Class<out Application>, args: Array<String>) {
         // GUI起動前のOSチェック
         if (!OS.isSupportedOs()) {
