@@ -248,26 +248,8 @@ class HomeController internal constructor(
         javafx.application.Platform.runLater {
             val stage = rootPane.scene?.window as? javafx.stage.Stage
             stage?.setOnCloseRequest {
-                if (EditorWindowManager.hasRunningSave) {
-                    it.consume()
-                    return@setOnCloseRequest
-                }
-                if (EditorSession.connection != null) {
-                    it.consume()
-                    Utility.closeConnection { Platform.exit() }
-                    return@setOnCloseRequest
-                }
                 it.consume()
-                EditorWindowManager.closeAll { success ->
-                    if (!success) return@closeAll
-                    ModConfigWindowManager.close()
-                    ConsoleWindowManager.close()
-                    DashboardWindowManager.close()
-                    ServerControlWindowManager.close()
-                    MoneyHistoryWindowManager.close()
-                    EditorSession.disconnect()
-                    stage.close()
-                }
+                Utility.closeConnection { Platform.exit() }
             }
         }
     }
@@ -329,17 +311,7 @@ class HomeController internal constructor(
                 finish("アップデートの確認が完了しました。")
                 val outcome = showUpdate(update)
                 if (outcome == UpdateDialog.Outcome.EXIT && isCurrent()) {
-                    if (EditorWindowManager.hasRunningSave) return@setOnSucceeded
-                    if (EditorSession.connection != null) {
-                        Utility.closeConnection { Platform.exit() }
-                        return@setOnSucceeded
-                    }
-                    EditorWindowManager.closeAll { success ->
-                        if (success) {
-                            EditorSession.disconnect()
-                            Platform.exit()
-                        }
-                    }
+                    Utility.closeConnection { Platform.exit() }
                 }
             }
         }

@@ -15,6 +15,10 @@ import javafx.fxml.FXMLLoader
 import javafx.geometry.Pos
 import javafx.scene.Parent
 import javafx.scene.control.Label
+import javafx.scene.control.Button
+import javafx.scene.control.ProgressIndicator
+import javafx.scene.control.DialogPane
+import io.github.sushiericworkspace.sushiericservermanager.editor.view.EditorWindowManager
 import javafx.scene.layout.VBox
 import javafx.stage.Stage
 import org.slf4j.LoggerFactory
@@ -85,19 +89,71 @@ object ApplicationFlow {
         }
     }
 
-    /** 終了証明が得られたときだけ次の画面へ進みます。失敗時はsessionを保全します。 */
-    fun finishConnection(stage: Stage, completed: () -> Unit) {
-        showPreparing(stage, "保存キューと接続の終了を確認しています...")
-        stage.show()
-        thread(isDaemon = true, name = "editor-disconnect") {
-            try {
-                EditorSession.resetMode()
-                Platform.runLater(completed)
-            } catch (_: Exception) {
-                Platform.runLater {
-                    CustomDialog.error().header("接続の終了が未確認です")
-                        .content("接続データを保全しました。接続先の状態を確認してください。別の接続へ切り替えません。")
-                        .show()
+    /** 終了要求を受理してから完了または失敗するまでtrue。JavaFXスレッドで参照します。 */
+    var closingConnection = false
+        private set
+
+    /**
+     * JavaFXスレッドで終了要求を受け付け、操作完了・全画面退避・接続終了を順に表示します。
+     * 完了通知はJavaFXスレッドで行います。失敗時は画面とsessionを保持し、通知せず再操作を可能にします。
+     * 実行中の重複要求は無視します。implicitExitは失敗・完了の両方で呼び出し前の値へ戻します。
+     */
+    fun finishConnection(completed: () -> Unit) {
+        if (closingConnection) return
+        closingConnection = true
+        val windows = Stage.getWindows().filterIsInstance<Stage>().toList()
+        val roots = windows.map { it.scene.root }.filterNot { it is DialogPane }.associateWith { it.isDisable }
+        val implicitExit = Platform.isImplicitExit()
+        Platform.setImplicitExit(false)
+        roots.keys.forEach { it.isDisable = true }
+        val label = Label("処理の完了を待っています").apply { id = "connectionCloseStatus"; isWrapText = true; maxWidth = 420.0 }
+        val indicator = ProgressIndicator().apply { setPrefSize(36.0, 36.0) }
+        val back = Button("戻る").apply { isVisible = false; isManaged = false }
+        val progress = Stage().apply {
+            title = appWindowTitle("終了処理")
+            scene = Utility.createScene(AppScreen.WIDGETS_ONLY, 460.0, 180.0,
+                VBox(12.0, indicator, label, back).apply { alignment = Pos.CENTER })
+            setOnCloseRequest { it.consume() }
+            show()
+        }
+        fun fail(message: String) {
+            EditorWindowManager.cancelCloseAll()
+            roots.forEach { (root, disabled) -> root.isDisable = disabled }
+            closingConnection = false
+            indicator.isVisible = false
+            label.text = message
+            back.isVisible = true
+            back.isManaged = true
+            back.setOnAction { progress.close() }
+            progress.setOnCloseRequest(null)
+            Platform.setImplicitExit(implicitExit)
+        }
+        EditorWindowManager.prepareCloseAll({ label.text = it }) { backedUp ->
+            if (!backedUp) {
+                fail("退避に失敗しました。編集内容を保持しています。終了操作で再試行してください。")
+                return@prepareCloseAll
+            }
+            label.text = "接続を終了中"
+            thread(isDaemon = true, name = "editor-disconnect") {
+                try {
+                    EditorSession.resetMode()
+                    Platform.runLater {
+                        try {
+                            EditorWindowManager.completeCloseAll()
+                            roots.forEach { (root, disabled) -> root.isDisable = disabled }
+                            windows.forEach { it.close() }
+                            completed()
+                        } finally {
+                            progress.close()
+                            closingConnection = false
+                            Platform.setImplicitExit(implicitExit)
+                        }
+                    }
+                } catch (error: Exception) {
+                    logger.error("接続の終了を確認できませんでした。接続と編集内容を保全します。", error)
+                    Platform.runLater {
+                        fail("接続の終了が未確認です。編集内容と接続データを保全しました。別の接続へ切り替えません。")
+                    }
                 }
             }
         }

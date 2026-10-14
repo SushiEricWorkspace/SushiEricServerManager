@@ -7,6 +7,7 @@ import io.github.sushiericworkspace.sushiericservermanager.editor.store.StoreRes
 import io.github.sushiericworkspace.sushiericservermanager.ui.dialog.CustomDialog
 import io.github.sushiericworkspace.sushiericservermanager.ui.shortcut.EditorShortcut
 import io.github.sushiericworkspace.sushiericservermanager.ui.shortcut.ShortcutManager
+import io.github.sushiericworkspace.sushiericservermanager.app.ApplicationFlow
 import javafx.application.Platform
 import javafx.concurrent.Task
 import javafx.fxml.FXML
@@ -164,6 +165,9 @@ class ModConfigController : Initializable {
         onSuccess: (T) -> Unit,
         onFailure: (StoreError) -> Unit
     ) {
+        if (ApplicationFlow.closingConnection) return
+        val service = dataService ?: return
+        service.beginSave()
         setBusy(true)
         setStatus(statusText)
 
@@ -172,6 +176,7 @@ class ModConfigController : Initializable {
         }
 
         task.setOnSucceeded {
+            service.endSave()
             setBusy(false)
 
             when (val result = task.value) {
@@ -181,6 +186,7 @@ class ModConfigController : Initializable {
         }
 
         task.setOnFailed {
+            service.endSave()
             setBusy(false)
             setStatus("処理に失敗しました")
             logger.error("Mod設定の処理に失敗しました", task.exception)
@@ -191,10 +197,7 @@ class ModConfigController : Initializable {
             )
         }
 
-        Thread(task, "mod-config-io").apply {
-            isDaemon = true
-            start()
-        }
+        service.executeIo(task)
     }
 
     private fun setBusy(value: Boolean) {
