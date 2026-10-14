@@ -188,6 +188,42 @@ class ItemReferenceEditorsTest {
         service.itemReferences.close()
     }
 
+    @Test
+    fun `同一FX処理中の共有通知をまとめて適用する`() {
+        val service = EditorDataService(InMemoryEditorDataStore())
+        var notifications = 0
+        lateinit var binding: ItemReferenceBinding
+        try {
+            onFxThread {
+                binding = ItemReferenceBinding(service.itemReferences, { notifications++ }, { error("読込失敗") })
+                repeat(20) { service.items.saveStore("item$it", MutableItemBaseData(id = "item$it")) }
+                assertEquals(0, notifications)
+            }
+            onFxThread { assertEquals(1, notifications); binding.close() }
+        } finally { service.itemReferences.close(); service.closeIo() }
+    }
+
+    @Test
+    fun `背景失敗をモーダル通知せず再表示で自動再試行しない`() {
+        val reads = AtomicInteger()
+        val memory = InMemoryEditorDataStore()
+        val service = EditorDataService(object : EditorDataStore by memory {
+            override fun <T : ManagedData<T, *>> list(descriptor: EditorDataDescriptor<T>): StoreResult<List<StoreResource>> {
+                reads.incrementAndGet()
+                return StoreResult.Failure(StoreError(StoreErrorCode.IO_ERROR))
+            }
+        })
+        var failures = 0
+        lateinit var binding: ItemReferenceBinding
+        try {
+            onFxThread { binding = ItemReferenceBinding(service.itemReferences, {}, { failures++ }); binding.load() }
+            service.submitIo {}.get(10, TimeUnit.SECONDS)
+            onFxThread { assertEquals(0, failures); binding.load(); assertEquals(1, reads.get()); binding.load(force = true) }
+            service.submitIo {}.get(10, TimeUnit.SECONDS)
+            onFxThread { assertEquals(1, failures); assertEquals(2, reads.get()); binding.close() }
+        } finally { service.itemReferences.close(); service.closeIo() }
+    }
+
     private fun onFxThread(action: () -> Unit) {
         val started = CountDownLatch(1)
         try { Platform.startup { Platform.setImplicitExit(false); started.countDown() } }

@@ -76,8 +76,8 @@ internal class RecipeEditorLogic(main: MainController, dataService: EditorDataSe
         fun refresh() {
             warnings.children.clear()
             if (!itemsLoaded || catalog == null || catalogTask != null || catalogFailed) {
-                warnings.children += Label(if (catalogFailed) "参照一覧を取得できませんでした。更新を押して再試行してください。"
-                    else "参照アイテム・レシピを読み込み中...").apply { styleClass.add("warning-label"); isWrapText = true }
+                warnings.children += Label(if (catalogFailed || dataService.itemReferences.snapshot.status == ItemReferenceStatus.FAILED) "参照一覧を取得できませんでした。更新を押して再試行してください。"
+                    else "参照アイテム・レシピを読み込み中... アイテム ${dataService.itemReferences.snapshot.loadedCount} / ${dataService.itemReferences.snapshot.totalCount} 件").apply { styleClass.add("warning-label"); isWrapText = true }
             }
             validationErrors(selectData).forEach { error ->
                 warnings.children += Label(error.message).apply {
@@ -268,7 +268,7 @@ internal class RecipeEditorLogic(main: MainController, dataService: EditorDataSe
     internal override val closeBusy: Boolean get() = super.closeBusy || catalogTask != null
 
     private fun loadCatalog(force: Boolean = false) {
-        if (catalogTask != null || disposed) return
+        if (catalogTask != null || disposed || (!force && catalogFailed)) return
         catalogFailed = false
         val items = dataService.itemReferences.load(force)
         val task = object : Task<RecipeEditorCatalog>() {

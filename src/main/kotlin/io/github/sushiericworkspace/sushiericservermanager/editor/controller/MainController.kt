@@ -8,6 +8,7 @@ import io.github.sushiericworkspace.sushiericservermanager.ui.shortcut.ShortcutM
 import javafx.animation.PauseTransition
 import javafx.fxml.FXML
 import javafx.scene.control.ProgressIndicator
+import javafx.scene.control.Button
 import javafx.scene.control.Label
 import javafx.scene.layout.HBox
 import javafx.scene.layout.VBox
@@ -21,6 +22,18 @@ class MainController {
     @FXML lateinit var mainContentContainer: HBox
     @FXML private lateinit var topInfoLabel: Label
     @FXML private lateinit var operationProgress: ProgressIndicator
+    @FXML private lateinit var sidebarStatus: Label
+    @FXML private lateinit var sidebarRetry: Button
+
+    /** 背景取得の件数と手動再取得を、操作の工程表示と独立して表示します。 */
+    internal fun showSidebarStatus(text: String, onRetry: (() -> Unit)? = null) {
+        sidebarStatus.text = text
+        sidebarStatus.parent.isVisible = text.isNotEmpty()
+        sidebarStatus.parent.isManaged = text.isNotEmpty()
+        sidebarRetry.isVisible = onRetry != null
+        sidebarRetry.isManaged = onRetry != null
+        sidebarRetry.setOnAction { onRetry?.invoke() }
+    }
 
     var operationRunning: Boolean = false
         private set

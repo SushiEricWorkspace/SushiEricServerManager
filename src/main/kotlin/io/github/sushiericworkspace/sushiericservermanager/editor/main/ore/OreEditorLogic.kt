@@ -204,7 +204,8 @@ internal class OreEditorLogic(
             val labels = buildList {
                 itemCatalogStatusMessage(itemCatalogState)?.let { message ->
                     add(
-                        Label(message).apply {
+                        Label(message + if (itemCatalogState == ItemCatalogState.LOADING)
+                            " ${dataService.itemReferences.snapshot.loadedCount} / ${dataService.itemReferences.snapshot.totalCount} 件" else "").apply {
                             styleClass.add(
                                 if (itemCatalogState == ItemCatalogState.FAILED) {
                                     "warning-label"

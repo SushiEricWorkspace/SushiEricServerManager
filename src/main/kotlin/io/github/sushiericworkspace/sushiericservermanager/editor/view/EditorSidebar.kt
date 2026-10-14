@@ -71,8 +71,9 @@ internal class EditorSidebar(
             HBox.setHgrow(this, Priority.ALWAYS)
         }
         private val error = Label("⚠").apply { styleClass.add("sidebar-error-mark") }
+        private val validation = Label().apply { styleClass.add("sidebar-validation-status") }
         private val warning = Label("⚠").apply { styleClass.add("sidebar-warning-mark") }
-        private val content = HBox(5.0, disclosure, prefix, name, error, warning).apply {
+        private val content = HBox(5.0, disclosure, prefix, name, validation, error, warning).apply {
             alignment = Pos.CENTER_LEFT
             maxWidth = Double.MAX_VALUE
         }
@@ -203,6 +204,8 @@ internal class EditorSidebar(
                 prefix.isManaged = false
                 error.isVisible = false
                 error.isManaged = false
+                validation.isVisible = false
+                validation.isManaged = false
                 warning.isVisible = false
                 warning.isManaged = false
                 button.accessibleText = directory.fullPath
@@ -216,6 +219,9 @@ internal class EditorSidebar(
                 prefix.isVisible = state.pendingDeletion || state.localOnly
                 prefix.isManaged = prefix.isVisible
                 if (state.modified) name.styleClass.add("sidebar-data-modified")
+                validation.text = state.validationStatus.text
+                validation.isVisible = state.validationStatus != SidebarValidationStatus.CHECKED
+                validation.isManaged = validation.isVisible
                 error.isVisible = state.hasErrors
                 error.isManaged = state.hasErrors
                 warning.isVisible = state.hasWarnings

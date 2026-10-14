@@ -1,11 +1,21 @@
 package io.github.sushiericworkspace.sushiericservermanager.editor.service
 
 import io.github.sushiericworkspace.sushiericservermanager.editor.view.SidebarDataState
+import io.github.sushiericworkspace.sushiericservermanager.editor.view.SidebarValidationStatus
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNull
 
 class SidebarDataStateTest {
+    @Test
+    fun `未取得と確認中と取得失敗を正常な確認済み状態から区別する`() {
+        for (status in listOf(SidebarValidationStatus.UNCHECKED, SidebarValidationStatus.CHECKING, SidebarValidationStatus.FAILED)) {
+            val state = SidebarDataState(false, false, false, false, validationStatus = status)
+            assertEquals("sample [${status.text}]", state.displayText("sample"))
+            assertEquals(status.text, state.description())
+        }
+    }
+
     @Test
     fun `通常状態では装飾を追加しない`() {
         val state = SidebarDataState(false, false, false, false)
