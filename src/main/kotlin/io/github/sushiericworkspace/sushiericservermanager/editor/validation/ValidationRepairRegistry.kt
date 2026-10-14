@@ -45,7 +45,12 @@ class ValidationRepairRegistry<T> {
     fun description(error: SushiEricValidationError): String? =
         entries.firstOrNull { it.matches(error) }?.description?.invoke(error)
 
-    /** 最初に一致した修正アクションを実行します。 */
+    /**
+     * 最初に一致した修正アクションを呼び出し元のスレッドで実行します。
+     * 外部通信を含むアクションはUIスレッド外で呼び出し、編集対象のコピーを渡してください。
+     * [ValidationRepairResult.Applied]の場合だけコピーを編集内容へ反映します。
+     * アクションが投げた例外は呼び出し元へ伝播します。
+     */
     fun repair(data: T, error: SushiEricValidationError): ValidationRepairResult =
         entries.firstOrNull { it.matches(error) }
             ?.repair

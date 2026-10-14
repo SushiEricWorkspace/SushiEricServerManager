@@ -17,6 +17,7 @@ import io.github.sushiericworkspace.sushiericservermanager.editor.session.Editor
 import io.github.sushiericworkspace.sushiericservermanager.editor.upload.LocalDataUploader
 import io.github.sushiericworkspace.sushiericservermanager.editor.upload.UploadDataCategory
 import io.github.sushiericworkspace.sushiericservermanager.editor.service.EditorSyncService
+import io.github.sushiericworkspace.sushiericservermanager.editor.service.EditorSyncSnapshot
 import io.github.sushiericworkspace.sushiericservermanager.editor.merge.ThreeWayMergeResult
 import io.github.sushiericworkspace.sushiericservermanager.editor.store.EditorDataDescriptors
 import io.github.sushiericworkspace.sushiericservermanager.editor.store.StoreResource
@@ -170,10 +171,10 @@ abstract class EditorView<T : ManagedData<T, *>>(
     private var syncBusy = false
     val saveRunning: Boolean get() = main.operationRunning
     internal open val closeBusy: Boolean get() = saveRunning || main.loadingRunning || dataService.activeSaves > 0 || syncBusy || repairBusy || importBusy || closing
-    internal val storeOperationBlocked: Boolean get() = dataService.activeSaves > 0 || main.loadingRunning || closing || closed || EditorWindowManager.isClosing
+    internal val storeOperationBlocked: Boolean get() = dataService.activeSaves > 0 || main.loadingRunning || repairBusy || closing || closed || EditorWindowManager.isClosing
     private val saveListener = ChangeListener<Number> { _, _, count ->
-        main.actionButtonContainer.isDisable = count.toInt() > 0 || main.loadingRunning || closing
-        main.sidebarContainer.isDisable = count.toInt() > 0 || closing
+        main.actionButtonContainer.isDisable = count.toInt() > 0 || main.loadingRunning || main.operationRunning || closing
+        main.sidebarContainer.isDisable = count.toInt() > 0 || main.operationRunning || closing
     }
 
     init {
@@ -684,15 +685,15 @@ abstract class EditorView<T : ManagedData<T, *>>(
     }
 
     fun onSynchronizeSelected() {
-        if (storeOperationBlocked) return
+        if (storeOperationBlocked || saveRunning || main.loadingRunning || syncBusy || repairBusy || closing || closed) return
         val id = currentSelectedDataId ?: return
-        if (!dataService.isRemote || syncBusy || hasPendingStoreOperation(id)) return
+        if (!dataService.isRemote || hasPendingStoreOperation(id)) return
         synchronizeSelected()
     }
 
     fun onSynchronizeAll() {
-        if (storeOperationBlocked) return
-        if (!dataService.isRemote || syncBusy || pendingStoreOperations.isNotEmpty()) return
+        if (storeOperationBlocked || saveRunning || main.loadingRunning || syncBusy || repairBusy || closing || closed) return
+        if (!dataService.isRemote || pendingStoreOperations.isNotEmpty()) return
         synchronizeAll()
     }
 
@@ -720,7 +721,7 @@ abstract class EditorView<T : ManagedData<T, *>>(
      * @param targetId 選択対象となるリソースの識別子（ID）
      */
     open fun selectTab(targetId: String) {
-        if (closed || closing || (dataService.activeSaves > 0 && sidebarRefresh == null)) return
+        if (closed || closing || repairBusy || (dataService.activeSaves > 0 && sidebarRefresh == null)) return
         if (isPendingStoreDeletion(targetId)) return
         commitPendingTextEdit()
         val previousId = currentSelectedDataId
@@ -1616,7 +1617,7 @@ abstract class EditorView<T : ManagedData<T, *>>(
         items: ValidationContextMenuItems
     ) {
         val errors = editingDataMap[id]?.let(::validationErrors).orEmpty()
-        items.repairWarnings.isDisable = errors.none { it.isWarning }
+        items.repairWarnings.isDisable = storeOperationBlocked || errors.none { it.isWarning }
         items.repairErrors.isDisable = errors.none { it.isError }
     }
 
@@ -1667,7 +1668,9 @@ abstract class EditorView<T : ManagedData<T, *>>(
     }
 
     private fun repairWarnings(ids: Collection<String>, confirmBatch: Boolean) {
-        if (storeOperationBlocked || repairBusy) return
+        if (storeOperationBlocked || syncBusy || saveRunning) return
+        main.mainContentContainer.requestFocus()
+        commitPendingTextEdit()
         val targets = ids.mapNotNull { id ->
             val data = editingDataMap[id] ?: return@mapNotNull null
             val warnings = validationErrors(data).filter { it.isWarning }
@@ -1675,83 +1678,124 @@ abstract class EditorView<T : ManagedData<T, *>>(
         }
         if (targets.isEmpty()) return
 
-        val supportedDescriptions = targets.flatMap { (id, _, warnings) ->
-            warnings.mapNotNull { warning ->
-                validationRepairRegistry.description(warning)?.let { "$id: $it" }
-            }
+        repairBusy = true
+        main.showOperation("警告修正 0/${targets.size} 件")
+        fun finish() {
+            repairBusy = false
+            main.finishOperation()
+            main.actionButtonContainer.isDisable = storeOperationBlocked
+            main.sidebarContainer.isDisable = storeOperationBlocked
         }
-        if (confirmBatch) {
-            val confirmed = CustomDialog.confirmation()
-                .title("全警告の修正")
-                .header("${targets.size} 件のデータにある警告を修正します")
-                .content(
-                    listOf(
-                        "修正可能な警告: ${supportedDescriptions.size} 件",
-                        "変更は未保存状態として反映し、自動でサーバーへ保存しません。"
-                    ) + supportedDescriptions.take(8)
-                )
+        fun fail(error: Throwable) {
+            finish()
+            logger.error("警告の修正中に例外が発生しました", error)
+            CustomDialog.error(ErrorType.INTERNAL_ERROR)
+                .content("警告の修正中に例外が発生しました。編集内容は保持しています。")
                 .owner(main.currentStage)
                 .show()
-            if (!confirmed) return
         }
-
-        repairBusy = true
-        val task = object : Task<WarningRepairBatch<T>>() {
-            override fun call(): WarningRepairBatch<T> {
-                val updated = mutableMapOf<String, T>()
-                val applied = mutableListOf<String>()
-                val failures = mutableListOf<String>()
-
-                targets.forEach { (id, data, warnings) ->
-                    var changed = false
-                    warnings.sortedByDescending { (it.key as? Int) ?: Int.MIN_VALUE }
-                        .forEach { warning ->
-                            when (val result = validationRepairRegistry.repair(data, warning)) {
-                                is ValidationRepairResult.Applied -> {
-                                    changed = true
-                                    applied += "$id: ${result.description}"
-                                }
-                                is ValidationRepairResult.Failed ->
-                                    failures += "$id: ${result.reason}"
-                                ValidationRepairResult.Unsupported ->
-                                    failures += "$id: 自動修正に対応していません (${warning.message})"
-                            }
-                        }
-                    if (changed) updated[id] = data
+        try {
+            val supportedDescriptions = targets.flatMap { (id, _, warnings) ->
+                warnings.mapNotNull { warning ->
+                    validationRepairRegistry.description(warning)?.let { "$id: $it" }
                 }
-                return WarningRepairBatch(updated, applied, failures)
             }
-        }
-        task.setOnSucceeded {
-            repairBusy = false
-            val result = task.value
-            result.updated.forEach { (id, data) -> editingDataMap[id] = data }
-            result.updated.keys.forEach(::refreshSidebarState)
-            currentSelectedDataId
-                ?.takeIf(result.updated::containsKey)
-                ?.let { setupMainContent(editingDataMap.getValue(it)) }
-            if (result.updated.isNotEmpty()) executeAutoSave()
-
-            if (result.failures.isNotEmpty()) {
-                CustomDialog.error()
-                    .title("警告を修正できませんでした")
-                    .header("失敗した項目: ${result.failures.size} 件")
-                    .content(result.failures)
+            if (confirmBatch) {
+                val confirmed = CustomDialog.confirmation()
+                    .title("全警告の修正")
+                    .header("${targets.size} 件のデータにある警告を修正します")
+                    .content(
+                        listOf(
+                            "修正可能な警告: ${supportedDescriptions.size} 件",
+                            "変更は未保存状態として反映し、自動でサーバーへ保存しません。"
+                        ) + supportedDescriptions.take(8)
+                    )
                     .owner(main.currentStage)
                     .show()
-            } else if (result.applied.isNotEmpty()) {
-                main.showTimedTopLabel("${result.applied.size} 件の警告を修正しました", Color.GREENYELLOW)
+                if (!confirmed) { finish(); return }
             }
+
+            val task = object : Task<WarningRepairBatch<T>>() {
+                override fun call(): WarningRepairBatch<T> {
+                    val updated = mutableMapOf<String, T>()
+                    val applied = mutableListOf<String>()
+                    val failures = mutableListOf<String>()
+
+                    targets.forEachIndexed { index, (id, snapshot, warnings) ->
+                        var data = snapshot
+                        var changed = false
+                        warnings.sortedByDescending { (it.key as? Int) ?: Int.MIN_VALUE }
+                            .forEach { warning ->
+                                val description = validationRepairRegistry.description(warning) ?: warning.message
+                                updateMessage("警告修正 $index/${targets.size} 件 / $id / $description")
+                                val candidate = data.deepCopy()
+                                val result = try {
+                                    validationRepairRegistry.repair(candidate, warning)
+                                } catch (error: Exception) {
+                                    logger.error("警告の修正に失敗しました: id={}, warning={}", id, warning, error)
+                                    ValidationRepairResult.Failed("修正中に例外が発生しました (${warning.message})")
+                                }
+                                when (result) {
+                                    is ValidationRepairResult.Applied -> {
+                                        data = candidate
+                                        changed = true
+                                        applied += "$id: ${result.description}"
+                                    }
+                                    is ValidationRepairResult.Failed -> failures += "$id: ${result.reason}"
+                                    ValidationRepairResult.Unsupported ->
+                                        failures += "$id: 自動修正に対応していません (${warning.message})"
+                                }
+                            }
+                        if (changed) updated[id] = data
+                        updateMessage("警告修正 ${index + 1}/${targets.size} 件 / $id")
+                    }
+                    return WarningRepairBatch(updated, applied, failures)
+                }
+            }
+            task.messageProperty().addListener { _, _, message -> main.showOperation(message) }
+            task.setOnSucceeded {
+                val result = task.value
+                result.updated.forEach { (id, data) -> editingDataMap[id] = data }
+                val failures = result.failures.toMutableList()
+                try {
+                    result.updated.keys.forEach(::refreshSidebarState)
+                    currentSelectedDataId
+                        ?.takeIf(result.updated::containsKey)
+                        ?.let { setupMainContent(editingDataMap.getValue(it)) }
+                } catch (error: Exception) {
+                    logger.error("修正後の表示更新に失敗しました", error)
+                    failures += "表示更新に失敗しました。修正した編集内容は保持しています。"
+                }
+                val completed: (Boolean) -> Unit = { backedUp ->
+                    finish()
+                    if (!backedUp) failures += "バックアップに失敗しました。修正した編集内容は保持しています。退避を再試行してください。"
+                    if (failures.isNotEmpty()) {
+                        CustomDialog.error()
+                            .title("警告修正の結果")
+                            .header("修正済み: ${result.applied.size} 件 / 未対応・失敗: ${failures.size} 件")
+                            .content(failures)
+                            .owner(main.currentStage)
+                            .show()
+                    } else if (result.applied.isNotEmpty()) {
+                        main.showTimedTopLabel("${result.applied.size} 件の警告を修正し、バックアップしました", Color.GREENYELLOW)
+                    }
+                }
+                if (result.updated.isEmpty()) completed(true)
+                else {
+                    main.showOperation("警告修正 ${targets.size}/${targets.size} 件 / ローカルバックアップを更新しています")
+                    try {
+                        requestBackup(allowDuringOperation = true, onComplete = completed)
+                    } catch (error: Exception) {
+                        logger.error("修正後のバックアップ開始に失敗しました", error)
+                        completed(false)
+                    }
+                }
+            }
+            task.setOnFailed { fail(task.exception) }
+            dataService.executeIo(task)
+        } catch (error: Exception) {
+            fail(error)
         }
-        task.setOnFailed {
-            repairBusy = false
-            logger.error("警告の修正中に例外が発生しました", task.exception)
-            CustomDialog.error(ErrorType.INTERNAL_ERROR)
-                .content("警告の修正中に例外が発生しました。")
-                .owner(main.currentStage)
-                .show()
-        }
-        dataService.executeIo(task)
     }
 
     private fun focusFirstError(ids: Collection<String>, confirmBatch: Boolean) {
@@ -1946,31 +1990,52 @@ abstract class EditorView<T : ManagedData<T, *>>(
         }
 
         setSyncBusy(true)
+        dataService.beginSave()
+        main.showOperation("同期対象を取得しています: ${dataId}")
         val task = object : Task<StoreResult<T>>() {
             override fun call(): StoreResult<T> = syncService.fetchOne(dataId)
         }
         task.setOnSucceeded {
-            setSyncBusy(false)
+            if (closed || !syncBusy || currentSelectedDataId != dataId) {
+                finishSync("選択が変わったため同期結果を適用しませんでした。", Color.ORANGE)
+                return@setOnSucceeded
+            }
             when (val result = task.value) {
                 is StoreResult.Success -> {
                     val latest = result.value
-                    editingDataMap[dataId] = latest.deepCopy()
-                    originalDataMap[dataId] = latest.deepCopy()
-                    editHistory.reset(dataId, latest)
-                    mergeConflicts.remove(dataId)
-                    removeLocalBackup(dataId)
-                    setupMainContent(editingDataMap.getValue(dataId))
-                    refreshSidebarState(dataId)
-                    main.showTimedTopLabel("$dataId を同期しました", Color.GREENYELLOW)
+                    persistSyncBackup(setOf(dataId)) { backedUp ->
+                        if (!syncBusy || closed || currentSelectedDataId != dataId) {
+                            finishSync("選択が変わったため同期結果を適用しませんでした。", Color.ORANGE)
+                            return@persistSyncBackup
+                        }
+                        if (!backedUp) {
+                            finishSync("$dataId の同期後にバックアップを整理できませんでした。編集中データを保持しています。", Color.ORANGERED)
+                            return@persistSyncBackup
+                        }
+                        try {
+                            editingDataMap[dataId] = latest.deepCopy()
+                            originalDataMap[dataId] = latest.deepCopy()
+                            editHistory.reset(dataId, latest)
+                            mergeConflicts.remove(dataId)
+                            setupMainContent(editingDataMap.getValue(dataId))
+                            refreshSidebarState(dataId)
+                            finishSync("$dataId を同期しました", Color.GREENYELLOW)
+                        } catch (error: Exception) {
+                            logger.error("$dataId の同期結果を画面へ反映できませんでした", error)
+                            finishSync("$dataId の同期データは取得しましたが、画面への反映に失敗しました。", Color.ORANGERED)
+                        }
+                    }
                 }
-                is StoreResult.Failure -> showSyncFailure(dataId, result)
-                null -> main.showTimedTopLabel("$dataId の同期に失敗しました", Color.ORANGERED)
+                is StoreResult.Failure -> {
+                    finishSync()
+                    showSyncFailure(dataId, result)
+                }
+                null -> finishSync("$dataId の同期に失敗しました", Color.ORANGERED)
             }
         }
         task.setOnFailed {
-            setSyncBusy(false)
             logger.error("$dataId の同期に失敗しました", task.exception)
-            main.showTimedTopLabel("$dataId の同期に失敗しました", Color.ORANGERED)
+            finishSync("$dataId の同期に失敗しました", Color.ORANGERED)
         }
         dataService.executeIo(task)
     }
@@ -1978,28 +2043,48 @@ abstract class EditorView<T : ManagedData<T, *>>(
     private fun synchronizeAll() {
         if (pendingStoreOperations.isNotEmpty()) return
         setSyncBusy(true)
-        val task = object : Task<StoreResult<Map<String, T>>>() {
-            override fun call(): StoreResult<Map<String, T>> = syncService.fetchAll()
+        dataService.beginSave()
+        main.showOperation("すべて同期の一覧を取得しています")
+        val task = object : Task<StoreResult<EditorSyncSnapshot<T>>>() {
+            override fun call(): StoreResult<EditorSyncSnapshot<T>> = syncService.fetchAll { completed, total, id ->
+                val target = id?.let { ": $it" }.orEmpty()
+                updateMessage("すべて同期のデータを取得しています ($completed/$total)$target")
+            }
+        }
+        task.messageProperty().addListener { _, _, message ->
+            if (syncBusy && task.isRunning && !closed) main.showOperation(message)
         }
         task.setOnSucceeded {
-            setSyncBusy(false)
+            if (closed || !syncBusy) return@setOnSucceeded
             when (val result = task.value) {
-                is StoreResult.Failure -> showSyncFailure(dataAccess.displayName, result)
-                is StoreResult.Success -> confirmAndApplyAllSync(result.value)
-                null -> main.showTimedTopLabel("すべて同期に失敗しました", Color.ORANGERED)
+                is StoreResult.Failure -> {
+                    finishSync()
+                    showSyncFailure(dataAccess.displayName, result)
+                }
+                is StoreResult.Success -> {
+                    main.showOperation("すべて同期の結果を確認しています (${result.value.data.size} 件)")
+                    try {
+                        confirmAndApplyAllSync(result.value)
+                    } catch (error: Exception) {
+                        logger.error("すべて同期の確認または反映に失敗しました", error)
+                        finishSync("すべて同期の結果を適用できませんでした。編集中データを保持しています。", Color.ORANGERED)
+                    }
+                }
+                null -> finishSync("すべて同期に失敗しました", Color.ORANGERED)
             }
         }
         task.setOnFailed {
-            setSyncBusy(false)
             logger.error("${dataAccess.displayName}の全同期に失敗しました", task.exception)
-            main.showTimedTopLabel("すべて同期に失敗しました", Color.ORANGERED)
+            finishSync("すべて同期に失敗しました", Color.ORANGERED)
         }
         dataService.executeIo(task)
     }
 
-    private fun confirmAndApplyAllSync(remoteData: Map<String, T>) {
-        val unsavedCount = editingDataMap.count { (id, data) -> data != originalDataMap[id] }
-        val missingCacheCount = editingDataMap.keys.count { it !in remoteData }
+    private fun confirmAndApplyAllSync(snapshot: EditorSyncSnapshot<T>) {
+        val remoteData = snapshot.data
+        val replacedIds = remoteDataIds + remoteData.keys
+        val unsavedCount = editingDataMap.count { (id, data) -> id in remoteDataIds && data != originalDataMap[id] }
+        val missingCacheCount = editingDataMap.keys.count { it in remoteDataIds && it !in remoteData }
         val confirmed = CustomDialog.confirmation()
             .title("すべて同期の確認")
             .header("${dataAccess.displayName}データ ${remoteData.size} 件をサーバーと同じ状態にします")
@@ -2013,25 +2098,76 @@ abstract class EditorView<T : ManagedData<T, *>>(
             )
             .owner(main.currentStage)
             .show()
-        if (!confirmed) return
+        if (!confirmed) {
+            finishSync("すべて同期をキャンセルしました。編集中データを保持しています。", Color.WHITE)
+            return
+        }
 
         val previousSelection = currentSelectedDataId
-        removedBackupIds.addAll(editingDataMap.keys)
-        editingDataMap.clear()
-        originalDataMap.clear()
-        editHistory.clear()
-        remoteData.forEach { (id, data) ->
-            editingDataMap[id] = data.deepCopy()
-            originalDataMap[id] = data.deepCopy()
-            editHistory.reset(id, data)
+        main.showOperation("すべて同期のバックアップを整理しています (${remoteData.size} 件)")
+        persistSyncBackup(replacedIds) { backedUp ->
+            if (!syncBusy || closed) return@persistSyncBackup
+            if (!backedUp) {
+                finishSync("バックアップを整理できず、同期結果を適用しませんでした。編集中データを保持しています。", Color.ORANGERED)
+                return@persistSyncBackup
+            }
+            try {
+                replacedIds.forEach { id ->
+                    editingDataMap.remove(id)
+                    originalDataMap.remove(id)
+                    editHistory.remove(id)
+                    mergeConflicts.remove(id)
+                }
+                remoteData.forEach { (id, data) ->
+                    editingDataMap[id] = data.deepCopy()
+                    originalDataMap[id] = data.deepCopy()
+                    editHistory.reset(id, data)
+                }
+                remoteDataIds = remoteData.keys
+                val localIds = editingDataMap.keys - remoteDataIds
+                val selected = previousSelection?.takeIf { it in remoteDataIds || it in localIds }
+                sidebarRefresh = snapshot.resources to snapshot.directories
+                try { setupSidebar(main.sidebarContainer, selected) }
+                finally { sidebarRefresh = null }
+                if (selected == null && remoteData.isEmpty()) main.mainContentContainer.children.clear()
+                finishSync("${dataAccess.displayName}データ ${remoteData.size} 件を同期しました", Color.GREENYELLOW)
+            } catch (error: Exception) {
+                logger.error("すべて同期の結果を画面へ反映できませんでした", error)
+                finishSync("同期データを反映しましたが、画面の更新に失敗しました。", Color.ORANGERED)
+            }
         }
-        mergeConflicts.clear()
-        requestBackup()
-        setupSidebar(main.sidebarContainer, previousSelection?.takeIf { it in remoteData })
-        main.showTimedTopLabel(
-            "${dataAccess.displayName}データ ${remoteData.size} 件を同期しました",
-            Color.GREENYELLOW
+    }
+
+    private fun persistSyncBackup(removingIds: Set<String>, onComplete: (Boolean) -> Unit) {
+        val entries = editingDataMap.mapNotNull { (id, editing) ->
+            if (id in removingIds) return@mapNotNull null
+            val original = originalDataMap[id] ?: return@mapNotNull null
+            if (editing == original && !hasPendingStoreOperation(id)) return@mapNotNull null
+            id to (editing.deepCopy() to original.deepCopy())
+        }.toMap()
+        val removed = removedBackupIds + removingIds + (editingDataMap.keys - entries.keys)
+        val snapshot = LocalBackupSnapshot(
+            ++backupGeneration, entries, removed,
+            pendingStoreOperations.values.map(PendingStoreOperation::toRecord)
         )
+        dataAccess.persistBackup(snapshot).whenComplete { success, error ->
+            Platform.runLater {
+                val saved = error == null && success == true
+                if (error != null) logger.error("同期前のローカルバックアップ整理に失敗しました", error)
+                if (snapshot.generation == backupGeneration && !closed && saved) {
+                    removedBackupIds.removeAll(snapshot.removedIds)
+                }
+                onComplete(saved && snapshot.generation == backupGeneration && !closed)
+            }
+        }
+    }
+
+    private fun finishSync(message: String? = null, color: Color = Color.WHITE) {
+        if (!syncBusy) return
+        main.finishOperation()
+        dataService.endSave()
+        setSyncBusy(false)
+        message?.let { main.showTimedTopLabel(it, color) }
     }
 
     private fun setSyncBusy(busy: Boolean) {

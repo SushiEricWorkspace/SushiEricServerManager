@@ -2,8 +2,13 @@ package io.github.sushiericworkspace.sushiericservermanager.editor.view
 
 import io.github.sushiericworkspace.common.data.item.model.mutable.MutableItemBaseData
 import io.github.sushiericworkspace.common.data.core.ManagedData
+import io.github.sushiericworkspace.common.data.core.validation.SushiEricValidationError
+import io.github.sushiericworkspace.common.data.core.validation.SushiEricValidationSeverity
+import io.github.sushiericworkspace.sushiericservermanager.editor.validation.ValidationRepairRegistry
+import io.github.sushiericworkspace.sushiericservermanager.editor.validation.ValidationRepairResult
 import io.github.sushiericworkspace.sushiericservermanager.app.AppScreen
 import io.github.sushiericworkspace.sushiericservermanager.editor.controller.MainController
+import io.github.sushiericworkspace.sushiericservermanager.editor.component.EditorSpinnerFactory
 import io.github.sushiericworkspace.sushiericservermanager.editor.service.EditorDataService
 import io.github.sushiericworkspace.sushiericservermanager.editor.store.*
 import javafx.animation.KeyFrame
@@ -33,6 +38,35 @@ import kotlin.test.*
 /** 実サーバーを使わず、遅延・失敗する保存先と実FXMLで工程と結果を確認します。 */
 @EnabledOnOs(OS.MAC, OS.WINDOWS)
 class EditorSingleSaveTest {
+    @Test
+    fun `単体同期中は工程を表示して操作と閉じる操作を止める`() = withFixture(EditorDataDescriptors.item) { fixture ->
+        val entered = CountDownLatch(1)
+        val release = CountDownLatch(1)
+        fixture.store.beforeLoad = { entered.countDown(); assertTrue(release.await(10, TimeUnit.SECONDS)) }
+        fx { fixture.logic.syncSelected() }
+        try {
+            assertTrue(entered.await(10, TimeUnit.SECONDS))
+            fx {
+                assertTrue(fixture.main.operationRunning)
+                assertTrue(fixture.main.mainContentContainer.isDisabled)
+                assertTrue(fixture.main.sidebarContainer.isDisabled)
+                assertTrue((fixture.root.lookup("#operationProgress") as ProgressIndicator).isVisible)
+                assertTrue((fixture.root.lookup("#topInfoLabel") as Label).text.contains("saved"))
+                fixture.logic.onClose { assertFalse(it) }
+                fixture.logic.onSynchronizeSelected()
+                assertTrue(fixture.main.operationRunning)
+            }
+        } finally { release.countDown() }
+        val deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(10)
+        while (fx { fixture.main.operationRunning } && System.nanoTime() < deadline) Thread.sleep(20)
+        fx {
+            assertFalse(fixture.main.operationRunning)
+            assertTrue(fixture.logic.unchanged())
+            assertEquals(1, fixture.store.loads)
+        }
+        assertTrue(fixture.store.ioThreads.all { !it })
+    }
+
     @Test
     fun `全種別の保存で取得と書込みを背景実行し待機中もFXが応答する`() {
         verifySave(EditorDataDescriptors.item)
@@ -629,6 +663,205 @@ class EditorSingleSaveTest {
         assertEquals(32, saved.itemDetail.maxStackSize)
     }
 
+    @Test
+    fun `全種別の警告修正で進捗と操作抑止を退避完了まで維持する`() {
+        verifyRepair(EditorDataDescriptors.item, { it.itemDetail.maxStackSize = 32 }, { it.itemDetail.maxStackSize })
+        verifyRepair(EditorDataDescriptors.ore, { it.magicPowerAmount = 32.0 }, { it.magicPowerAmount.toInt() })
+        verifyRepair(EditorDataDescriptors.shop, { it.displayOrder = 32 }, { it.displayOrder })
+        verifyRepair(EditorDataDescriptors.recipe, { it.resultCount = 32 }, { it.resultCount })
+    }
+
+    private fun <T : ManagedData<T, *>> verifyRepair(
+        descriptor: EditorDataDescriptor<T>, change: (T) -> Unit, value: (T) -> Int
+    ) {
+        val repairing = CountDownLatch(1)
+        val releaseRepair = CountDownLatch(1)
+        val backingUp = CountDownLatch(1)
+        val releaseBackup = CountDownLatch(1)
+        withFixture(descriptor, backupWriter = { file, data ->
+            backingUp.countDown()
+            assertTrue(releaseBackup.await(10, TimeUnit.SECONDS))
+            descriptor.saveBackup(file, data)
+        }) { fixture ->
+            var calls = 0
+            fx {
+                fixture.logic.warnings = listOf(repairWarning())
+                fixture.logic.validationRepairRegistry.register({ true }, { "遅いスキン取得" }) { data, _ ->
+                    assertFalse(Platform.isFxApplicationThread())
+                    calls++
+                    repairing.countDown()
+                    assertTrue(releaseRepair.await(10, TimeUnit.SECONDS))
+                    change(data)
+                    ValidationRepairResult.Applied("スキンを取得")
+                }
+                fixture.logic.repairSelectedWarnings()
+            }
+            try {
+                assertTrue(repairing.await(10, TimeUnit.SECONDS))
+                fx {
+                    assertTrue(fixture.main.operationRunning)
+                    assertTrue(fixture.main.mainContentContainer.isDisabled)
+                    assertTrue(fixture.main.sidebarContainer.isDisabled)
+                    val label = (fixture.root.lookup("#topInfoLabel") as Label).text
+                    assertTrue(label.contains(fixture.id))
+                    assertTrue(label.contains("遅いスキン取得"))
+                    val progress = fixture.root.lookup("#operationProgress") as ProgressIndicator
+                    assertTrue(progress.isVisible)
+                    assertTrue(progress.isIndeterminate)
+                    fixture.logic.repairSelectedWarnings()
+                    fixture.logic.repairAllWarnings()
+                    fixture.logic.selectTab("other")
+                    assertEquals(fixture.id, fixture.logic.current().id)
+                    assertFalse(fixture.logic.onUndo())
+                    fixture.logic.onSave(fixture.id) { assertEquals(EditorView.SaveOutcome.BUSY, it) }
+                    fixture.logic.onClose { assertFalse(it) }
+                    fixture.service.beginSave(); fixture.service.endSave()
+                    assertTrue(fixture.main.sidebarContainer.isDisabled)
+                    fixture.root.applyCss(); fixture.root.layout()
+                }
+                releaseRepair.countDown()
+                assertTrue(backingUp.await(10, TimeUnit.SECONDS))
+                fx {
+                    assertFalse(fixture.logic.unchanged())
+                    assertTrue(fixture.main.operationRunning)
+                    assertTrue((fixture.root.lookup("#topInfoLabel") as Label).text.contains("バックアップ"))
+                    fixture.logic.onClose { assertFalse(it) }
+                    fixture.logic.repairSelectedWarnings()
+                }
+            } finally { releaseRepair.countDown(); releaseBackup.countDown() }
+            waitRepair(fixture)
+            assertEquals(1, calls)
+            assertEquals(0, fixture.store.writes)
+            val pair = assertNotNull(fixture.service.DataAccess(descriptor).loadBackupPair(fixture.id))
+            assertEquals(32, value(pair.first))
+            assertNotEquals(32, value(pair.second))
+            fx { assertFalse(fixture.logic.unchanged()); assertFalse(fixture.main.mainContentContainer.isDisabled) }
+        }
+    }
+
+    @Test
+    fun `全件修正は未対応と例外の変更を捨て成功分を保持する`() = withFixture(EditorDataDescriptors.item) { fixture ->
+        addItem(fixture, "second")
+        fx {
+            fixture.logic.warnings = listOf(repairWarning(3), repairWarning(2), repairWarning(1), repairWarning(0))
+            fixture.logic.validationRepairRegistry.register({ it.key != 0 }, { "修正${it.key}" }) { data, warning ->
+                when (warning.key) {
+                    3 -> { data.editorMeta.comment = mutableListOf("成功"); ValidationRepairResult.Applied("成功") }
+                    2 -> { data.editorMeta.comment = mutableListOf("失敗の変更"); ValidationRepairResult.Failed("失敗") }
+                    else -> { data.editorMeta.comment = mutableListOf("例外の変更"); error("取得失敗") }
+                }
+            }
+            fixture.logic.repairAllWarnings()
+        }
+        waitRepair(fixture)
+        fx {
+            for (id in listOf("saved", "second")) {
+                assertEquals(listOf("成功"), fixture.logic.data(id).editorMeta.comment)
+                assertFalse(fixture.logic.isSaved(id))
+            }
+        }
+        assertEquals(0, fixture.store.writes)
+    }
+
+    @Test
+    fun `修正後の退避失敗は成功表示せず編集を維持して終了で再試行できる`() {
+        var failBackup = true
+        withFixture(EditorDataDescriptors.item, backupWriter = { file, data ->
+            if (failBackup) error("退避失敗")
+            EditorDataDescriptors.item.saveBackup(file, data)
+        }) { fixture ->
+            fx {
+                fixture.logic.warnings = listOf(repairWarning())
+                fixture.logic.validationRepairRegistry.register({ true }, { "修正" }) { data, _ ->
+                    data.editorMeta.comment = mutableListOf("保持する変更")
+                    ValidationRepairResult.Applied("修正")
+                }
+                fixture.logic.repairSelectedWarnings()
+            }
+            waitRepair(fixture)
+            fx { assertEquals(listOf("保持する変更"), fixture.logic.current().editorMeta.comment); assertFalse(fixture.logic.unchanged()) }
+            failBackup = false
+            val completed = CompletableFuture<Boolean>()
+            fx { fixture.logic.onClose { completed.complete(it) } }
+            assertTrue(completed.get(10, TimeUnit.SECONDS))
+            val pair = assertNotNull(fixture.service.items.loadBackupPair(fixture.id))
+            assertEquals(listOf("保持する変更"), pair.first.editorMeta.comment)
+            assertTrue(pair.second.editorMeta.comment.isEmpty())
+        }
+    }
+
+    @Test
+    fun `全件修正の確認取消はコピーを適用せず操作を解除する`() = withFixture(EditorDataDescriptors.item) { fixture ->
+        fixture.cancel = true
+        fx {
+            fixture.logic.warnings = listOf(repairWarning())
+            fixture.logic.validationRepairRegistry.register({ true }, { "修正" }) { _, _ -> error("実行されない") }
+            fixture.logic.repairAllWarnings()
+            assertFalse(fixture.main.operationRunning)
+            assertTrue(fixture.logic.current().editorMeta.comment.isEmpty())
+        }
+        assertEquals(0, fixture.store.writes)
+    }
+
+    @Test
+    fun `ローカル接続の警告修正はストアへ書き込まない`() = withFixture(EditorDataDescriptors.item) { fixture ->
+        fixture.store.kind = EditorDataStoreKind.LOCAL
+        fx {
+            fixture.logic.warnings = listOf(repairWarning())
+            fixture.logic.validationRepairRegistry.register({ true }, { "修正" }) { data, _ ->
+                data.editorMeta.comment = mutableListOf("ローカル修正")
+                ValidationRepairResult.Applied("修正")
+            }
+            fixture.logic.repairSelectedWarnings()
+        }
+        waitRepair(fixture)
+        assertEquals(0, fixture.store.writes)
+        fx { assertEquals(listOf("ローカル修正"), fixture.logic.current().editorMeta.comment) }
+    }
+
+    @Test
+    fun `入力中のSpinner値を確定してから警告修正のコピーを取得する`() = withFixture(EditorDataDescriptors.item) { fixture ->
+        val spinner = fx {
+            fixture.logic.warnings = listOf(repairWarning())
+            fixture.logic.validationRepairRegistry.register({ true }, { "入力値の修正" }) { data, _ ->
+                assertEquals(32, data.itemDetail.maxStackSize)
+                data.itemDetail.maxStackSize = 64
+                ValidationRepairResult.Applied("入力値を修正")
+            }
+            EditorSpinnerFactory.intSpinner(1, max = 64) { fixture.logic.current().itemDetail.maxStackSize = it }
+                .also {
+                    fixture.main.mainContentContainer.children.setAll(it)
+                    fixture.root.applyCss(); fixture.root.layout()
+                    fixture.stage.toFront(); fixture.stage.requestFocus()
+                    it.editor.requestFocus()
+                }
+        }
+        val deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(10)
+        while (!fx { spinner.editor.requestFocus(); spinner.editor.isFocused }) {
+            assertTrue(System.nanoTime() < deadline, "入力欄へフォーカスできません")
+            Thread.sleep(20)
+        }
+        fx {
+            spinner.editor.text = "32"
+            assertEquals(1, fixture.logic.current().itemDetail.maxStackSize)
+            fixture.logic.repairSelectedWarnings()
+        }
+        waitRepair(fixture)
+        fx { assertEquals(64, fixture.logic.current().itemDetail.maxStackSize) }
+    }
+
+    private fun repairWarning(key: Int = 0) = SushiEricValidationError(
+        MutableItemBaseData::id, "テスト警告$key", key, SushiEricValidationSeverity.WARNING
+    )
+
+    private fun waitRepair(fixture: Fixture<*>) {
+        val deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(15)
+        while (fx { fixture.main.operationRunning || Window.getWindows().any { it.scene?.root is DialogPane } }) {
+            assertTrue(System.nanoTime() < deadline, "警告修正が完了しません")
+            Thread.sleep(20)
+        }
+    }
+
     private fun <T : ManagedData<T, *>> withFixture(
         descriptor: EditorDataDescriptor<T>,
         backupWriter: ((java.io.File, T) -> Unit)? = null,
@@ -697,12 +930,17 @@ class EditorSingleSaveTest {
 
     private class TestView<T : ManagedData<T, *>>(main: MainController, service: EditorDataService, access: EditorDataService.DataAccess<T>) :
         EditorView<T>(main, service, access) {
+        public override val validationRepairRegistry = ValidationRepairRegistry<T>()
+        var warnings: List<SushiEricValidationError>? = null
+        override fun validationErrors(data: T): List<SushiEricValidationError> = warnings ?: super.validationErrors(data)
         fun seed(base: T, edit: T) {
             currentSelectedDataId = base.id
+            remoteDataIds = setOf(base.id)
             originalDataMap[base.id] = base
             editingDataMap[base.id] = edit
             setupMainContent(edit)
         }
+        fun syncSelected() { onSynchronizeSelected() }
         fun backup(): CompletableFuture<Boolean> = CompletableFuture<Boolean>().also { done ->
             executeAutoSave { done.complete(it) }
         }
