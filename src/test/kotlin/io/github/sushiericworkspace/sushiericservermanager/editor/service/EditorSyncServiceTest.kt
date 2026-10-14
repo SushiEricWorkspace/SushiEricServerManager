@@ -20,7 +20,7 @@ class EditorSyncServiceTest {
 
         assertEquals(
             setOf("one", "two"),
-            assertIs<StoreResult.Success<Map<String, MutableItemBaseData>>>(result).value.keys
+            assertIs<StoreResult.Success<EditorSyncSnapshot<MutableItemBaseData>>>(result).value.data.keys
         )
     }
 
@@ -34,7 +34,22 @@ class EditorSyncServiceTest {
 
         assertEquals(
             setOf(id),
-            assertIs<StoreResult.Success<Map<String, MutableItemBaseData>>>(result).value.keys
+            assertIs<StoreResult.Success<EditorSyncSnapshot<MutableItemBaseData>>>(result).value.data.keys
         )
+    }
+
+    @Test
+    fun `全同期用取得は一覧確定時と各データ取得後に進捗を通知する`() {
+        val store = InMemoryEditorDataStore()
+        store.save(EditorDataDescriptors.item, "one", MutableItemBaseData(id = "one"))
+        store.save(EditorDataDescriptors.item, "two", MutableItemBaseData(id = "two"))
+        val progress = mutableListOf<Triple<Int, Int, String?>>()
+
+        val result = EditorSyncService(EditorDataService(store).items).fetchAll { completed, total, id ->
+            progress += Triple(completed, total, id)
+        }
+
+        assertIs<StoreResult.Success<EditorSyncSnapshot<MutableItemBaseData>>>(result)
+        assertEquals(listOf(Triple(0, 2, null), Triple(1, 2, "one"), Triple(2, 2, "two")), progress)
     }
 }
