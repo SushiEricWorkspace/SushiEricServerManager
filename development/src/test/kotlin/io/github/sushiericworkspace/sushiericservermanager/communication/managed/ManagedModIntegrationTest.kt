@@ -103,7 +103,13 @@ class ManagedModIntegrationTest {
                 }
             }
             stores.forEachIndexed { index, store ->
-                val loaded = assertIs<StoreResult.Success<MutableItemBaseData>>(store.load(descriptor, "fixture.token")).value
+                val result = store.load(descriptor, "fixture.token")
+                val message = if (result is StoreResult.Failure) {
+                    val error = result.error
+                    "読込失敗: code=${error.code}, cause=${error.cause?.javaClass?.name}, " +
+                        "supervisorCode=${(error.cause as? SupervisorFailure)?.code}"
+                } else null
+                val loaded = assertIs<StoreResult.Success<MutableItemBaseData>>(result, message).value
                 assertEquals(names[index], loaded.display.displayName)
                 assertEquals(before[index].internalId, loaded.internalId)
             }
