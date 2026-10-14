@@ -78,6 +78,12 @@ class EditorDataService(
 
     internal fun executeIo(task: Runnable) { ioExecutor.execute { synchronized(ioLock) { task.run() } } }
 
+    /** UIスレッド外で、受理済みのストアI/Oと退避キューの完了を待ちます。 */
+    internal fun awaitIo() {
+        submitIo {}.join()
+        submitBackupIo {}.join()
+    }
+
     internal fun closeIo() {
         ioExecutor.shutdown()
         backupExecutor.shutdown()

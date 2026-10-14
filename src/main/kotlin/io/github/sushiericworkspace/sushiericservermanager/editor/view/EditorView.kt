@@ -162,10 +162,12 @@ abstract class EditorView<T : ManagedData<T, *>>(
     private var repairErrorsMenuItem: MenuItem? = null
     private var repairAllErrorsMenuItem: MenuItem? = null
     private var uploadMenuItem: MenuItem? = null
+    private var uploadBusy = false
     private var repairBusy = false
     private var syncBusy = false
     val saveRunning: Boolean get() = main.operationRunning
-    internal val storeOperationBlocked: Boolean get() = dataService.activeSaves > 0 || main.loadingRunning || repairBusy || closing || closed
+    internal open val closeBusy: Boolean get() = saveRunning || main.loadingRunning || dataService.activeSaves > 0 || syncBusy || repairBusy || uploadBusy || closing
+    internal val storeOperationBlocked: Boolean get() = dataService.activeSaves > 0 || main.loadingRunning || repairBusy || closing || closed || EditorWindowManager.isClosing
     private val saveListener = ChangeListener<Number> { _, _, count ->
         main.actionButtonContainer.isDisable = count.toInt() > 0 || main.loadingRunning || main.operationRunning || closing
         main.sidebarContainer.isDisable = count.toInt() > 0 || main.operationRunning || closing
@@ -186,6 +188,7 @@ abstract class EditorView<T : ManagedData<T, *>>(
         dataService.store.isAvailable && (!sessionBound || EditorSession.dataService === dataService)
 
     private var sidebarRefresh: Pair<List<StoreResource>, List<String>>? = null
+    private var sidebarSnapshot: Pair<List<StoreResource>, List<String>>? = null
 
     /** 画面表示後にバックアップを背景で復元し、その後に一覧を読み込みます。 */
     fun start() {
@@ -249,6 +252,7 @@ abstract class EditorView<T : ManagedData<T, *>>(
         sidebarPreloadGeneration++
         val supplied = sidebarRefresh
         fun display(snapshot: Pair<List<StoreResource>, List<String>>) {
+            sidebarSnapshot = snapshot
             remoteDataIds = snapshot.first.mapTo(mutableSetOf()) { it.id }
             finishLoading()
             val ids = mergeSidebarIdsWithPending(remoteDataIds)
@@ -265,13 +269,7 @@ abstract class EditorView<T : ManagedData<T, *>>(
         main.showLoading("一覧とディレクトリを取得しています", lockSidebar = true)
         val task = object : Task<StoreResult<Pair<List<StoreResource>, List<String>>>>() {
             override fun call(): StoreResult<Pair<List<StoreResource>, List<String>>> {
-                return when (val resources = dataAccess.listStoreResources()) {
-                    is StoreResult.Failure -> resources
-                    is StoreResult.Success -> when (val directories = dataAccess.listDirectories()) {
-                        is StoreResult.Failure -> directories
-                        is StoreResult.Success -> StoreResult.Success(resources.value to directories.value)
-                    }
-                }
+                return readSidebarSnapshot()
             }
         }
         task.setOnSucceeded {
@@ -579,7 +577,7 @@ abstract class EditorView<T : ManagedData<T, *>>(
                 editingBeforeLoad = editingDataMap.mapValues { it.value.deepCopy() }
                 operationsBeforeLoad = pendingStoreOperations.toMap()
             },
-            onBusyChanged = { busy -> uploadMenuItem?.isDisable = busy },
+            onBusyChanged = { busy -> uploadBusy = busy; uploadMenuItem?.isDisable = busy },
             onLoaded = loaded@ { entries ->
                 if (closing || closed) return@loaded false
                 val changedWhileLoading = entries.filter { entry ->
@@ -1314,17 +1312,18 @@ abstract class EditorView<T : ManagedData<T, *>>(
         serverData: T
     ): T?
 
-    /**
-     * 最新の編集内容と保留操作を退避し、終了可否をJavaFXスレッドで通知します。
-     * JavaFXスレッドから呼び出してください。処理中や閉鎖済みの場合はその場で通知します。
-     * 退避失敗時は編集キャッシュを保持するため、再度呼び出して再試行できます。
-     */
+    /** 最新の編集内容を退避し、成功したときだけキャッシュを解放します。結果はJavaFXスレッドで通知します。 */
     fun onClose(onComplete: (Boolean) -> Unit) {
-        if (closed) { onComplete(true); return }
-        if (saveRunning || dataService.activeSaves > 0 || syncBusy || repairBusy || closing) {
-            onComplete(false)
-            return
+        prepareClose { success ->
+            if (success) completeClose()
+            onComplete(success)
         }
+    }
+
+    /** 接続終了前の退避だけを行い、終了証明が得られるまで編集キャッシュを保持します。 */
+    internal fun prepareClose(onComplete: (Boolean) -> Unit) {
+        if (closed) { onComplete(true); return }
+        if (saveRunning || dataService.activeSaves > 0 || syncBusy || repairBusy || uploadBusy || closing) { onComplete(false); return }
         main.mainContentContainer.requestFocus()
         commitPendingTextEdit()
         closing = true
@@ -1332,49 +1331,61 @@ abstract class EditorView<T : ManagedData<T, *>>(
         finishLoading()
         sidebarPreloadGeneration++
         stopAutoSaveTimer()
-        main.showOperation("終了前のバックアップ完了を待っています")
-        val completeClose: (Boolean) -> Unit = { success ->
-            main.finishOperation()
-            closing = false
+        main.showOperation("編集内容を退避中")
+        val complete: (Boolean) -> Unit = { success ->
             if (!success) {
-                startAutoSaveTimer()
+                cancelClose()
                 main.showTimedTopLabel("退避に失敗しました。編集内容を保持しています。終了操作で再試行できます。", Color.ORANGERED, 10.0)
-                onComplete(false)
-            } else {
-                dataService.activeSavesProperty.removeListener(saveListener)
-                main.clearTopLabelTimer()
-                main.clearShortcuts()
-
-                editingDataMap.clear()
-                originalDataMap.clear()
-                mergeConflicts.clear()
-                pendingStoreOperations.clear()
-                editHistory.clear()
-                registeredSidebarIds.clear()
-                sidebarStates.clear()
-                sidebarView?.showRows(emptyList())
-                sidebarView = null
-                currentSelectedDataId = null
-                pendingPreloadIds = emptyList()
-                saveMenuItem = null
-                saveAllMenuItem = null
-                syncMenuItem = null
-                syncAllMenuItem = null
-                undoMenuItem = null
-                redoMenuItem = null
-                repairWarningsMenuItem = null
-                repairAllWarningsMenuItem = null
-                repairErrorsMenuItem = null
-                repairAllErrorsMenuItem = null
-                syncBusy = false
-
-                closed = true
-                afterClose()
-                onComplete(true)
             }
+            onComplete(success)
         }
-        if (restoringBackup) completeClose(true)
-        else requestBackup(allowDuringOperation = true, onComplete = completeClose)
+        if (restoringBackup) complete(true)
+        else requestBackup(allowDuringOperation = true, onComplete = complete)
+    }
+
+    /** 終了失敗時は編集内容を維持して操作と自動退避を再開します。 */
+    internal fun cancelClose() {
+        if (!closing) return
+        closing = false
+        main.finishOperation()
+        startAutoSaveTimer()
+    }
+
+    /** 退避と接続終了を確認した後、JavaFXスレッドで呼び出します。 */
+    internal fun completeClose() {
+        if (closed) return
+        check(closing)
+        main.finishOperation()
+        closing = false
+        dataService.activeSavesProperty.removeListener(saveListener)
+        main.clearTopLabelTimer()
+        main.clearShortcuts()
+
+        editingDataMap.clear()
+        originalDataMap.clear()
+        mergeConflicts.clear()
+        pendingStoreOperations.clear()
+        editHistory.clear()
+        registeredSidebarIds.clear()
+        sidebarStates.clear()
+        sidebarView?.showRows(emptyList())
+        sidebarView = null
+        currentSelectedDataId = null
+        pendingPreloadIds = emptyList()
+        saveMenuItem = null
+        saveAllMenuItem = null
+        syncMenuItem = null
+        syncAllMenuItem = null
+        undoMenuItem = null
+        redoMenuItem = null
+        repairWarningsMenuItem = null
+        repairAllWarningsMenuItem = null
+        repairErrorsMenuItem = null
+        repairAllErrorsMenuItem = null
+        syncBusy = false
+
+        closed = true
+        afterClose()
     }
 
     /** ローカル退避とキャッシュ解放が成功した後に、種別固有の資源を解放します。 */
@@ -2026,69 +2037,256 @@ abstract class EditorView<T : ManagedData<T, *>>(
     protected open fun handleCreateNewItem() = handleCreateNewItem("")
 
     /** ルートから完全IDを指定してディレクトリを作成します。 */
-    protected open fun handleCreateDirectory() {
-        val directory = main.requestInput("ディレクトリを作成") { input ->
+    protected open fun handleCreateDirectory() = requestCreateDirectory("")
+
+    /** 入力はUIで受け取り、ストアの作成と一覧更新を背景で進めます。 */
+    protected fun requestCreateDirectory(parent: String) {
+        if (storeOperationBlocked || syncBusy || repairBusy || saveRunning) return
+        val name = main.requestInput("ディレクトリを追加") { input ->
             when {
                 input.isBlank() -> ValidationResult.Error("名前を入力してください")
-                !PublicId.isValidFull(input) -> ValidationResult.Error(PublicId.DESCRIPTION)
+                !(if (parent.isEmpty()) PublicId.isValidFull(input) else PublicId.isValid(input)) -> ValidationResult.Error(PublicId.DESCRIPTION)
                 else -> ValidationResult.Success
             }
         } ?: return
-        when (dataAccess.createDirectory(directory)) {
-            is StoreResult.Success -> setupSidebar(main.sidebarContainer, currentSelectedDataId)
-            is StoreResult.Failure -> CustomDialog.error()
-                .title("ディレクトリ作成エラー")
-                .header("ディレクトリを作成できませんでした")
-                .owner(main.currentStage)
-                .show()
+        if (storeOperationBlocked || syncBusy || repairBusy || saveRunning) return
+        val directory = PublicId.join(parent.split('.').filter(String::isNotEmpty), name)
+        runStoreOperation("$directory を作成しています", {
+            when (val result = dataAccess.createDirectory(directory)) {
+                is StoreResult.Failure -> result
+                is StoreResult.Success -> { showStorePhase("一覧を更新しています"); readSidebarSnapshot() }
+            }
+        }) { snapshot ->
+            sidebarSnapshot = snapshot
+            refreshLocalSidebar(currentSelectedDataId)
         }
     }
 
-    /** 指定したディレクトリへ新しい管理データを作成します。 */
-    protected fun handleCreateNewItem(directory: String) {
-        val (fileResources, isSuccess) = dataAccess.listYmlResources()
-        if (!isSuccess) {
-            CustomDialog.error()
-                .title("取得失敗")
-                .header("ファイルリストの取得に失敗しました。")
-                .owner(main.currentStage)
-                .show()
-            handleForceBackToSelect()
-            return
+    /** 最新の削除対象を表示して承認を受け、確認できた削除だけ編集キャッシュへ反映します。 */
+    protected fun requestDeleteDirectory(directory: String, onDiscarded: (String) -> Unit) {
+        if (storeOperationBlocked || syncBusy || repairBusy || saveRunning) return
+        runStoreOperation("$directory の削除対象を確認しています", ::readSidebarSnapshot) { before ->
+            val storedIds = before.first.map { it.id }.toSet()
+            val affected = idsInSidebarDirectory(mergeSidebarIdsWithPending(storedIds), directory)
+            val sources = editingDataMap.keys.associateWith(::storedSourceId)
+            val storedAffected = idsInSidebarDirectory(storedIds.toList(), directory).toSet()
+            val localOnly = isLocalOnlyDirectory(directory, affected, storedIds, before.second)
+            val confirmed = CustomDialog.confirmation()
+                .title("ディレクトリを削除")
+                .header(if (localOnly) "ローカルの編集内容を破棄します" else "配下のデータも削除されます")
+                .content((listOf("ディレクトリ: $directory", "",
+                    if (localOnly) "サーバー上のファイルは削除せず、配下の編集内容と自動保存を破棄します。"
+                    else "サーバー上のディレクトリと配下のデータを削除します。", "", "削除対象:") +
+                    (storedAffected + affected).sorted()).joinToString("\n"))
+                .okButton("削除", Color.RED).owner(main.currentStage).show()
+            if (!confirmed || storeOperationBlocked) return@runStoreOperation
+            if (localOnly) {
+                discardDirectoryData(affected, onDiscarded)
+                sidebarSnapshot = before
+                refreshLocalSidebar()
+                main.showTimedTopLabel("$directory のローカル編集内容を破棄しました", Color.GREENYELLOW)
+                return@runStoreOperation
+            }
+            runStoreOperation("$directory を削除しています", {
+                val deletion = dataAccess.deleteDirectory(directory)
+                showStorePhase("削除結果と一覧を確認しています")
+                StoreResult.Success(deletion to readSidebarSnapshot())
+            }) { (deletion, after) ->
+                if (after is StoreResult.Success) {
+                    val remaining = after.value.first.map { it.id }.toSet()
+                    val deleted = storedAffected - remaining
+                    val discard = sources.filter { (_, source) -> source in deleted }.keys +
+                        affected.filter { it !in storedIds && sources[it] == it && deletion is StoreResult.Success }
+                    discardDirectoryData(discard, onDiscarded)
+                    sidebarSnapshot = after.value
+                    refreshLocalSidebar()
+                }
+                if (after is StoreResult.Failure && deletion is StoreResult.Success) {
+                    val discard = sources.filter { (_, source) -> source in storedAffected }.keys +
+                        affected.filter { it !in storedIds && sources[it] == it }
+                    discardDirectoryData(discard, onDiscarded)
+                    sidebarSnapshot = before.first.filterNot { it.id in storedAffected } to
+                        before.second.filterNot { it == directory || it.startsWith("$directory.") }
+                    refreshLocalSidebar()
+                }
+                if (deletion is StoreResult.Failure) showStoreOperationError(deletion.error)
+                else if (after is StoreResult.Failure) showStoreOperationError(after.error)
+            }
         }
+    }
 
-        val inputText = main.requestInput("${dataAccess.displayName}を追加") { input ->
-            val containsInvalidChar = !(if (directory.isEmpty()) {
-                PublicId.isValidFull(input)
-            } else {
-                PublicId.isValid(input)
-            })
-            val fullId = PublicId.join(
-                directory.split('.').filter(String::isNotEmpty),
-                input
-            )
-            val isDuplicate = fileResources.any { it.name == "$fullId.yml" }
+    private fun storedSourceId(id: String): String = when (val operation = pendingStoreOperations[id]) {
+        is PendingStoreOperation.Rename -> operation.sourceId
+        is PendingStoreOperation.Delete -> operation.sourceId
+        is PendingStoreOperation.Create, null -> id
+    }
+
+    private fun discardDirectoryData(ids: Collection<String>, onDiscarded: (String) -> Unit) {
+        ids.forEach { id ->
+            editingDataMap.remove(id)
+            originalDataMap.remove(id)
+            pendingStoreOperations.remove(id)
+            mergeConflicts.remove(id)
+            editHistory.remove(id)
+            removedBackupIds.add(id)
+            onDiscarded(id)
+        }
+        requestBackup()
+    }
+
+    /** 指定したディレクトリへ新しい管理データを作成します。保存まではストアに書き込みません。 */
+    protected fun handleCreateNewItem(directory: String) {
+        if (storeOperationBlocked || syncBusy || repairBusy || saveRunning) return
+        val input = main.requestInput("${dataAccess.displayName}を追加") { input ->
+            val fullId = PublicId.join(directory.split('.').filter(String::isNotEmpty), input)
             when {
                 input.isBlank() -> ValidationResult.Error("名前を入力してください")
-                containsInvalidChar -> ValidationResult.Error(PublicId.DESCRIPTION)
-                isDuplicate -> ValidationResult.Error("重複した名称です")
+                !(if (directory.isEmpty()) PublicId.isValidFull(input) else PublicId.isValid(input)) -> ValidationResult.Error(PublicId.DESCRIPTION)
+                fullId in editingDataMap -> ValidationResult.Error("重複した名称です")
                 !dataAccess.descriptor.isValidId(fullId) -> ValidationResult.Error("商品IDにはタブ名と商品名を含めてください（例: weapons.sword）")
                 else -> ValidationResult.Success
             }
-        }
-
-        if (inputText != null) {
-            val fullId = PublicId.join(
-                directory.split('.').filter(String::isNotEmpty),
-                inputText
-            )
-            val data = prepareNewData(dataAccess.createDefault(fullId))
-            editingDataMap[fullId] = data
-            originalDataMap[fullId] = data.deepCopy()
+        } ?: return
+        val fullId = PublicId.join(directory.split('.').filter(String::isNotEmpty), input)
+        withAvailableId(fullId) { data ->
+            val prepared = prepareNewData(data)
+            editingDataMap[fullId] = prepared
+            originalDataMap[fullId] = prepared.deepCopy()
             stageDataCreation(fullId)
-            setupSidebar(main.sidebarContainer, fullId)
+            refreshLocalSidebar(fullId)
             main.showTimedTopLabel("$fullId の追加を保留しました。保存すると反映されます", Color.GREENYELLOW)
         }
+    }
+
+    /** 未取得の複製元と最新の重複確認を背景で読み、複製は保存まで保留します。 */
+    protected fun requestDuplicate(id: String) {
+        if (storeOperationBlocked || syncBusy || repairBusy || saveRunning) return
+        val directory = PublicId.directoryOf(id)
+        val name = requestDataName("${dataAccess.displayName}を複製", directory) ?: return
+        val newId = PublicId.join(directory, name)
+        withAvailableId(newId, id) { source ->
+            val duplicate = dataAccess.duplicateAsNew(source, newId)
+            editingDataMap[newId] = duplicate
+            originalDataMap[newId] = duplicate.deepCopy()
+            stageDataCreation(newId)
+            refreshLocalSidebar(newId)
+            main.showTimedTopLabel("$id から $newId への複製を保留しました", Color.GREENYELLOW)
+        }
+    }
+
+    protected fun requestDataName(title: String, directory: List<String>): String? = main.requestInput(title) { input ->
+        when {
+            input.isBlank() -> ValidationResult.Error("名前を入力してください")
+            !PublicId.isValid(input) -> ValidationResult.Error(PublicId.DESCRIPTION)
+            PublicId.join(directory, input) in editingDataMap -> ValidationResult.Error("重複した名称です")
+            else -> ValidationResult.Success
+        }
+    }
+
+    /** 最新一覧で移動先を確認し、ID変更を保存まで保留します。戻り値は操作を受け付けたかを表します。 */
+    protected fun renameData(id: String, newId: String, onRenamed: () -> Unit): Boolean {
+        if (storeOperationBlocked || syncBusy || repairBusy || saveRunning || newId == id) return false
+        if (!dataAccess.descriptor.isValidId(newId)) {
+            showStoreOperationError(StoreError(StoreErrorCode.INVALID_ID, newId, "商品はタブ配下へ配置してください"))
+            return false
+        }
+        withAvailableId(newId, id) { source ->
+            if (id !in editingDataMap) {
+                editingDataMap[id] = source.deepCopy()
+                originalDataMap[id] = source.deepCopy()
+            }
+            stageDataRename(id, newId)
+            onRenamed()
+            refreshLocalSidebar(newId)
+            main.showTimedTopLabel("$id から $newId へのID変更を保留しました", Color.GREENYELLOW)
+        }
+        return true
+    }
+
+    private fun withAvailableId(newId: String, sourceId: String? = null, onReady: (T) -> Unit) {
+        if (storeOperationBlocked || syncBusy || repairBusy || saveRunning) return
+        if (newId in editingDataMap) {
+            showStoreOperationError(StoreError(StoreErrorCode.ALREADY_EXISTS, newId, "重複した名称です"))
+            return
+        }
+        commitPendingTextEdit()
+        val cachedSource = sourceId?.let { editingDataMap[it]?.deepCopy() }
+        runStoreOperation("$newId の重複と元データを確認しています", {
+            when (val snapshot = readSidebarSnapshot()) {
+                is StoreResult.Failure -> snapshot
+                is StoreResult.Success -> {
+                    if (snapshot.value.first.any { it.id == newId }) {
+                        StoreResult.Failure(StoreError(StoreErrorCode.ALREADY_EXISTS, newId, "重複した名称です"))
+                    } else {
+                        val source = when {
+                            cachedSource != null -> StoreResult.Success(cachedSource)
+                            sourceId != null -> dataAccess.loadStore(sourceId)
+                            else -> StoreResult.Success(dataAccess.createDefault(newId))
+                        }
+                        when (source) {
+                            is StoreResult.Failure -> source
+                            is StoreResult.Success -> StoreResult.Success(snapshot.value to source.value)
+                        }
+                    }
+                }
+            }
+        }) { (snapshot, data) ->
+            sidebarSnapshot = snapshot
+            onReady(data)
+        }
+    }
+
+    /** 保留操作だけが変わった場合は取得済み一覧を使い、再取得せず表示を更新します。 */
+    protected fun refreshLocalSidebar(selectId: String? = currentSelectedDataId) {
+        sidebarRefresh = sidebarSnapshot
+        try { setupSidebar(main.sidebarContainer, selectId) }
+        finally { sidebarRefresh = null }
+    }
+
+    private fun readSidebarSnapshot(): StoreResult<Pair<List<StoreResource>, List<String>>> =
+        when (val resources = dataAccess.listStoreResources()) {
+            is StoreResult.Failure -> resources
+            is StoreResult.Success -> when (val directories = dataAccess.listDirectories()) {
+                is StoreResult.Failure -> directories
+                is StoreResult.Success -> StoreResult.Success(resources.value to directories.value)
+            }
+        }
+
+    private fun showStorePhase(phase: String) {
+        Platform.runLater { if (!closed && saveRunning) main.showOperation(phase) }
+    }
+
+    private fun <R> runStoreOperation(phase: String, operation: () -> StoreResult<R>, onSuccess: (R) -> Unit) {
+        if (storeOperationBlocked || syncBusy || repairBusy || saveRunning) return
+        val generation = ++loadGeneration
+        sidebarPreloadGeneration++
+        commitPendingTextEdit()
+        dataService.beginSave()
+        main.showOperation(phase)
+        val task = object : Task<StoreResult<R>>() {
+            override fun call(): StoreResult<R> = operation()
+        }
+        fun finish() { main.finishOperation(); dataService.endSave() }
+        task.setOnSucceeded {
+            finish()
+            if (!acceptsLoad(generation)) return@setOnSucceeded
+            when (val result = task.value) {
+                is StoreResult.Success -> onSuccess(result.value)
+                is StoreResult.Failure -> showStoreOperationError(result.error)
+            }
+        }
+        task.setOnFailed {
+            finish()
+            if (acceptsLoad(generation)) showStoreOperationError(StoreError(StoreErrorCode.IO_ERROR, cause = task.exception))
+        }
+        dataService.executeIo(task)
+    }
+
+    private fun showStoreOperationError(error: StoreError) {
+        logger.error("データ・ディレクトリ操作に失敗しました: {}", error, error.cause)
+        CustomDialog.error().title("データ・ディレクトリ操作エラー")
+            .header("操作を完了できませんでした。未確認の編集内容は保持されています。")
+            .content("${error.code}: ${error.detail.orEmpty()}").owner(main.currentStage).show()
     }
 
     /** 新規データを初回保存できる初期状態へ調整します。 */
