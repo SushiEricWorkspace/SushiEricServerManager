@@ -196,67 +196,77 @@ class OfflineUploadService(
      *
      * 既存データの上書き承認と、選択後に発生した宛先の重複も確認します。
      * サーバーに存在しない場合はoriginalをnullにし、エディターで追加を保留します。
+     * [onProgress]は処理スレッド上で開始時と各対象の成否確定後に通知します。完了件数には失敗も含みます。
      */
     fun <T : ManagedData<T, *>> loadForEditing(
         descriptor: EditorDataDescriptor<T>,
         selected: Set<UploadKey>,
         overwriteApproved: Set<UploadKey>,
-        destination: String
+        destination: String,
+        onProgress: (Int, Int, String?) -> Unit = { _, _, _ -> }
     ): LocalEditImportResult<T> {
+        onProgress(0, selected.size, null)
         if (!isValidUploadDestination(destination)) {
             val error = StoreError(StoreErrorCode.INVALID_ID, destination, "宛先ディレクトリの指定が不正です。")
+            onProgress(selected.size, selected.size, null)
             return LocalEditImportResult(emptyList(), selected.map { UploadItemFailure(it, error) })
         }
         when (val migrated = migrator.migrateToCurrent()) {
-            is WorkspaceMigrationResult.Failure ->
+            is WorkspaceMigrationResult.Failure -> {
+                onProgress(selected.size, selected.size, null)
                 return LocalEditImportResult(emptyList(), selected.map { UploadItemFailure(it, migrated.error) })
+            }
             is WorkspaceMigrationResult.Success -> Unit
         }
         val entries = mutableListOf<LocalEditImport<T>>()
         val failed = mutableListOf<UploadItemFailure>()
         val usedTargets = mutableSetOf<String>()
-        selected.sortedBy { it.id }.forEach { key ->
-            val targetId = uploadTargetId(key.id, destination)
-            if (key.category.dataType != descriptor.dataType || !descriptor.isValidId(targetId)) {
-                failed += UploadItemFailure(key, StoreError(StoreErrorCode.INVALID_ID, targetId))
-                return@forEach
-            }
-            if (!usedTargets.add(targetId)) {
-                failed += UploadItemFailure(
-                    key, StoreError(StoreErrorCode.ALREADY_EXISTS, targetId, "同じ宛先IDになる別のデータがあります。")
-                )
-                return@forEach
-            }
-            val original = when (val loaded = remoteStore.load(descriptor, targetId)) {
-                is StoreResult.Success -> {
-                    if (key !in overwriteApproved) {
-                        failed += UploadItemFailure(
-                            key, StoreError(StoreErrorCode.ALREADY_EXISTS, targetId, "上書きが承認されていません。")
-                        )
-                        return@forEach
-                    }
-                    descriptor.deepCopy(loaded.value)
+        selected.sortedBy { it.id }.forEachIndexed { index, key ->
+            try {
+                val targetId = uploadTargetId(key.id, destination)
+                if (key.category.dataType != descriptor.dataType || !descriptor.isValidId(targetId)) {
+                    failed += UploadItemFailure(key, StoreError(StoreErrorCode.INVALID_ID, targetId))
+                    return@forEachIndexed
                 }
-                is StoreResult.Failure -> {
-                    if (loaded.error.code != StoreErrorCode.FILE_NOT_FOUND) {
+                if (!usedTargets.add(targetId)) {
+                    failed += UploadItemFailure(
+                        key, StoreError(StoreErrorCode.ALREADY_EXISTS, targetId, "同じ宛先IDになる別のデータがあります。")
+                    )
+                    return@forEachIndexed
+                }
+                val original = when (val loaded = remoteStore.load(descriptor, targetId)) {
+                    is StoreResult.Success -> {
+                        if (key !in overwriteApproved) {
+                            failed += UploadItemFailure(
+                                key, StoreError(StoreErrorCode.ALREADY_EXISTS, targetId, "上書きが承認されていません。")
+                            )
+                            return@forEachIndexed
+                        }
+                        descriptor.deepCopy(loaded.value)
+                    }
+                    is StoreResult.Failure -> {
+                        if (loaded.error.code != StoreErrorCode.FILE_NOT_FOUND) {
+                            failed += UploadItemFailure(key, loaded.error)
+                            return@forEachIndexed
+                        }
+                        null
+                    }
+                }
+                val local = when (val loaded = localStore.load(descriptor, key.id)) {
+                    is StoreResult.Success -> loaded.value
+                    is StoreResult.Failure -> {
                         failed += UploadItemFailure(key, loaded.error)
-                        return@forEach
+                        return@forEachIndexed
                     }
-                    null
                 }
+                entries += LocalEditImport(
+                    key,
+                    descriptor.deepCopy(local).apply { id = targetId },
+                    original
+                )
+            } finally {
+                onProgress(index + 1, selected.size, key.id)
             }
-            val local = when (val loaded = localStore.load(descriptor, key.id)) {
-                is StoreResult.Success -> loaded.value
-                is StoreResult.Failure -> {
-                    failed += UploadItemFailure(key, loaded.error)
-                    return@forEach
-                }
-            }
-            entries += LocalEditImport(
-                key,
-                descriptor.deepCopy(local).apply { id = targetId },
-                original
-            )
         }
         return LocalEditImportResult(entries, failed)
     }

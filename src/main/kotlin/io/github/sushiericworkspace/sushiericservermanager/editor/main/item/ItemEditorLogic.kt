@@ -320,9 +320,11 @@ class ItemEditorLogic(
             }
         } ?: return
         val directory = PublicId.join(parent.split('.').filter(String::isNotEmpty), name)
-        when (dataAccess.createDirectory(directory)) {
-            is StoreResult.Success -> setupSidebar(main.sidebarContainer, currentSelectedDataId)
-            is StoreResult.Failure -> showDirectoryError("ディレクトリを作成できませんでした")
+        runStoreAction("ディレクトリを作成しています", { dataAccess.createDirectory(directory) }) { result ->
+            when (result) {
+                is StoreResult.Success -> setupSidebar(main.sidebarContainer, currentSelectedDataId)
+                is StoreResult.Failure -> showDirectoryError("ディレクトリを作成できませんでした")
+            }
         }
     }
 
@@ -363,12 +365,14 @@ class ItemEditorLogic(
             return
         }
 
-        when (dataAccess.deleteDirectory(directory)) {
-            is StoreResult.Success -> {
-                affected.forEach(::discardItemData)
-                setupSidebar(main.sidebarContainer)
+        runStoreAction("ディレクトリを削除しています", { dataAccess.deleteDirectory(directory) }) { result ->
+            when (result) {
+                is StoreResult.Success -> {
+                    affected.forEach(::discardItemData)
+                    setupSidebar(main.sidebarContainer)
+                }
+                is StoreResult.Failure -> showDirectoryError("ディレクトリを削除できませんでした")
             }
-            is StoreResult.Failure -> showDirectoryError("ディレクトリを削除できませんでした")
         }
     }
 
@@ -451,20 +455,23 @@ class ItemEditorLogic(
 
     private fun copyInternalId(id: String) {
         if (storeOperationBlocked) return
-        val internalId = resolveItemInternalId(editingDataMap[id]) {
-            dataAccess.load(id).first
-        }
-        if (internalId == null) {
-            CustomDialog.error()
-                .title("コピーエラー")
-                .header("内部IDをコピーできませんでした")
-                .content("対象アイテム: $id")
-                .owner(main.currentStage)
-                .show()
-            return
-        }
+        fun copy(data: MutableItemBaseData?) {
+            val internalId = resolveItemInternalId(data) { null }
+            if (internalId == null) {
+                CustomDialog.error()
+                    .title("コピーエラー")
+                    .header("内部IDをコピーできませんでした")
+                    .content("対象アイテム: $id")
+                    .owner(main.currentStage)
+                    .show()
+                return
+            }
 
-        copyText(internalId, "内部IDをコピーしました: $internalId")
+            copyText(internalId, "内部IDをコピーしました: $internalId")
+        }
+        val cached = editingDataMap[id]
+        if (cached != null) copy(cached)
+        else runStoreAction("内部IDを取得しています", { dataAccess.load(id).first }, ::copy)
     }
 
     private fun copyText(value: String, notification: String) {
@@ -477,35 +484,39 @@ class ItemEditorLogic(
 
     private fun requestDuplicate(id: String, existingIds: Set<String>) {
         if (storeOperationBlocked) return
-        val source = editingDataMap[id]?.deepCopy() ?: dataAccess.load(id).first?.deepCopy()
-        if (source == null) {
-            CustomDialog.error()
-                .title("複製エラー")
-                .header("複製元のアイテムを読み込めませんでした")
-                .content("対象アイテム: $id")
-                .owner(main.currentStage)
-                .show()
-            return
-        }
-
-        val directory = PublicId.directoryOf(id)
-        val newName = main.requestInput("アイテムを複製") { input ->
-            when {
-                input.isBlank() -> ValidationResult.Error("名前を入力してください")
-                !PublicId.isValid(input) -> ValidationResult.Error(PublicId.DESCRIPTION)
-                PublicId.join(directory, input) in existingIds -> ValidationResult.Error("重複した名称です")
-                else -> ValidationResult.Success
+        fun duplicate(source: MutableItemBaseData?) {
+            if (source == null) {
+                CustomDialog.error()
+                    .title("複製エラー")
+                    .header("複製元のアイテムを読み込めませんでした")
+                    .content("対象アイテム: $id")
+                    .owner(main.currentStage)
+                    .show()
+                return
             }
-        } ?: return
 
-        if (storeOperationBlocked) return
-        val newId = PublicId.join(directory, newName)
-        val duplicate = dataAccess.duplicateAsNew(source, newId)
-        editingDataMap[newId] = duplicate
-        originalDataMap[newId] = duplicate.deepCopy()
-        stageDataCreation(newId)
-        main.showTimedTopLabel("$id から $newId への複製を保留しました", Color.GREENYELLOW)
-        setupSidebar(main.sidebarContainer, newId)
+            val directory = PublicId.directoryOf(id)
+            val newName = main.requestInput("アイテムを複製") { input ->
+                when {
+                    input.isBlank() -> ValidationResult.Error("名前を入力してください")
+                    !PublicId.isValid(input) -> ValidationResult.Error(PublicId.DESCRIPTION)
+                    PublicId.join(directory, input) in existingIds -> ValidationResult.Error("重複した名称です")
+                    else -> ValidationResult.Success
+                }
+            } ?: return
+
+            if (storeOperationBlocked) return
+            val newId = PublicId.join(directory, newName)
+            val duplicate = dataAccess.duplicateAsNew(source, newId)
+            editingDataMap[newId] = duplicate
+            originalDataMap[newId] = duplicate.deepCopy()
+            stageDataCreation(newId)
+            main.showTimedTopLabel("$id から $newId への複製を保留しました", Color.GREENYELLOW)
+            setupSidebar(main.sidebarContainer, newId)
+        }
+        val cached = editingDataMap[id]?.deepCopy()
+        if (cached != null) duplicate(cached)
+        else runStoreAction("複製元を読み込んでいます", { dataAccess.load(id).first?.deepCopy() }, ::duplicate)
     }
 
     private fun requestRename(id: String, existingIds: Set<String>) {

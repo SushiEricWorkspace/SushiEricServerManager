@@ -21,6 +21,25 @@ class MainController {
     @FXML lateinit var mainContentContainer: HBox
     @FXML private lateinit var topInfoLabel: Label
     @FXML private lateinit var operationProgress: ProgressIndicator
+    @FXML private lateinit var importProgress: ProgressIndicator
+    @FXML private lateinit var importStatus: Label
+
+    /** 編集を止めずにローカル取り込みの工程を表示します。負値は不定進捗です。 */
+    fun showImportProgress(phase: String, progress: Double) {
+        importStatus.text = phase
+        importStatus.isVisible = true
+        importStatus.isManaged = true
+        importProgress.progress = progress
+        importProgress.isVisible = true
+        importProgress.isManaged = true
+    }
+
+    fun finishImportProgress() {
+        importStatus.isVisible = false
+        importStatus.isManaged = false
+        importProgress.isVisible = false
+        importProgress.isManaged = false
+    }
 
     var operationRunning: Boolean = false
         private set

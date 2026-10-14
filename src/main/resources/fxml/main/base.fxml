@@ -15,6 +15,8 @@
       <HBox fx:id="topBar" alignment="CENTER_LEFT" minHeight="24.0" prefHeight="24.0" spacing="12.0">
          <HBox fx:id="actionButtonContainer" alignment="CENTER_LEFT" spacing="0.0" />
          <Region HBox.hgrow="ALWAYS" />
+         <ProgressIndicator fx:id="importProgress" prefWidth="18.0" prefHeight="18.0" visible="false" managed="false" />
+         <Label fx:id="importStatus" maxWidth="480.0" visible="false" managed="false" />
          <ProgressIndicator fx:id="operationProgress" prefWidth="18.0" prefHeight="18.0" visible="false" managed="false" />
          <Label fx:id="topInfoLabel" />
       </HBox>
