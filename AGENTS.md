@@ -70,6 +70,21 @@
 - 同一目的の実装、呼び出し元変更、必要なドキュメント更新は、原則として1つの論理的なコミットにまとめる。
 - 無関係な変更は同じコミットへ含めない。
 
+### リポジトリ単位のIssue
+
+- Issueの変更範囲は、そのIssueが属するリポジトリ内に限定する。他repoの変更が必要なら、そちらにも別Issueを作成し、それぞれに変更範囲・完成条件・検証を記載する。
+- 関連Issueは`owner/repo#番号`で相互参照し、共有API・座標・保存形式、前提commit、実施順を明記する。同番号でもrepoが異なれば別のIssueとして扱う。
+- 他repoの既存ソースを読むことや確定commitの成果物を利用することは変更に含めない。依存確認だけを理由にIssueを増やさず、依存repoへ元Issue番号の変更branchを作らない。
+- 各変更Issueを専用branch・worktree・PRで扱う。依存repoにも変更が必要なら、そのrepoの別Issueで確定したcommitを前提として使う。
+- オーケストレーターは変更対象と読み取り対象を分け、依存・競合するファイル、共有契約・出力・ポートを確認して独立作業を並列化する。必要な前提commitが未確定の実装は開始しない。
+
+### Git公開担当への引継ぎ
+
+- 公開依頼にはrepo・worktreeの絶対パス、owner、許可操作、基準commit・確認済みの差分に加え、現在のsandbox権限、worktreeとGit共通管理領域へのアクセス可否、主担当で成功した実行方法を渡す。owner登録の引継ぎはOSやsandboxの権限を変更しない。
+- アクセス拒否では書込みを止め、明示したworkdirと絶対パスの`git -C`で読み取り確認する。通常実行が拒否され、対象操作が許可済みなら、対応環境では対象と理由を限定した`require_escalated`で読み取りを再試行する。通常権限のエラーだけでworktree破損や利用不可と断定しない。
+- アクセスできたら差分・stage・追跡先・既存PRを照合し、許可済みの公開工程を続ける。Git操作の実行許可と実行時の承認レビューを区別し、同じGit許可を繰り返し求めない。
+- 承認付き実行が利用不可・拒否、または再試行も失敗した場合は、試した実行方法、エラー原文、登録状態、未実行操作を報告して保全する。ACL変更、sandbox全体の無効化、owner奪取、別worktreeへの複製、Git管理情報の修復で回避しない。
+
 ### worktree運用
 
 作業の分離単位はAI名ではなくタスクとする。同じタスクの担当を交代するときは同じworktreeを引き継ぎ、同時に書き込むownerは一人だけとする。
@@ -81,16 +96,16 @@
 | `<workspace>/minecraft-dev/` | ソースとは独立した分離テスト環境（導入中） |
 
 - primaryや他ownerのworktreeで作業しない。primaryの移動・checkout変更をAIが行わない。
-- 作成・一覧・担当引継ぎ・削除は`.github/scripts/setup-worktrees.py`を使用する。task-id、Issue番号、対象repo、同時書込ownerを明示し、記録された基準commitから`feature/issue-<番号>`を作成する。使い方は`.github/scripts/dev_server/worktrees-guide.md`を参照する。
+- 作成・一覧・担当引継ぎ・削除は`.github/scripts/setup-worktrees.py`を使用する。task-id、Issue番号、単一の変更repo（`--repos`）、同時書込ownerを明示し、記録された基準commitから`feature/issue-<番号>`を作成する。確定依存は反復可能な`--dependency REPO=COMMIT`で完全commit hashを指定し、detached HEADとして登録する。依存ソースは編集・commit・pushせず、変更が必要なら別Issueで確定commitを作る。使い方は`.github/scripts/dev_server/worktrees-guide.md`を参照する。
 - 基準はrepoごとの最新origin開発ブランチを用いる（Common・ServerManager・CombatCoreはdevelop、ServerMod・.githubはmain）。前提Issueへ依存する場合は、repoごとに依存commitを明示する。現在のprimaryやorigin/HEADのリリースブランチから推測しない。
 - 同一タスクの担当交代はownerを引き継ぐ。別worktreeを追加して同じタスクを二重実行しない。Gitのworktree lockは編集排他ではない。owner記録は同一ユーザー間の協調契約であり、他ownerは直接書き込まない。
-- 既存branch/worktreeを上書きしない。引継ぎは旧ownerの書込み停止後、未コミット変更を保持してowner登録のみを更新する。未コミット変更がある作業の作成再実行・削除・削除復旧は拒否する。途中失敗や登録不一致は既存の実体を残し、勝手に修復・強制削除しない。
+- 既存branch/worktreeを上書きしない。引継ぎは旧ownerの書込み停止後、未コミット変更を保持してowner登録のみを更新する。未コミット変更がある作業の作成再実行・削除・削除復旧は拒否する。依存repoは引継ぎ・ビルドでもdetached HEAD・固定commit・cleanを照合する。形式3は旧taskのbranch登録と記録を保持し、既存multi-repo taskを勝手に依存へ変換しない。途中失敗や登録不一致は既存の実体を残し、勝手に修復・強制削除しない。
 - タスクworktreeへ`run/`や`.idea/`を複製しない。`build/`とプロジェクト`.gradle/`はworktreeごとに独立する。サーバーの永続instance、snapshot、artifactはworktreeの削除対象にしない。
 - 削除はtask-idと現在ownerを明示して行う。worktreeをディレクトリ削除、force、広範囲のpruneで片付けない。worktree削除だけの指示からbranch削除の許可は推定しない。
 - 特定branchの作業専用に作成したworktreeは、対象branchの削除を指示された場合、保持する明示指示がなければ一緒に削除する。branch削除指示は対応する専用worktreeの削除許可を含むため、同じ許可を改めて求めない。Git一覧と管理記録でrepo、branch、専用worktree、task-id、ownerを照合し、worktreeを管理手順で先に削除してからbranchを削除する。primary、共有・固定AI用、他branch用のworktreeは対象に含めない。複数repoのtaskでは指示対象外のworktreeをまとめて削除しない。
 - 未コミット変更、保全が必要な追跡外・ignoredデータ、他ownerの作業継続、登録不一致、削除失敗がある場合はworktreeとbranchを保全し、原因と残り作業を報告する。未許可のプロセス終了や独断の登録修復で回避しない。
 - 移行中の既存`<repo>-claude/`・`<repo>-codex/`は自動移動・削除しない。進行中の作業は担当の固定worktreeで完了できる。作業branch削除後は最新の`origin/main`または`origin/develop`でdetached HEADへ戻す。新規タスクはタスクworktreeで開始する。
-- 共通ルールの同期先は`scripts/sync-agent-rules.py --repo-root REPO=PATH`で明示する。タスク作業から人間・他AIのAGENTS.mdへ暗黙に同期しない。
+- 共通ルールの書き込みでは`scripts/sync-agent-rules.py --repo-root REPO=PATH`で同期先を列挙する。省略時は拒否し、`--check`のみ省略してworkspace全体を読み取り確認できる。タスク作業から人間・他AIのAGENTS.mdへ暗黙に同期しない。
 - worktreeスキルの原本は`.github/skills/worktree/SKILL.md`とする。ローカル配置する場合は原本を使用し、`.claude/`等の配置先をコミットしない。
 - 分離テスト環境はホスト・管理rootごとの総合受入と運用者承認後に有効化する。未承認のrootやOSへ運用許可を流用せず、受入前は許可された使い捨て試験だけを行う。既存環境を自動移行しない。
 
