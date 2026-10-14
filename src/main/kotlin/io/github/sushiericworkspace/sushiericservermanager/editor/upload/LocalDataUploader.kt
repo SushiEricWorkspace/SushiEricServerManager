@@ -26,7 +26,7 @@ object LocalDataUploader {
      * @param remoteStore 元データの読み込み先。保存は行いません。
      * @param profileName 接続先の表示名。
      * @param category 読み込むデータの種別。
-     * @param onBusyChanged 処理中かどうかが変わったときの通知。
+     * @param onBusyChanged 走査から確認・編集反映・結果表示までの受付中はtrue、取消・失敗を含む終了時はfalseを通知。
      * @param descriptor 読み込むデータの型付き定義。
      * @param editingIds 編集キャッシュの宛先も上書き確認に含めるために取得するID。
      * @param onBeforeLoad 上書き承認後、読み込みを始める直前の通知。
@@ -48,21 +48,24 @@ object LocalDataUploader {
             override fun call(): UploadScanResult = service(remoteStore).scan(category)
         }
         scanTask.setOnSucceeded {
-            onBusyChanged(false)
-            when (val result = scanTask.value) {
-                is UploadScanResult.Failure -> showError(owner, result.error.code.name, result.error.detail)
-                is UploadScanResult.Success -> selectAndLoad(
-                    owner, remoteStore, profileName, category, descriptor,
-                    result.copy(remoteIds = result.remoteIds + (
-                        category to (result.remoteIds.getValue(category) + editingIds())
-                    )), onBeforeLoad, onBusyChanged, onLoaded
-                )
-            }
+            var loading = false
+            try {
+                when (val result = scanTask.value) {
+                    is UploadScanResult.Failure -> showError(owner, result.error.code.name, result.error.detail)
+                    is UploadScanResult.Success -> loading = selectAndLoad(
+                        owner, remoteStore, profileName, category, descriptor,
+                        result.copy(remoteIds = result.remoteIds + (
+                            category to (result.remoteIds.getValue(category) + editingIds())
+                        )), onBeforeLoad, onBusyChanged, onLoaded
+                    )
+                }
+            } finally { if (!loading) onBusyChanged(false) }
         }
         scanTask.setOnFailed {
-            onBusyChanged(false)
-            logger.error("読み込み対象の確認に失敗しました", scanTask.exception)
-            showError(owner, "INTERNAL_ERROR", scanTask.exception?.message)
+            try {
+                logger.error("読み込み対象の確認に失敗しました", scanTask.exception)
+                showError(owner, "INTERNAL_ERROR", scanTask.exception?.message)
+            } finally { onBusyChanged(false) }
         }
         run(scanTask, "local-import-scan")
     }
@@ -77,17 +80,17 @@ object LocalDataUploader {
         onBeforeLoad: () -> Unit,
         onBusyChanged: (Boolean) -> Unit,
         onLoaded: (List<LocalEditImport<T>>) -> Boolean
-    ) {
+    ): Boolean {
         if (scan.entries.isEmpty()) {
             CustomDialog.information()
                 .title("ローカルデータの読み込み")
                 .header("読み込める${category.displayName}がありません")
                 .owner(owner)
                 .show()
-            return
+            return false
         }
-        val selection = OfflineUploadDialog.select(owner, profileName, category, scan, forEditing = true) ?: return
-        if (selection.candidates.isEmpty()) return
+        val selection = OfflineUploadDialog.select(owner, profileName, category, scan, forEditing = true) ?: return false
+        if (selection.candidates.isEmpty()) return false
 
         val overwrite = selection.candidates
             .filter { it.state == UploadCandidateState.OVERWRITE }
@@ -101,11 +104,10 @@ object LocalDataUploader {
                 ))
                 .owner(owner)
                 .show()
-            if (!approved) return
+            if (!approved) return false
         }
 
         onBeforeLoad()
-        onBusyChanged(true)
         val loadTask = object : Task<LocalEditImportResult<T>>() {
             override fun call(): LocalEditImportResult<T> = service(remoteStore).loadForEditing(
                 descriptor = descriptor,
@@ -115,28 +117,31 @@ object LocalDataUploader {
             )
         }
         loadTask.setOnSucceeded {
-            onBusyChanged(false)
-            val result = loadTask.value
-            if (result.entries.isNotEmpty() && !onLoaded(result.entries)) return@setOnSucceeded
-            val failureText = result.failed.joinToString("\n") {
-                "${it.key.id}: ${it.error.code}${it.error.detail?.let { detail -> "（$detail）" }.orEmpty()}"
-            }
-            CustomDialog.information()
-                .title("ローカルデータの読み込み結果")
-                .header("読み込み ${result.entries.size} 件、失敗 ${result.failed.size} 件")
-                .content(listOf(
-                    "未保存の編集として読み込みました。内容を確認し、保存するとサーバーへ反映されます。ローカルデータは保持されています。",
-                    failureText
-                ))
-                .owner(owner)
-                .show()
+            try {
+                val result = loadTask.value
+                if (result.entries.isNotEmpty() && !onLoaded(result.entries)) return@setOnSucceeded
+                val failureText = result.failed.joinToString("\n") {
+                    "${it.key.id}: ${it.error.code}${it.error.detail?.let { detail -> "（$detail）" }.orEmpty()}"
+                }
+                CustomDialog.information()
+                    .title("ローカルデータの読み込み結果")
+                    .header("読み込み ${result.entries.size} 件、失敗 ${result.failed.size} 件")
+                    .content(listOf(
+                        "未保存の編集として読み込みました。内容を確認し、保存するとサーバーへ反映されます。ローカルデータは保持されています。",
+                        failureText
+                    ))
+                    .owner(owner)
+                    .show()
+            } finally { onBusyChanged(false) }
         }
         loadTask.setOnFailed {
-            onBusyChanged(false)
-            logger.error("ローカルデータの読み込みに失敗しました", loadTask.exception)
-            showError(owner, "INTERNAL_ERROR", loadTask.exception?.message)
+            try {
+                logger.error("ローカルデータの読み込みに失敗しました", loadTask.exception)
+                showError(owner, "INTERNAL_ERROR", loadTask.exception?.message)
+            } finally { onBusyChanged(false) }
         }
         run(loadTask, "local-import")
+        return true
     }
 
     private fun service(remoteStore: EditorDataStore) =

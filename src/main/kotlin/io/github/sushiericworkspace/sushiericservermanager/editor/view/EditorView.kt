@@ -162,10 +162,12 @@ abstract class EditorView<T : ManagedData<T, *>>(
     private var repairErrorsMenuItem: MenuItem? = null
     private var repairAllErrorsMenuItem: MenuItem? = null
     private var uploadMenuItem: MenuItem? = null
+    private var uploadBusy = false
     private var repairBusy = false
     private var syncBusy = false
     val saveRunning: Boolean get() = main.operationRunning
-    internal val storeOperationBlocked: Boolean get() = dataService.activeSaves > 0 || main.loadingRunning || closing || closed
+    internal open val closeBusy: Boolean get() = saveRunning || main.loadingRunning || dataService.activeSaves > 0 || syncBusy || repairBusy || uploadBusy || closing
+    internal val storeOperationBlocked: Boolean get() = dataService.activeSaves > 0 || main.loadingRunning || closing || closed || EditorWindowManager.isClosing
     private val saveListener = ChangeListener<Number> { _, _, count ->
         main.actionButtonContainer.isDisable = count.toInt() > 0 || main.loadingRunning || closing
         main.sidebarContainer.isDisable = count.toInt() > 0 || closing
@@ -579,7 +581,7 @@ abstract class EditorView<T : ManagedData<T, *>>(
                 editingBeforeLoad = editingDataMap.mapValues { it.value.deepCopy() }
                 operationsBeforeLoad = pendingStoreOperations.toMap()
             },
-            onBusyChanged = { busy -> uploadMenuItem?.isDisable = busy },
+            onBusyChanged = { busy -> uploadBusy = busy; uploadMenuItem?.isDisable = busy },
             onLoaded = loaded@ { entries ->
                 if (closing || closed) return@loaded false
                 val changedWhileLoading = entries.filter { entry ->
@@ -1314,17 +1316,18 @@ abstract class EditorView<T : ManagedData<T, *>>(
         serverData: T
     ): T?
 
-    /**
-     * 最新の編集内容と保留操作を退避し、終了可否をJavaFXスレッドで通知します。
-     * JavaFXスレッドから呼び出してください。処理中や閉鎖済みの場合はその場で通知します。
-     * 退避失敗時は編集キャッシュを保持するため、再度呼び出して再試行できます。
-     */
+    /** 最新の編集内容を退避し、成功したときだけキャッシュを解放します。結果はJavaFXスレッドで通知します。 */
     fun onClose(onComplete: (Boolean) -> Unit) {
-        if (closed) { onComplete(true); return }
-        if (saveRunning || dataService.activeSaves > 0 || syncBusy || repairBusy || closing) {
-            onComplete(false)
-            return
+        prepareClose { success ->
+            if (success) completeClose()
+            onComplete(success)
         }
+    }
+
+    /** 接続終了前の退避だけを行い、終了証明が得られるまで編集キャッシュを保持します。 */
+    internal fun prepareClose(onComplete: (Boolean) -> Unit) {
+        if (closed) { onComplete(true); return }
+        if (saveRunning || dataService.activeSaves > 0 || syncBusy || repairBusy || uploadBusy || closing) { onComplete(false); return }
         main.mainContentContainer.requestFocus()
         commitPendingTextEdit()
         closing = true
@@ -1332,49 +1335,61 @@ abstract class EditorView<T : ManagedData<T, *>>(
         finishLoading()
         sidebarPreloadGeneration++
         stopAutoSaveTimer()
-        main.showOperation("終了前のバックアップ完了を待っています")
-        val completeClose: (Boolean) -> Unit = { success ->
-            main.finishOperation()
-            closing = false
+        main.showOperation("編集内容を退避中")
+        val complete: (Boolean) -> Unit = { success ->
             if (!success) {
-                startAutoSaveTimer()
+                cancelClose()
                 main.showTimedTopLabel("退避に失敗しました。編集内容を保持しています。終了操作で再試行できます。", Color.ORANGERED, 10.0)
-                onComplete(false)
-            } else {
-                dataService.activeSavesProperty.removeListener(saveListener)
-                main.clearTopLabelTimer()
-                main.clearShortcuts()
-
-                editingDataMap.clear()
-                originalDataMap.clear()
-                mergeConflicts.clear()
-                pendingStoreOperations.clear()
-                editHistory.clear()
-                registeredSidebarIds.clear()
-                sidebarStates.clear()
-                sidebarView?.showRows(emptyList())
-                sidebarView = null
-                currentSelectedDataId = null
-                pendingPreloadIds = emptyList()
-                saveMenuItem = null
-                saveAllMenuItem = null
-                syncMenuItem = null
-                syncAllMenuItem = null
-                undoMenuItem = null
-                redoMenuItem = null
-                repairWarningsMenuItem = null
-                repairAllWarningsMenuItem = null
-                repairErrorsMenuItem = null
-                repairAllErrorsMenuItem = null
-                syncBusy = false
-
-                closed = true
-                afterClose()
-                onComplete(true)
             }
+            onComplete(success)
         }
-        if (restoringBackup) completeClose(true)
-        else requestBackup(allowDuringOperation = true, onComplete = completeClose)
+        if (restoringBackup) complete(true)
+        else requestBackup(allowDuringOperation = true, onComplete = complete)
+    }
+
+    /** 終了失敗時は編集内容を維持して操作と自動退避を再開します。 */
+    internal fun cancelClose() {
+        if (!closing) return
+        closing = false
+        main.finishOperation()
+        startAutoSaveTimer()
+    }
+
+    /** 退避と接続終了を確認した後、JavaFXスレッドで呼び出します。 */
+    internal fun completeClose() {
+        if (closed) return
+        check(closing)
+        main.finishOperation()
+        closing = false
+        dataService.activeSavesProperty.removeListener(saveListener)
+        main.clearTopLabelTimer()
+        main.clearShortcuts()
+
+        editingDataMap.clear()
+        originalDataMap.clear()
+        mergeConflicts.clear()
+        pendingStoreOperations.clear()
+        editHistory.clear()
+        registeredSidebarIds.clear()
+        sidebarStates.clear()
+        sidebarView?.showRows(emptyList())
+        sidebarView = null
+        currentSelectedDataId = null
+        pendingPreloadIds = emptyList()
+        saveMenuItem = null
+        saveAllMenuItem = null
+        syncMenuItem = null
+        syncAllMenuItem = null
+        undoMenuItem = null
+        redoMenuItem = null
+        repairWarningsMenuItem = null
+        repairAllWarningsMenuItem = null
+        repairErrorsMenuItem = null
+        repairAllErrorsMenuItem = null
+        syncBusy = false
+
+        closed = true
+        afterClose()
     }
 
     /** ローカル退避とキャッシュ解放が成功した後に、種別固有の資源を解放します。 */

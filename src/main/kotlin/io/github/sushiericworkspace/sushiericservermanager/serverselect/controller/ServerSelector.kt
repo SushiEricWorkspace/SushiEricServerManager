@@ -378,12 +378,15 @@ class ServerSelector : Initializable {
 
     private fun openHome(profile: ServerProfile) {
         if (!EditorSession.sshManager.isConnected || EditorSession.sshManager.currentProfile != profile) {
-            EditorSession.disconnect()
-            CustomDialog.error()
-                .title("接続初期化エラー")
-                .header("接続済みセッションを確認できませんでした")
-                .content("SSH接続を切断しました。")
-                .show()
+            val stage = serverListContainer.scene?.window as? Stage
+            Utility.closeConnection {
+                stage?.show()
+                CustomDialog.error()
+                    .title("接続初期化エラー")
+                    .header("接続済みセッションを確認できませんでした")
+                    .content("SSH接続を切断しました。")
+                    .show()
+            }
             return
         }
 

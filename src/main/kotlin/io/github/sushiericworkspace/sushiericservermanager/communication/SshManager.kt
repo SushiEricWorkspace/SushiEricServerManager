@@ -78,10 +78,13 @@ class SshManager(
         return connect(profile, HostKeyApprovalHandler.REJECT_UNKNOWN) is SshResult.Success
     }
 
+    /** UIスレッド外でSSH/SFTPの終了を待ちます。終了に失敗した場合は接続情報を保持して例外を返します。 */
     fun disconnect() {
-        runCatching { sftpClient?.close() }
-        runCatching { client?.disconnect() }
-        runCatching { client?.close() }
+        var failure: Throwable? = null
+        listOf<() -> Unit>({ sftpClient?.close() }, { client?.disconnect() }, { client?.close() }).forEach { close ->
+            runCatching(close).onFailure { if (failure == null) failure = it }
+        }
+        failure?.let { throw IOException("SSH接続の終了を確認できませんでした。", it) }
 
         sftpClient = null
         client = null
