@@ -151,6 +151,27 @@ class ItemReferenceCacheTest {
         } finally { next.itemReferences.close(); next.closeIo() }
     }
 
+    @Test
+    fun `取得件数は成功したデータごとに進み失敗後の手動更新でリセットされる`() = withService { service, store ->
+        store.memory.save(EditorDataDescriptors.item, "first", item("first"))
+        store.memory.save(EditorDataDescriptors.item, "second", item("second"))
+        val snapshots = java.util.concurrent.CopyOnWriteArrayList<ItemReferenceSnapshot>()
+        service.itemReferences.addListener { snapshots += it }
+        store.failedId = "second"
+        assertIs<StoreResult.Failure>(service.itemReferences.load().get(5, TimeUnit.SECONDS))
+        assertTrue(snapshots.any { it.status == ItemReferenceStatus.LOADING && it.loadedCount == 0 && it.totalCount == 2 })
+        assertEquals(1, service.itemReferences.snapshot.loadedCount)
+        assertEquals(2, service.itemReferences.snapshot.totalCount)
+        assertTrue(service.itemReferences.snapshot.items.isEmpty())
+        snapshots.clear()
+        store.failedId = null
+        service.itemReferences.load(force = true).get(5, TimeUnit.SECONDS)
+        assertEquals(0, snapshots.first().loadedCount)
+        assertEquals(2, service.itemReferences.snapshot.loadedCount)
+        assertEquals(2, service.itemReferences.snapshot.totalCount)
+        assertEquals(ItemReferenceStatus.READY, service.itemReferences.snapshot.status)
+    }
+
     private fun withService(action: (EditorDataService, CountingStore) -> Unit) {
         val directory = createTempDirectory("item-reference-cache").toFile()
         val store = CountingStore()

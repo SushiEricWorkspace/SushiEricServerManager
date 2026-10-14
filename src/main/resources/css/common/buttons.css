@@ -106,3 +106,8 @@
 .btn-secondary:hover {
     -fx-background-color: -fx-hover-color;
 }
+
+.sidebar-validation-status {
+    -fx-font-size: 11px;
+    -fx-text-fill: #c8b778;
+}

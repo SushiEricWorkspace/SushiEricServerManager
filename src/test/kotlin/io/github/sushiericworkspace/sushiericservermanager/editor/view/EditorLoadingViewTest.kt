@@ -38,6 +38,108 @@ class EditorLoadingViewTest {
         checkStartup(EditorDataDescriptors.recipe)
     }
 
+    @Test
+    fun `背景取得の失敗を行と件数に表示し人間の再取得だけで回復する`() {
+        fixture(EditorDataDescriptors.ore) { f ->
+            val entered = CountDownLatch(1)
+            val release = CountDownLatch(1)
+            f.store.beforeLoad = { id -> if (id == "b") { entered.countDown(); assertTrue(release.await(10, TimeUnit.SECONDS)) } }
+            f.store.failedId = "b"
+            try {
+                fx { f.main.switchView(f.view) }
+                assertTrue(entered.await(10, TimeUnit.SECONDS))
+                fx {
+                    assertEquals(SidebarValidationStatus.CHECKING, f.view.sidebarState("b").validationStatus)
+                    assertTrue((f.root.lookup("#sidebarStatus") as Label).text.contains("0 / 1"))
+                    assertFalse(f.main.loadingRunning)
+                    assertFalse(f.main.sidebarContainer.isDisabled)
+                    f.main.showOperation("保存の工程")
+                    assertEquals("保存の工程", (f.root.lookup("#topInfoLabel") as Label).text)
+                    f.main.finishOperation()
+                }
+                release.countDown()
+                awaitFx { f.view.sidebarState("b").validationStatus == SidebarValidationStatus.FAILED }
+                fx {
+                    assertNull(f.view.cached("b"))
+                    assertTrue((f.root.lookup("#sidebarStatus") as Label).text.contains("取得失敗 1 件"))
+                    f.view.preload()
+                    assertEquals(SidebarValidationStatus.FAILED, f.view.sidebarState("b").validationStatus)
+                    f.store.failedId = null
+                    (f.root.lookup("#sidebarRetry") as Button).fire()
+                }
+                awaitFx { f.view.cached("b") != null }
+                fx {
+                    assertEquals(SidebarValidationStatus.CHECKED, f.view.sidebarState("b").validationStatus)
+                    assertTrue((f.root.lookup("#sidebarStatus") as Label).text.contains("1 / 1"))
+                    assertFalse((f.root.lookup("#sidebarRetry") as Button).isVisible)
+                }
+            } finally { release.countDown() }
+        }
+    }
+
+    @Test
+    fun `背景取得中に編集キャッシュが追加されても結果で上書きしない`() {
+        fixture(EditorDataDescriptors.ore) { f ->
+            val entered = CountDownLatch(1)
+            val release = CountDownLatch(1)
+            f.store.beforeLoad = { id -> if (id == "b") { entered.countDown(); assertTrue(release.await(10, TimeUnit.SECONDS)) } }
+            try {
+                fx { f.main.switchView(f.view) }
+                assertTrue(entered.await(10, TimeUnit.SECONDS))
+                val original = f.service.ores.createDefault("b")
+                val edited = original.deepCopy().apply { completed = !original.completed }
+                fx { f.view.seed(original, edited) }
+                release.countDown()
+                awaitFx { (f.root.lookup("#sidebarStatus") as Label).text.contains("完了") }
+                fx { assertEquals(edited, f.view.cached("b")); assertEquals(original, f.view.original("b")) }
+            } finally { release.countDown() }
+        }
+    }
+
+    @Test
+    fun `背景取得中に画面を閉じても行と進捗を反映しない`() {
+        fixture(EditorDataDescriptors.ore) { f ->
+            val entered = CountDownLatch(1)
+            val release = CountDownLatch(1)
+            f.store.beforeLoad = { id -> if (id == "b") { entered.countDown(); assertTrue(release.await(10, TimeUnit.SECONDS)) } }
+            try {
+                fx { f.main.switchView(f.view) }
+                assertTrue(entered.await(10, TimeUnit.SECONDS))
+                val closed = CompletableFuture<Boolean>()
+                fx { f.view.onClose { success -> f.stage.close(); closed.complete(success) } }
+                release.countDown()
+                assertTrue(closed.get(10, TimeUnit.SECONDS))
+                f.service.submitIo {}.get(10, TimeUnit.SECONDS)
+                fx { assertNull(f.view.cached("b")); assertEquals("", (f.root.lookup("#sidebarStatus") as Label).text) }
+            } finally { release.countDown() }
+        }
+    }
+
+    @Test
+    fun `接続終了を取り消すと抑止した背景取得を再開する`() {
+        fixture(EditorDataDescriptors.ore) { f ->
+            val entered = CountDownLatch(1)
+            val release = CountDownLatch(1)
+            f.store.beforeLoad = { id -> if (id == "b") { entered.countDown(); assertTrue(release.await(10, TimeUnit.SECONDS)) } }
+            try {
+                fx { f.main.switchView(f.view) }
+                assertTrue(entered.await(10, TimeUnit.SECONDS))
+                val prepared = CompletableFuture<Boolean>()
+                fx { f.view.prepareClose { prepared.complete(it) } }
+                release.countDown()
+                assertTrue(prepared.get(10, TimeUnit.SECONDS))
+                fx {
+                    assertNull(f.view.cached("b"))
+                    assertTrue(f.main.operationRunning)
+                    f.view.cancelClose()
+                    assertFalse(f.main.operationRunning)
+                }
+                awaitFx { f.view.cached("b") != null }
+                fx { assertEquals(SidebarValidationStatus.CHECKED, f.view.sidebarState("b").validationStatus) }
+            } finally { release.countDown() }
+        }
+    }
+
     private fun <T : ManagedData<T, *>> checkStartup(descriptor: EditorDataDescriptor<T>) {
         fixture(descriptor) { f ->
             val entered = CountDownLatch(1)
@@ -312,6 +414,7 @@ class EditorLoadingViewTest {
         val shown = mutableListOf<String>()
         fun seed(base: T, local: T) { originalDataMap[base.id] = base; editingDataMap[base.id] = local }
         fun cached(id: String): T? = editingDataMap[id]
+        fun preload() = preloadSidebarDataForVisualStates(registeredSidebarIds)
         fun original(id: String): T? = originalDataMap[id]
         fun saveOutcome(): SaveOutcome { var result = SaveOutcome.FAILED; onSave { result = it }; return result }
         override fun setupMainContent(selectData: T) { assertTrue(Platform.isFxApplicationThread()); shown += selectData.id; main.mainContentContainer.children.setAll(Label(selectData.id)) }
@@ -323,6 +426,7 @@ class EditorLoadingViewTest {
         var emptyList = false
         var listFailure = false
         var loadFailure = false
+        var failedId: String? = null
         @Volatile var available = true
         override val isAvailable get() = available
         val ioThreads = CopyOnWriteArrayList<Boolean>()
@@ -342,7 +446,7 @@ class EditorLoadingViewTest {
         override fun <T : ManagedData<T, *>> load(descriptor: EditorDataDescriptor<T>, id: String): StoreResult<T> {
             ioThreads += Platform.isFxApplicationThread()
             beforeLoad?.invoke(id)
-            if (loadFailure) return StoreResult.Failure(StoreError(StoreErrorCode.IO_ERROR, id))
+            if (loadFailure || id == failedId) return StoreResult.Failure(StoreError(StoreErrorCode.IO_ERROR, id))
             return memory.load(descriptor, id)
         }
     }

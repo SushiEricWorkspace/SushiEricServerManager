@@ -6,16 +6,21 @@ import io.github.sushiericworkspace.sushiericservermanager.editor.service.ItemRe
 import io.github.sushiericworkspace.sushiericservermanager.editor.store.StoreError
 import io.github.sushiericworkspace.sushiericservermanager.editor.store.StoreResult
 import javafx.application.Platform
+import java.util.concurrent.atomic.AtomicBoolean
 
-/** 共有キャッシュの通知をFXスレッドへ届け、画面終了後の通知を抑止します。 */
+/** 共有キャッシュの通知をFXスレッドへまとめて届けます。背景取得の失敗は状態表示に委ね、明示操作の失敗だけ通知します。 */
 internal class ItemReferenceBinding(
     private val cache: ItemReferenceCache,
     private val onChanged: () -> Unit,
     private val onFailed: (StoreError) -> Unit
 ) : AutoCloseable {
     private var closed = false
+    private val notificationPending = AtomicBoolean()
     private val listener: (ItemReferenceSnapshot) -> Unit = {
-        Platform.runLater { if (!closed) onChanged() }
+        if (notificationPending.compareAndSet(false, true)) Platform.runLater {
+            notificationPending.set(false)
+            if (!closed) onChanged()
+        }
     }
 
     init {
@@ -24,6 +29,7 @@ internal class ItemReferenceBinding(
 
     fun load(force: Boolean = false, onLoaded: (() -> Unit)? = null) {
         if (closed) return
+        if (!force && onLoaded == null && cache.snapshot.status == ItemReferenceStatus.FAILED) return
         if (!force && cache.snapshot.status == ItemReferenceStatus.READY) {
             onLoaded?.invoke()
             return
@@ -33,7 +39,7 @@ internal class ItemReferenceBinding(
                 if (!closed) {
                     when (result) {
                         is StoreResult.Success -> onLoaded?.invoke()
-                        is StoreResult.Failure -> onFailed(result.error)
+                        is StoreResult.Failure -> if (force || onLoaded != null) onFailed(result.error)
                     }
                 }
             }
