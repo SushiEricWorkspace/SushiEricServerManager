@@ -167,10 +167,10 @@ abstract class EditorView<T : ManagedData<T, *>>(
     private var syncBusy = false
     val saveRunning: Boolean get() = main.operationRunning
     internal open val closeBusy: Boolean get() = saveRunning || main.loadingRunning || dataService.activeSaves > 0 || syncBusy || repairBusy || uploadBusy || closing
-    internal val storeOperationBlocked: Boolean get() = dataService.activeSaves > 0 || main.loadingRunning || closing || closed || EditorWindowManager.isClosing
+    internal val storeOperationBlocked: Boolean get() = dataService.activeSaves > 0 || main.loadingRunning || repairBusy || closing || closed || EditorWindowManager.isClosing
     private val saveListener = ChangeListener<Number> { _, _, count ->
-        main.actionButtonContainer.isDisable = count.toInt() > 0 || main.loadingRunning || closing
-        main.sidebarContainer.isDisable = count.toInt() > 0 || closing
+        main.actionButtonContainer.isDisable = count.toInt() > 0 || main.loadingRunning || main.operationRunning || closing
+        main.sidebarContainer.isDisable = count.toInt() > 0 || main.operationRunning || closing
     }
 
     init {
@@ -651,7 +651,7 @@ abstract class EditorView<T : ManagedData<T, *>>(
      * @param targetId 選択対象となるリソースの識別子（ID）
      */
     open fun selectTab(targetId: String) {
-        if (closed || closing || (dataService.activeSaves > 0 && sidebarRefresh == null)) return
+        if (closed || closing || repairBusy || (dataService.activeSaves > 0 && sidebarRefresh == null)) return
         if (isPendingStoreDeletion(targetId)) return
         commitPendingTextEdit()
         val previousId = currentSelectedDataId
@@ -1543,7 +1543,7 @@ abstract class EditorView<T : ManagedData<T, *>>(
         items: ValidationContextMenuItems
     ) {
         val errors = editingDataMap[id]?.let(::validationErrors).orEmpty()
-        items.repairWarnings.isDisable = errors.none { it.isWarning }
+        items.repairWarnings.isDisable = storeOperationBlocked || errors.none { it.isWarning }
         items.repairErrors.isDisable = errors.none { it.isError }
     }
 
@@ -1594,7 +1594,9 @@ abstract class EditorView<T : ManagedData<T, *>>(
     }
 
     private fun repairWarnings(ids: Collection<String>, confirmBatch: Boolean) {
-        if (storeOperationBlocked || repairBusy) return
+        if (storeOperationBlocked || syncBusy || saveRunning) return
+        main.mainContentContainer.requestFocus()
+        commitPendingTextEdit()
         val targets = ids.mapNotNull { id ->
             val data = editingDataMap[id] ?: return@mapNotNull null
             val warnings = validationErrors(data).filter { it.isWarning }
@@ -1602,83 +1604,124 @@ abstract class EditorView<T : ManagedData<T, *>>(
         }
         if (targets.isEmpty()) return
 
-        val supportedDescriptions = targets.flatMap { (id, _, warnings) ->
-            warnings.mapNotNull { warning ->
-                validationRepairRegistry.description(warning)?.let { "$id: $it" }
-            }
+        repairBusy = true
+        main.showOperation("警告修正 0/${targets.size} 件")
+        fun finish() {
+            repairBusy = false
+            main.finishOperation()
+            main.actionButtonContainer.isDisable = storeOperationBlocked
+            main.sidebarContainer.isDisable = storeOperationBlocked
         }
-        if (confirmBatch) {
-            val confirmed = CustomDialog.confirmation()
-                .title("全警告の修正")
-                .header("${targets.size} 件のデータにある警告を修正します")
-                .content(
-                    listOf(
-                        "修正可能な警告: ${supportedDescriptions.size} 件",
-                        "変更は未保存状態として反映し、自動でサーバーへ保存しません。"
-                    ) + supportedDescriptions.take(8)
-                )
+        fun fail(error: Throwable) {
+            finish()
+            logger.error("警告の修正中に例外が発生しました", error)
+            CustomDialog.error(ErrorType.INTERNAL_ERROR)
+                .content("警告の修正中に例外が発生しました。編集内容は保持しています。")
                 .owner(main.currentStage)
                 .show()
-            if (!confirmed) return
         }
-
-        repairBusy = true
-        val task = object : Task<WarningRepairBatch<T>>() {
-            override fun call(): WarningRepairBatch<T> {
-                val updated = mutableMapOf<String, T>()
-                val applied = mutableListOf<String>()
-                val failures = mutableListOf<String>()
-
-                targets.forEach { (id, data, warnings) ->
-                    var changed = false
-                    warnings.sortedByDescending { (it.key as? Int) ?: Int.MIN_VALUE }
-                        .forEach { warning ->
-                            when (val result = validationRepairRegistry.repair(data, warning)) {
-                                is ValidationRepairResult.Applied -> {
-                                    changed = true
-                                    applied += "$id: ${result.description}"
-                                }
-                                is ValidationRepairResult.Failed ->
-                                    failures += "$id: ${result.reason}"
-                                ValidationRepairResult.Unsupported ->
-                                    failures += "$id: 自動修正に対応していません (${warning.message})"
-                            }
-                        }
-                    if (changed) updated[id] = data
+        try {
+            val supportedDescriptions = targets.flatMap { (id, _, warnings) ->
+                warnings.mapNotNull { warning ->
+                    validationRepairRegistry.description(warning)?.let { "$id: $it" }
                 }
-                return WarningRepairBatch(updated, applied, failures)
             }
-        }
-        task.setOnSucceeded {
-            repairBusy = false
-            val result = task.value
-            result.updated.forEach { (id, data) -> editingDataMap[id] = data }
-            result.updated.keys.forEach(::refreshSidebarState)
-            currentSelectedDataId
-                ?.takeIf(result.updated::containsKey)
-                ?.let { setupMainContent(editingDataMap.getValue(it)) }
-            if (result.updated.isNotEmpty()) executeAutoSave()
-
-            if (result.failures.isNotEmpty()) {
-                CustomDialog.error()
-                    .title("警告を修正できませんでした")
-                    .header("失敗した項目: ${result.failures.size} 件")
-                    .content(result.failures)
+            if (confirmBatch) {
+                val confirmed = CustomDialog.confirmation()
+                    .title("全警告の修正")
+                    .header("${targets.size} 件のデータにある警告を修正します")
+                    .content(
+                        listOf(
+                            "修正可能な警告: ${supportedDescriptions.size} 件",
+                            "変更は未保存状態として反映し、自動でサーバーへ保存しません。"
+                        ) + supportedDescriptions.take(8)
+                    )
                     .owner(main.currentStage)
                     .show()
-            } else if (result.applied.isNotEmpty()) {
-                main.showTimedTopLabel("${result.applied.size} 件の警告を修正しました", Color.GREENYELLOW)
+                if (!confirmed) { finish(); return }
             }
+
+            val task = object : Task<WarningRepairBatch<T>>() {
+                override fun call(): WarningRepairBatch<T> {
+                    val updated = mutableMapOf<String, T>()
+                    val applied = mutableListOf<String>()
+                    val failures = mutableListOf<String>()
+
+                    targets.forEachIndexed { index, (id, snapshot, warnings) ->
+                        var data = snapshot
+                        var changed = false
+                        warnings.sortedByDescending { (it.key as? Int) ?: Int.MIN_VALUE }
+                            .forEach { warning ->
+                                val description = validationRepairRegistry.description(warning) ?: warning.message
+                                updateMessage("警告修正 $index/${targets.size} 件 / $id / $description")
+                                val candidate = data.deepCopy()
+                                val result = try {
+                                    validationRepairRegistry.repair(candidate, warning)
+                                } catch (error: Exception) {
+                                    logger.error("警告の修正に失敗しました: id={}, warning={}", id, warning, error)
+                                    ValidationRepairResult.Failed("修正中に例外が発生しました (${warning.message})")
+                                }
+                                when (result) {
+                                    is ValidationRepairResult.Applied -> {
+                                        data = candidate
+                                        changed = true
+                                        applied += "$id: ${result.description}"
+                                    }
+                                    is ValidationRepairResult.Failed -> failures += "$id: ${result.reason}"
+                                    ValidationRepairResult.Unsupported ->
+                                        failures += "$id: 自動修正に対応していません (${warning.message})"
+                                }
+                            }
+                        if (changed) updated[id] = data
+                        updateMessage("警告修正 ${index + 1}/${targets.size} 件 / $id")
+                    }
+                    return WarningRepairBatch(updated, applied, failures)
+                }
+            }
+            task.messageProperty().addListener { _, _, message -> main.showOperation(message) }
+            task.setOnSucceeded {
+                val result = task.value
+                result.updated.forEach { (id, data) -> editingDataMap[id] = data }
+                val failures = result.failures.toMutableList()
+                try {
+                    result.updated.keys.forEach(::refreshSidebarState)
+                    currentSelectedDataId
+                        ?.takeIf(result.updated::containsKey)
+                        ?.let { setupMainContent(editingDataMap.getValue(it)) }
+                } catch (error: Exception) {
+                    logger.error("修正後の表示更新に失敗しました", error)
+                    failures += "表示更新に失敗しました。修正した編集内容は保持しています。"
+                }
+                val completed: (Boolean) -> Unit = { backedUp ->
+                    finish()
+                    if (!backedUp) failures += "バックアップに失敗しました。修正した編集内容は保持しています。退避を再試行してください。"
+                    if (failures.isNotEmpty()) {
+                        CustomDialog.error()
+                            .title("警告修正の結果")
+                            .header("修正済み: ${result.applied.size} 件 / 未対応・失敗: ${failures.size} 件")
+                            .content(failures)
+                            .owner(main.currentStage)
+                            .show()
+                    } else if (result.applied.isNotEmpty()) {
+                        main.showTimedTopLabel("${result.applied.size} 件の警告を修正し、バックアップしました", Color.GREENYELLOW)
+                    }
+                }
+                if (result.updated.isEmpty()) completed(true)
+                else {
+                    main.showOperation("警告修正 ${targets.size}/${targets.size} 件 / ローカルバックアップを更新しています")
+                    try {
+                        requestBackup(allowDuringOperation = true, onComplete = completed)
+                    } catch (error: Exception) {
+                        logger.error("修正後のバックアップ開始に失敗しました", error)
+                        completed(false)
+                    }
+                }
+            }
+            task.setOnFailed { fail(task.exception) }
+            dataService.executeIo(task)
+        } catch (error: Exception) {
+            fail(error)
         }
-        task.setOnFailed {
-            repairBusy = false
-            logger.error("警告の修正中に例外が発生しました", task.exception)
-            CustomDialog.error(ErrorType.INTERNAL_ERROR)
-                .content("警告の修正中に例外が発生しました。")
-                .owner(main.currentStage)
-                .show()
-        }
-        dataService.executeIo(task)
     }
 
     private fun focusFirstError(ids: Collection<String>, confirmBatch: Boolean) {
