@@ -17,6 +17,7 @@ import io.github.sushiericworkspace.sushiericservermanager.editor.session.Editor
 import io.github.sushiericworkspace.sushiericservermanager.editor.upload.LocalDataUploader
 import io.github.sushiericworkspace.sushiericservermanager.editor.upload.UploadDataCategory
 import io.github.sushiericworkspace.sushiericservermanager.editor.service.EditorSyncService
+import io.github.sushiericworkspace.sushiericservermanager.editor.service.EditorSyncSnapshot
 import io.github.sushiericworkspace.sushiericservermanager.editor.merge.ThreeWayMergeResult
 import io.github.sushiericworkspace.sushiericservermanager.editor.store.EditorDataDescriptors
 import io.github.sushiericworkspace.sushiericservermanager.editor.store.StoreResource
@@ -615,15 +616,15 @@ abstract class EditorView<T : ManagedData<T, *>>(
     }
 
     fun onSynchronizeSelected() {
-        if (storeOperationBlocked) return
+        if (storeOperationBlocked || saveRunning || main.loadingRunning || syncBusy || repairBusy || closing || closed) return
         val id = currentSelectedDataId ?: return
-        if (!dataService.isRemote || syncBusy || hasPendingStoreOperation(id)) return
+        if (!dataService.isRemote || hasPendingStoreOperation(id)) return
         synchronizeSelected()
     }
 
     fun onSynchronizeAll() {
-        if (storeOperationBlocked) return
-        if (!dataService.isRemote || syncBusy || pendingStoreOperations.isNotEmpty()) return
+        if (storeOperationBlocked || saveRunning || main.loadingRunning || syncBusy || repairBusy || closing || closed) return
+        if (!dataService.isRemote || pendingStoreOperations.isNotEmpty()) return
         synchronizeAll()
     }
 
@@ -1916,31 +1917,52 @@ abstract class EditorView<T : ManagedData<T, *>>(
         }
 
         setSyncBusy(true)
+        dataService.beginSave()
+        main.showOperation("同期対象を取得しています: ${dataId}")
         val task = object : Task<StoreResult<T>>() {
             override fun call(): StoreResult<T> = syncService.fetchOne(dataId)
         }
         task.setOnSucceeded {
-            setSyncBusy(false)
+            if (closed || !syncBusy || currentSelectedDataId != dataId) {
+                finishSync("選択が変わったため同期結果を適用しませんでした。", Color.ORANGE)
+                return@setOnSucceeded
+            }
             when (val result = task.value) {
                 is StoreResult.Success -> {
                     val latest = result.value
-                    editingDataMap[dataId] = latest.deepCopy()
-                    originalDataMap[dataId] = latest.deepCopy()
-                    editHistory.reset(dataId, latest)
-                    mergeConflicts.remove(dataId)
-                    removeLocalBackup(dataId)
-                    setupMainContent(editingDataMap.getValue(dataId))
-                    refreshSidebarState(dataId)
-                    main.showTimedTopLabel("$dataId を同期しました", Color.GREENYELLOW)
+                    persistSyncBackup(setOf(dataId)) { backedUp ->
+                        if (!syncBusy || closed || currentSelectedDataId != dataId) {
+                            finishSync("選択が変わったため同期結果を適用しませんでした。", Color.ORANGE)
+                            return@persistSyncBackup
+                        }
+                        if (!backedUp) {
+                            finishSync("$dataId の同期後にバックアップを整理できませんでした。編集中データを保持しています。", Color.ORANGERED)
+                            return@persistSyncBackup
+                        }
+                        try {
+                            editingDataMap[dataId] = latest.deepCopy()
+                            originalDataMap[dataId] = latest.deepCopy()
+                            editHistory.reset(dataId, latest)
+                            mergeConflicts.remove(dataId)
+                            setupMainContent(editingDataMap.getValue(dataId))
+                            refreshSidebarState(dataId)
+                            finishSync("$dataId を同期しました", Color.GREENYELLOW)
+                        } catch (error: Exception) {
+                            logger.error("$dataId の同期結果を画面へ反映できませんでした", error)
+                            finishSync("$dataId の同期データは取得しましたが、画面への反映に失敗しました。", Color.ORANGERED)
+                        }
+                    }
                 }
-                is StoreResult.Failure -> showSyncFailure(dataId, result)
-                null -> main.showTimedTopLabel("$dataId の同期に失敗しました", Color.ORANGERED)
+                is StoreResult.Failure -> {
+                    finishSync()
+                    showSyncFailure(dataId, result)
+                }
+                null -> finishSync("$dataId の同期に失敗しました", Color.ORANGERED)
             }
         }
         task.setOnFailed {
-            setSyncBusy(false)
             logger.error("$dataId の同期に失敗しました", task.exception)
-            main.showTimedTopLabel("$dataId の同期に失敗しました", Color.ORANGERED)
+            finishSync("$dataId の同期に失敗しました", Color.ORANGERED)
         }
         dataService.executeIo(task)
     }
@@ -1948,28 +1970,48 @@ abstract class EditorView<T : ManagedData<T, *>>(
     private fun synchronizeAll() {
         if (pendingStoreOperations.isNotEmpty()) return
         setSyncBusy(true)
-        val task = object : Task<StoreResult<Map<String, T>>>() {
-            override fun call(): StoreResult<Map<String, T>> = syncService.fetchAll()
+        dataService.beginSave()
+        main.showOperation("すべて同期の一覧を取得しています")
+        val task = object : Task<StoreResult<EditorSyncSnapshot<T>>>() {
+            override fun call(): StoreResult<EditorSyncSnapshot<T>> = syncService.fetchAll { completed, total, id ->
+                val target = id?.let { ": $it" }.orEmpty()
+                updateMessage("すべて同期のデータを取得しています ($completed/$total)$target")
+            }
+        }
+        task.messageProperty().addListener { _, _, message ->
+            if (syncBusy && task.isRunning && !closed) main.showOperation(message)
         }
         task.setOnSucceeded {
-            setSyncBusy(false)
+            if (closed || !syncBusy) return@setOnSucceeded
             when (val result = task.value) {
-                is StoreResult.Failure -> showSyncFailure(dataAccess.displayName, result)
-                is StoreResult.Success -> confirmAndApplyAllSync(result.value)
-                null -> main.showTimedTopLabel("すべて同期に失敗しました", Color.ORANGERED)
+                is StoreResult.Failure -> {
+                    finishSync()
+                    showSyncFailure(dataAccess.displayName, result)
+                }
+                is StoreResult.Success -> {
+                    main.showOperation("すべて同期の結果を確認しています (${result.value.data.size} 件)")
+                    try {
+                        confirmAndApplyAllSync(result.value)
+                    } catch (error: Exception) {
+                        logger.error("すべて同期の確認または反映に失敗しました", error)
+                        finishSync("すべて同期の結果を適用できませんでした。編集中データを保持しています。", Color.ORANGERED)
+                    }
+                }
+                null -> finishSync("すべて同期に失敗しました", Color.ORANGERED)
             }
         }
         task.setOnFailed {
-            setSyncBusy(false)
             logger.error("${dataAccess.displayName}の全同期に失敗しました", task.exception)
-            main.showTimedTopLabel("すべて同期に失敗しました", Color.ORANGERED)
+            finishSync("すべて同期に失敗しました", Color.ORANGERED)
         }
         dataService.executeIo(task)
     }
 
-    private fun confirmAndApplyAllSync(remoteData: Map<String, T>) {
-        val unsavedCount = editingDataMap.count { (id, data) -> data != originalDataMap[id] }
-        val missingCacheCount = editingDataMap.keys.count { it !in remoteData }
+    private fun confirmAndApplyAllSync(snapshot: EditorSyncSnapshot<T>) {
+        val remoteData = snapshot.data
+        val replacedIds = remoteDataIds + remoteData.keys
+        val unsavedCount = editingDataMap.count { (id, data) -> id in remoteDataIds && data != originalDataMap[id] }
+        val missingCacheCount = editingDataMap.keys.count { it in remoteDataIds && it !in remoteData }
         val confirmed = CustomDialog.confirmation()
             .title("すべて同期の確認")
             .header("${dataAccess.displayName}データ ${remoteData.size} 件をサーバーと同じ状態にします")
@@ -1983,25 +2025,76 @@ abstract class EditorView<T : ManagedData<T, *>>(
             )
             .owner(main.currentStage)
             .show()
-        if (!confirmed) return
+        if (!confirmed) {
+            finishSync("すべて同期をキャンセルしました。編集中データを保持しています。", Color.WHITE)
+            return
+        }
 
         val previousSelection = currentSelectedDataId
-        removedBackupIds.addAll(editingDataMap.keys)
-        editingDataMap.clear()
-        originalDataMap.clear()
-        editHistory.clear()
-        remoteData.forEach { (id, data) ->
-            editingDataMap[id] = data.deepCopy()
-            originalDataMap[id] = data.deepCopy()
-            editHistory.reset(id, data)
+        main.showOperation("すべて同期のバックアップを整理しています (${remoteData.size} 件)")
+        persistSyncBackup(replacedIds) { backedUp ->
+            if (!syncBusy || closed) return@persistSyncBackup
+            if (!backedUp) {
+                finishSync("バックアップを整理できず、同期結果を適用しませんでした。編集中データを保持しています。", Color.ORANGERED)
+                return@persistSyncBackup
+            }
+            try {
+                replacedIds.forEach { id ->
+                    editingDataMap.remove(id)
+                    originalDataMap.remove(id)
+                    editHistory.remove(id)
+                    mergeConflicts.remove(id)
+                }
+                remoteData.forEach { (id, data) ->
+                    editingDataMap[id] = data.deepCopy()
+                    originalDataMap[id] = data.deepCopy()
+                    editHistory.reset(id, data)
+                }
+                remoteDataIds = remoteData.keys
+                val localIds = editingDataMap.keys - remoteDataIds
+                val selected = previousSelection?.takeIf { it in remoteDataIds || it in localIds }
+                sidebarRefresh = snapshot.resources to snapshot.directories
+                try { setupSidebar(main.sidebarContainer, selected) }
+                finally { sidebarRefresh = null }
+                if (selected == null && remoteData.isEmpty()) main.mainContentContainer.children.clear()
+                finishSync("${dataAccess.displayName}データ ${remoteData.size} 件を同期しました", Color.GREENYELLOW)
+            } catch (error: Exception) {
+                logger.error("すべて同期の結果を画面へ反映できませんでした", error)
+                finishSync("同期データを反映しましたが、画面の更新に失敗しました。", Color.ORANGERED)
+            }
         }
-        mergeConflicts.clear()
-        requestBackup()
-        setupSidebar(main.sidebarContainer, previousSelection?.takeIf { it in remoteData })
-        main.showTimedTopLabel(
-            "${dataAccess.displayName}データ ${remoteData.size} 件を同期しました",
-            Color.GREENYELLOW
+    }
+
+    private fun persistSyncBackup(removingIds: Set<String>, onComplete: (Boolean) -> Unit) {
+        val entries = editingDataMap.mapNotNull { (id, editing) ->
+            if (id in removingIds) return@mapNotNull null
+            val original = originalDataMap[id] ?: return@mapNotNull null
+            if (editing == original && !hasPendingStoreOperation(id)) return@mapNotNull null
+            id to (editing.deepCopy() to original.deepCopy())
+        }.toMap()
+        val removed = removedBackupIds + removingIds + (editingDataMap.keys - entries.keys)
+        val snapshot = LocalBackupSnapshot(
+            ++backupGeneration, entries, removed,
+            pendingStoreOperations.values.map(PendingStoreOperation::toRecord)
         )
+        dataAccess.persistBackup(snapshot).whenComplete { success, error ->
+            Platform.runLater {
+                val saved = error == null && success == true
+                if (error != null) logger.error("同期前のローカルバックアップ整理に失敗しました", error)
+                if (snapshot.generation == backupGeneration && !closed && saved) {
+                    removedBackupIds.removeAll(snapshot.removedIds)
+                }
+                onComplete(saved && snapshot.generation == backupGeneration && !closed)
+            }
+        }
+    }
+
+    private fun finishSync(message: String? = null, color: Color = Color.WHITE) {
+        if (!syncBusy) return
+        main.finishOperation()
+        dataService.endSave()
+        setSyncBusy(false)
+        message?.let { main.showTimedTopLabel(it, color) }
     }
 
     private fun setSyncBusy(busy: Boolean) {

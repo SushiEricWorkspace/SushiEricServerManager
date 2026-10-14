@@ -39,6 +39,35 @@ import kotlin.test.*
 @EnabledOnOs(OS.MAC, OS.WINDOWS)
 class EditorSingleSaveTest {
     @Test
+    fun `単体同期中は工程を表示して操作と閉じる操作を止める`() = withFixture(EditorDataDescriptors.item) { fixture ->
+        val entered = CountDownLatch(1)
+        val release = CountDownLatch(1)
+        fixture.store.beforeLoad = { entered.countDown(); assertTrue(release.await(10, TimeUnit.SECONDS)) }
+        fx { fixture.logic.syncSelected() }
+        try {
+            assertTrue(entered.await(10, TimeUnit.SECONDS))
+            fx {
+                assertTrue(fixture.main.operationRunning)
+                assertTrue(fixture.main.mainContentContainer.isDisabled)
+                assertTrue(fixture.main.sidebarContainer.isDisabled)
+                assertTrue((fixture.root.lookup("#operationProgress") as ProgressIndicator).isVisible)
+                assertTrue((fixture.root.lookup("#topInfoLabel") as Label).text.contains("saved"))
+                fixture.logic.onClose { assertFalse(it) }
+                fixture.logic.onSynchronizeSelected()
+                assertTrue(fixture.main.operationRunning)
+            }
+        } finally { release.countDown() }
+        val deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(10)
+        while (fx { fixture.main.operationRunning } && System.nanoTime() < deadline) Thread.sleep(20)
+        fx {
+            assertFalse(fixture.main.operationRunning)
+            assertTrue(fixture.logic.unchanged())
+            assertEquals(1, fixture.store.loads)
+        }
+        assertTrue(fixture.store.ioThreads.all { !it })
+    }
+
+    @Test
     fun `全種別の保存で取得と書込みを背景実行し待機中もFXが応答する`() {
         verifySave(EditorDataDescriptors.item)
         verifySave(EditorDataDescriptors.ore)
@@ -906,10 +935,12 @@ class EditorSingleSaveTest {
         override fun validationErrors(data: T): List<SushiEricValidationError> = warnings ?: super.validationErrors(data)
         fun seed(base: T, edit: T) {
             currentSelectedDataId = base.id
+            remoteDataIds = setOf(base.id)
             originalDataMap[base.id] = base
             editingDataMap[base.id] = edit
             setupMainContent(edit)
         }
+        fun syncSelected() { onSynchronizeSelected() }
         fun backup(): CompletableFuture<Boolean> = CompletableFuture<Boolean>().also { done ->
             executeAutoSave { done.complete(it) }
         }
