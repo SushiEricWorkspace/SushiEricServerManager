@@ -16,11 +16,7 @@ EditorDataStoreのオフライン領域です。SushiEricDataModelモデルや�
 開発配布は`development/build/install/SushiEricServerManager-Development/`へ生成され、
 正式更新の配布・jpackage・リリースタスクへ渡しません。
 
-```text
-gradlew :run -PdataModelDevelopmentRepository=<Maven絶対パス>
-gradlew :development:run -PdataModelDevelopmentRepository=<Maven絶対パス>
-gradlew :development:installDist -PdataModelDevelopmentRepository=<Maven絶対パス>
-```
+上記の`:run`、`:development:run`、`:development:installDist`にも、[CombatCore開発依存](../development-combat-core.md)に記載した完全座標、task専用Maven発行先、DataModel/Coreの完全source commitを渡します。Editor用とCoreが使うDataModelの版は一致させます。
 
 ## 初回設定
 
@@ -175,7 +171,7 @@ snapshot/restore/recoverや非協調的な登録外writerの証明はこの接�
 JDK 21、完全なEditor SushiEricDataModel座標とrepositoryで実行します。
 
 ```text
-gradlew build verifyReleaseDistribution -PdataModelDevelopmentCoordinate=io.github.sushiericworkspace:sushieric-datamodel-editor-dev:<固定dev版> -PdataModelDevelopmentRepository=<Maven絶対パス>
+gradlew build verifyReleaseDistribution -PdataModelDevelopmentCoordinate=io.github.sushiericworkspace:sushieric-datamodel-editor-dev:<固定dev版> -PcombatCoreDevelopmentCoordinate=io.github.sushiericworkspace:sushieric-combat-core-dev:<固定dev版> -PcombatCoreDataModelCoordinate=io.github.sushiericworkspace:sushieric-datamodel-mod-dev:<同じDataModel固定dev版> -PdataModelDevelopmentRepository=<task専用Maven絶対パス> -PcombatCoreDevelopmentRepository=<同じMaven絶対パス> -PdataModelSourceCommit=<DataModel完全commit> -PcombatCoreSourceCommit=<Core完全commit>
 ```
 
 ManagedSession/ManagedLease/ManagedManagementClient/ManagedEditorDataStoreの試験はGUI・Minecraftを起動せず、合成監督と使い捨てWebSocketを使用します。

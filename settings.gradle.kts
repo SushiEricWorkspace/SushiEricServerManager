@@ -28,6 +28,22 @@ dependencyResolutionManagement {
                 )
             }
         }
+        maven {
+            name = "combatCoreDevelopment"
+            url = uri(providers.gradleProperty("combatCoreDevelopmentRepository")
+                .orElse(providers.gradleProperty("dataModelDevelopmentRepository").orElse("../.datamodel-dev-repository")).get())
+            content {
+                includeModule("io.github.sushiericworkspace", "sushieric-combat-core-dev")
+                includeModule("io.github.sushiericworkspace", "sushieric-datamodel-mod-dev")
+            }
+        }
+        maven {
+            name = "combatCoreRelease"
+            url = uri("../.combat-core-release-repository")
+            content {
+                includeModule("io.github.sushiericworkspace", "sushieric-combat-core")
+            }
+        }
         mavenCentral()
     }
 }

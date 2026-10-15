@@ -22,12 +22,12 @@ jpackageの版で先頭に1を足すのは、macOSのjpackageが先頭の数字�
 ## 成果物の作成
 
 成果物は、対応するOS上で作る。Windows用はWindows、macOS用はMacで実行する。
-どちらも、正式版のSushiEricDataModelを使うため`-PdataModelReleaseVersion=<version>`（`v`を付けない）が必要である。
+どちらも、正式版のSushiEricDataModelとCombatCoreを使うため、両方の正式版と各source commitを指定する。正式版のCoreは同じDataModel正式版へ依存している必要がある。
 
 | OS | コマンド |
 |---|---|
-| Windows | `./gradlew releaseWindowsInstaller -PdataModelReleaseVersion=<version>` |
-| macOS | `./gradlew releaseMacDmg -PdataModelReleaseVersion=<version>` |
+| Windows | `./gradlew releaseWindowsInstaller -PdataModelReleaseVersion=<DataModel版> -PcombatCoreReleaseVersion=<Core版> -PcombatCoreDataModelCoordinate=io.github.sushiericworkspace:sushieric-datamodel:<DataModel版> -PdataModelSourceCommit=<DataModel完全commit> -PcombatCoreSourceCommit=<Core完全commit>` |
+| macOS | `./gradlew releaseMacDmg -PdataModelReleaseVersion=<DataModel版> -PcombatCoreReleaseVersion=<Core版> -PcombatCoreDataModelCoordinate=io.github.sushiericworkspace:sushieric-datamodel:<DataModel版> -PdataModelSourceCommit=<DataModel完全commit> -PcombatCoreSourceCommit=<Core完全commit>` |
 
 タスクworktreeなどSushiEricDataModelの正式artifactが兄弟配置にない環境では、
 `-PdataModelReleaseRepository=<Mavenリポジトリの絶対パス>`で保存先を指定する。
@@ -39,13 +39,17 @@ jpackageの版で先頭に1を足すのは、macOSのjpackageが先頭の数字�
 別のOSの機械を使わずに作るために、GitHub Actionsのworkflow（`.github/workflows/build-installer.yml`）がある。
 手動実行（`workflow_dispatch`）だけで動き、push、pull_request、scheduleでは動かない。**人間の明示的な許可なく実行しない**（AIも同様。[AGENTS.md](../../AGENTS.md)を参照する）。
 
-準備として、SushiEricDataModelが非公開のため、リポジトリのシークレット`DATA_MODEL_REPO_TOKEN`に、SushiEricDataModelの内容を読み取れるトークン（読み取り専用）を登録する。未登録の場合、workflowはビルドの前に失敗する。
+準備として、非公開repoを読み取れるトークンをリポジトリのシークレット`DATA_MODEL_REPO_TOKEN`と`COMBAT_CORE_REPO_TOKEN`へそれぞれ登録する。未登録の場合、workflowはビルドの前に失敗する。
 
 | 入力 | 内容 |
 |---|---|
 | `os` | 作成するOS。`windows`、`macos`、`both`から選ぶ。既定は`windows` |
 | `data_model_ref` | ビルドに使うSushiEricDataModelのブランチまたはタグ。既定は`develop` |
-| `data_model_release_version` | SushiEricDataModelの正式版のバージョン（`X.Y.Z`、`v`なし）。省略すると、開発版のSushiEricDataModelで作り、指定すると正式版のSushiEricDataModelを発行して`releaseWindowsInstaller`、`releaseMacDmg`で作る |
+| `data_model_release_version` | SushiEricDataModelの正式版のバージョン（`X.Y.Z`、`v`なし）。正式版を作る場合はCombatCoreと同時に指定 |
+| `combat_core_ref` | ビルドに使うCombatCoreのブランチまたはタグ。既定は`develop` |
+| `combat_core_release_version` | CombatCoreの正式版のバージョン（`X.Y.Z`、`v`なし）。正式版を作る場合はDataModelと同時に指定 |
+
+両方の正式版を空欄にすると、同じDataModel版を参照する開発DataModel/Core artifactを発行して開発配布を作る。workflowは各source commitとartifactの固定座標をManagerへ渡す。
 
 - 成果物は、実行結果のartifact（`installer-windows`、`installer-macos-arm64`）として3日間保持される。Releaseへの添付は、手動で行う。
 - macOSの成果物は、`macos-latest`（Apple Silicon）で作るため、arm64専用である。
