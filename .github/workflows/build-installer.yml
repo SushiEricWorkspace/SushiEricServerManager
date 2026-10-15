@@ -7,7 +7,7 @@
 #   Linuxの10倍、Windowsは2倍の分数を消費する。
 #
 # 事前の準備:
-# - SushiEricDataModelは非公開のため、リポジトリのシークレットDATA_MODEL_REPO_TOKENに、SushiEricDataModelの内容を読み取れるトークンを登録する。
+# - SushiEricDataModelとSushiEricCombatCoreは非公開のため、各repoを読み取れるDATA_MODEL_REPO_TOKENとCOMBAT_CORE_REPO_TOKENを登録する。
 #
 # 手順は docs/update/release-guide.md を参照する。
 name: Build Installer
@@ -31,6 +31,14 @@ on:
         description: 'SushiEricDataModelの正式版のバージョン（例: 0.2.0）。省略すると、開発版のSushiEricDataModelで作成する'
         type: string
         default: ''
+      combat_core_ref:
+        description: 'ビルドに使うCombatCoreのブランチまたはタグ'
+        type: string
+        default: develop
+      combat_core_release_version:
+        description: 'CombatCoreの正式版のバージョン（例: 0.2.0）。DataModelと同時に指定する'
+        type: string
+        default: ''
 
 permissions:
   contents: read
@@ -43,6 +51,7 @@ env:
   # 入力値は、スクリプトへ直接埋め込まず、環境変数として渡す。
   DATA_MODEL_REF: ${{ inputs.data_model_ref }}
   DATA_MODEL_RELEASE_VERSION: ${{ inputs.data_model_release_version }}
+  COMBAT_CORE_RELEASE_VERSION: ${{ inputs.combat_core_release_version }}
 
 jobs:
   windows:
@@ -56,9 +65,22 @@ jobs:
       - name: 入力とトークンを確認する
         env:
           DATA_MODEL_REPO_TOKEN: ${{ secrets.DATA_MODEL_REPO_TOKEN }}
+          COMBAT_CORE_REPO_TOKEN: ${{ secrets.COMBAT_CORE_REPO_TOKEN }}
         run: |
           if [ -z "$DATA_MODEL_REPO_TOKEN" ]; then
             echo "::error::シークレットDATA_MODEL_REPO_TOKENが登録されていません。SushiEricDataModelを読み取れるトークンを登録してください。"
+            exit 1
+          fi
+          if [ -z "$COMBAT_CORE_REPO_TOKEN" ]; then
+            echo "::error::シークレットCOMBAT_CORE_REPO_TOKENが登録されていません。SushiEricCombatCoreを読み取れるトークンを登録してください。"
+            exit 1
+          fi
+          if { [ -n "$DATA_MODEL_RELEASE_VERSION" ] && [ -z "$COMBAT_CORE_RELEASE_VERSION" ]; } || { [ -z "$DATA_MODEL_RELEASE_VERSION" ] && [ -n "$COMBAT_CORE_RELEASE_VERSION" ]; }; then
+            echo "::error::正式版を作る場合はdata_model_release_versionとcombat_core_release_versionを両方指定してください。"
+            exit 1
+          fi
+          if [ -n "$COMBAT_CORE_RELEASE_VERSION" ] && ! [[ "$COMBAT_CORE_RELEASE_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::combat_core_release_versionはX.Y.Z形式で指定してください（vを付けない）: $COMBAT_CORE_RELEASE_VERSION"
             exit 1
           fi
           if [ -n "$DATA_MODEL_RELEASE_VERSION" ] && ! [[ "$DATA_MODEL_RELEASE_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
@@ -77,6 +99,13 @@ jobs:
           token: ${{ secrets.DATA_MODEL_REPO_TOKEN }}
           path: SushiEricDataModel
 
+      - uses: actions/checkout@v4
+        with:
+          repository: SushiEricWorkspace/SushiEricCombatCore
+          ref: ${{ inputs.combat_core_ref }}
+          token: ${{ secrets.COMBAT_CORE_REPO_TOKEN }}
+          path: SushiEricCombatCore
+
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
@@ -89,9 +118,29 @@ jobs:
         run: |
           if [ -n "$DATA_MODEL_RELEASE_VERSION" ]; then
             ./gradlew publishRelease "-PdataModelReleaseVersion=$DATA_MODEL_RELEASE_VERSION"
+            echo "DATA_MODEL_EDITOR_COORDINATE=io.github.sushiericworkspace:sushieric-datamodel:$DATA_MODEL_RELEASE_VERSION" >> "$GITHUB_ENV"
+            echo "DATA_MODEL_MOD_COORDINATE=io.github.sushiericworkspace:sushieric-datamodel:$DATA_MODEL_RELEASE_VERSION" >> "$GITHUB_ENV"
           else
-            ./gradlew publishDevelopment
+            ./gradlew publishDevelopment "-PdataModelDevelopmentRepository=../.datamodel-dev-repository"
+            editor_coordinate=$(sed -n 's/^editor=//p' build/development-publication.properties)
+            mod_coordinate=$(sed -n 's/^mod=//p' build/development-publication.properties)
+            echo "DATA_MODEL_EDITOR_COORDINATE=$editor_coordinate" >> "$GITHUB_ENV"
+            echo "DATA_MODEL_MOD_COORDINATE=$mod_coordinate" >> "$GITHUB_ENV"
           fi
+          echo "DATA_MODEL_SOURCE_COMMIT=$(git rev-parse HEAD)" >> "$GITHUB_ENV"
+
+      - name: SushiEricCombatCoreを発行する
+        working-directory: SushiEricCombatCore
+        run: |
+          if [ -n "$COMBAT_CORE_RELEASE_VERSION" ]; then
+            ./gradlew publishRelease "-PdataModelReleaseVersion=$DATA_MODEL_RELEASE_VERSION" "-PcombatCoreReleaseVersion=$COMBAT_CORE_RELEASE_VERSION"
+            echo "COMBAT_CORE_COORDINATE=io.github.sushiericworkspace:sushieric-combat-core:$COMBAT_CORE_RELEASE_VERSION" >> "$GITHUB_ENV"
+          else
+            ./gradlew publishDevelopment "-PdataModelDevelopmentCoordinate=$DATA_MODEL_MOD_COORDINATE" "-PdataModelDevelopmentRepository=../.datamodel-dev-repository" "-PcombatCoreDevelopmentRepository=../.datamodel-dev-repository"
+            core_coordinate=$(sed -n 's/^core=//p' build/development-publication.properties)
+            echo "COMBAT_CORE_COORDINATE=$core_coordinate" >> "$GITHUB_ENV"
+          fi
+          echo "COMBAT_CORE_SOURCE_COMMIT=$(git rev-parse HEAD)" >> "$GITHUB_ENV"
 
       - name: WiXをPATHへ追加する
         run: |
@@ -106,9 +155,9 @@ jobs:
         working-directory: SushiEricServerManager
         run: |
           if [ -n "$DATA_MODEL_RELEASE_VERSION" ]; then
-            ./gradlew releaseWindowsInstaller "-PdataModelReleaseVersion=$DATA_MODEL_RELEASE_VERSION"
+            ./gradlew releaseWindowsInstaller "-PdataModelReleaseVersion=$DATA_MODEL_RELEASE_VERSION" "-PcombatCoreReleaseVersion=$COMBAT_CORE_RELEASE_VERSION" "-PcombatCoreDataModelCoordinate=$DATA_MODEL_MOD_COORDINATE" "-PdataModelSourceCommit=$DATA_MODEL_SOURCE_COMMIT" "-PcombatCoreSourceCommit=$COMBAT_CORE_SOURCE_COMMIT"
           else
-            ./gradlew renameWindowsInstaller
+            ./gradlew renameWindowsInstaller "-PdataModelDevelopmentCoordinate=$DATA_MODEL_EDITOR_COORDINATE" "-PcombatCoreDevelopmentCoordinate=$COMBAT_CORE_COORDINATE" "-PcombatCoreDataModelCoordinate=$DATA_MODEL_MOD_COORDINATE" "-PdataModelDevelopmentRepository=../.datamodel-dev-repository" "-PcombatCoreDevelopmentRepository=../.datamodel-dev-repository" "-PdataModelSourceCommit=$DATA_MODEL_SOURCE_COMMIT" "-PcombatCoreSourceCommit=$COMBAT_CORE_SOURCE_COMMIT"
           fi
 
       - name: 成果物をアップロードする
@@ -127,9 +176,22 @@ jobs:
       - name: 入力とトークンを確認する
         env:
           DATA_MODEL_REPO_TOKEN: ${{ secrets.DATA_MODEL_REPO_TOKEN }}
+          COMBAT_CORE_REPO_TOKEN: ${{ secrets.COMBAT_CORE_REPO_TOKEN }}
         run: |
           if [ -z "$DATA_MODEL_REPO_TOKEN" ]; then
             echo "::error::シークレットDATA_MODEL_REPO_TOKENが登録されていません。SushiEricDataModelを読み取れるトークンを登録してください。"
+            exit 1
+          fi
+          if [ -z "$COMBAT_CORE_REPO_TOKEN" ]; then
+            echo "::error::シークレットCOMBAT_CORE_REPO_TOKENが登録されていません。SushiEricCombatCoreを読み取れるトークンを登録してください。"
+            exit 1
+          fi
+          if { [ -n "$DATA_MODEL_RELEASE_VERSION" ] && [ -z "$COMBAT_CORE_RELEASE_VERSION" ]; } || { [ -z "$DATA_MODEL_RELEASE_VERSION" ] && [ -n "$COMBAT_CORE_RELEASE_VERSION" ]; }; then
+            echo "::error::正式版を作る場合はdata_model_release_versionとcombat_core_release_versionを両方指定してください。"
+            exit 1
+          fi
+          if [ -n "$COMBAT_CORE_RELEASE_VERSION" ] && ! [[ "$COMBAT_CORE_RELEASE_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::combat_core_release_versionはX.Y.Z形式で指定してください（vを付けない）: $COMBAT_CORE_RELEASE_VERSION"
             exit 1
           fi
           if [ -n "$DATA_MODEL_RELEASE_VERSION" ] && ! [[ "$DATA_MODEL_RELEASE_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
@@ -148,6 +210,13 @@ jobs:
           token: ${{ secrets.DATA_MODEL_REPO_TOKEN }}
           path: SushiEricDataModel
 
+      - uses: actions/checkout@v4
+        with:
+          repository: SushiEricWorkspace/SushiEricCombatCore
+          ref: ${{ inputs.combat_core_ref }}
+          token: ${{ secrets.COMBAT_CORE_REPO_TOKEN }}
+          path: SushiEricCombatCore
+
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
@@ -160,17 +229,37 @@ jobs:
         run: |
           if [ -n "$DATA_MODEL_RELEASE_VERSION" ]; then
             ./gradlew publishRelease "-PdataModelReleaseVersion=$DATA_MODEL_RELEASE_VERSION"
+            echo "DATA_MODEL_EDITOR_COORDINATE=io.github.sushiericworkspace:sushieric-datamodel:$DATA_MODEL_RELEASE_VERSION" >> "$GITHUB_ENV"
+            echo "DATA_MODEL_MOD_COORDINATE=io.github.sushiericworkspace:sushieric-datamodel:$DATA_MODEL_RELEASE_VERSION" >> "$GITHUB_ENV"
           else
-            ./gradlew publishDevelopment
+            ./gradlew publishDevelopment "-PdataModelDevelopmentRepository=../.datamodel-dev-repository"
+            editor_coordinate=$(sed -n 's/^editor=//p' build/development-publication.properties)
+            mod_coordinate=$(sed -n 's/^mod=//p' build/development-publication.properties)
+            echo "DATA_MODEL_EDITOR_COORDINATE=$editor_coordinate" >> "$GITHUB_ENV"
+            echo "DATA_MODEL_MOD_COORDINATE=$mod_coordinate" >> "$GITHUB_ENV"
           fi
+          echo "DATA_MODEL_SOURCE_COMMIT=$(git rev-parse HEAD)" >> "$GITHUB_ENV"
+
+      - name: SushiEricCombatCoreを発行する
+        working-directory: SushiEricCombatCore
+        run: |
+          if [ -n "$COMBAT_CORE_RELEASE_VERSION" ]; then
+            ./gradlew publishRelease "-PdataModelReleaseVersion=$DATA_MODEL_RELEASE_VERSION" "-PcombatCoreReleaseVersion=$COMBAT_CORE_RELEASE_VERSION"
+            echo "COMBAT_CORE_COORDINATE=io.github.sushiericworkspace:sushieric-combat-core:$COMBAT_CORE_RELEASE_VERSION" >> "$GITHUB_ENV"
+          else
+            ./gradlew publishDevelopment "-PdataModelDevelopmentCoordinate=$DATA_MODEL_MOD_COORDINATE" "-PdataModelDevelopmentRepository=../.datamodel-dev-repository" "-PcombatCoreDevelopmentRepository=../.datamodel-dev-repository"
+            core_coordinate=$(sed -n 's/^core=//p' build/development-publication.properties)
+            echo "COMBAT_CORE_COORDINATE=$core_coordinate" >> "$GITHUB_ENV"
+          fi
+          echo "COMBAT_CORE_SOURCE_COMMIT=$(git rev-parse HEAD)" >> "$GITHUB_ENV"
 
       - name: インストーラーを作成する
         working-directory: SushiEricServerManager
         run: |
           if [ -n "$DATA_MODEL_RELEASE_VERSION" ]; then
-            ./gradlew releaseMacDmg "-PdataModelReleaseVersion=$DATA_MODEL_RELEASE_VERSION"
+            ./gradlew releaseMacDmg "-PdataModelReleaseVersion=$DATA_MODEL_RELEASE_VERSION" "-PcombatCoreReleaseVersion=$COMBAT_CORE_RELEASE_VERSION" "-PcombatCoreDataModelCoordinate=$DATA_MODEL_MOD_COORDINATE" "-PdataModelSourceCommit=$DATA_MODEL_SOURCE_COMMIT" "-PcombatCoreSourceCommit=$COMBAT_CORE_SOURCE_COMMIT"
           else
-            ./gradlew renameMacDmg
+            ./gradlew renameMacDmg "-PdataModelDevelopmentCoordinate=$DATA_MODEL_EDITOR_COORDINATE" "-PcombatCoreDevelopmentCoordinate=$COMBAT_CORE_COORDINATE" "-PcombatCoreDataModelCoordinate=$DATA_MODEL_MOD_COORDINATE" "-PdataModelDevelopmentRepository=../.datamodel-dev-repository" "-PcombatCoreDevelopmentRepository=../.datamodel-dev-repository" "-PdataModelSourceCommit=$DATA_MODEL_SOURCE_COMMIT" "-PcombatCoreSourceCommit=$COMBAT_CORE_SOURCE_COMMIT"
           fi
 
       - name: 成果物をアップロードする
