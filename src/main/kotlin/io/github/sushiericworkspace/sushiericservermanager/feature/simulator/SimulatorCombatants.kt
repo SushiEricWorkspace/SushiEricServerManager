@@ -28,6 +28,11 @@ private fun StatsPartSource<StatsPart, StatsType>.fixed() = StatsPartSource(
     allStats = allStats.fixed(), stats = fixedMap(stats.mapValues { (_, modifier) -> modifier.fixed() })
 )
 
+internal fun copyEquipmentSources(
+    sources: Map<StatsPart, Map<String, StatsPartSource<StatsPart, StatsType>>>
+): Map<StatsPart, Map<String, StatsPartSource<StatsPart, StatsType>>> =
+    fixedMap(sources.mapValues { (_, entries) -> fixedMap(entries.mapValues { (_, source) -> source.fixed() }) })
+
 /** 計算対象の識別子と姿勢。実Entityや画面への参照を持ちません。 */
 data class SimulatorPosition(
     val id: UUID,
@@ -67,9 +72,9 @@ class SimulatorPlayerInput(
 ) {
     val baseStats = fixedMap(baseStats)
     val skillLevels = fixedMap(skillLevels)
-    val equipmentSources = fixedMap(equipmentSources.mapValues { (_, sources) ->
-        fixedMap(sources.mapValues { (_, source) -> source.fixed() })
-    })
+    private val fixedEquipmentSources = copyEquipmentSources(equipmentSources)
+    /** 公開sourceのMap変更で固定入力の説明値とSnapshotを食い違わせない値コピーです。 */
+    val equipmentSources get() = copyEquipmentSources(fixedEquipmentSources)
     val itemTypes = fixedMap(itemTypes)
     val dynamicStats = fixedMap(dynamicStats)
     val snapshot: CombatantSnapshot
@@ -80,7 +85,7 @@ class SimulatorPlayerInput(
         require(equipmentSources.keys.all { it.isEquipment }) { "装備sourceは装備Partだけを指定してください。" }
         require(itemTypes.keys.all { it.isEquipment }) { "ItemTypeは装備Partだけを指定してください。" }
         val skills = SkillLevelSnapshot(this.skillLevels)
-        val parts = this.equipmentSources.toMutableMap()
+        val parts = fixedEquipmentSources.toMutableMap()
         parts[StatsPart.SKILL] = buildMap {
             SkillType.entries.forEach { skill ->
                 SkillStatsSource.sourceOf(skill, skills.level(skill))?.let { put(SkillStatsSource.sourceId(skill), it) }

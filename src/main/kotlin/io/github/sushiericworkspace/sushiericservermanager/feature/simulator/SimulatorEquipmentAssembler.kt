@@ -65,11 +65,13 @@ sealed interface SimulatorEquipmentResult {
         val offhandFollowUp: ShortSwordFollowUpInput?
     ) : SimulatorEquipmentResult {
         private val usableItems = Collections.unmodifiableMap(usableItems.toMap())
-        val inactiveEquipment: List<SimulatorInactiveEquipment> = inactive.toList()
-        val equipmentSources = Collections.unmodifiableMap(sources.toMap())
+        val inactiveEquipment: List<SimulatorInactiveEquipment> = Collections.unmodifiableList(inactive.toList())
+        private val fixedEquipmentSources = copyEquipmentSources(sources)
+        /** sourceの公開取得値を変更しても、保持済み装備の記録は変わりません。 */
+        val equipmentSources get() = copyEquipmentSources(fixedEquipmentSources)
         val itemTypes = Collections.unmodifiableMap(itemTypes.toMap())
-        val activeUpgrades: List<ActiveItemUpgrade> = active.toList()
-        val adjustments: List<SimulatorUpgradeAdjustment> = adjustments.toList()
+        val activeUpgrades: List<ActiveItemUpgrade> = Collections.unmodifiableList(active.toList())
+        val adjustments: List<SimulatorUpgradeAdjustment> = Collections.unmodifiableList(adjustments.toList())
 
         /** 役割・順序・期限を保持します。条件やCDの実判定、効果倍率の評価はCoreが行います。 */
         fun preparationEffects(
@@ -102,7 +104,7 @@ sealed interface SimulatorEquipmentResult {
             cooldowns: Map<SimulatorEffectCooldownKey, Long> = emptyMap()
         ): SimulatorInput {
             require(preparation.playerGuard == null) { "装備組立ではplayerGuardを手入力せず、guardStateを指定してください。" }
-            val player = SimulatorPlayerInput(position, baseStats, SkillType.entries.associateWith(skillLevels::level), equipmentSources, itemTypes, dynamicStats)
+            val player = SimulatorPlayerInput(position, baseStats, SkillType.entries.associateWith(skillLevels::level), fixedEquipmentSources, itemTypes, dynamicStats)
             val role = if (attack.playerIsSource) ItemSpecialEffectRole.SOURCE else ItemSpecialEffectRole.TARGET
             val mainHand = usableItems[StatsPart.MAIN_HAND]?.baseData
             val resolvedAttack = if (attack is SimulatorAttack.PlayerMelee) SimulatorAttack.PlayerMelee(
