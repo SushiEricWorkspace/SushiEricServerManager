@@ -18,13 +18,15 @@ class SimulatorEquippedItem(
     levelled: Map<LevelledItemUpgradeDefinition, Int> = emptyMap(),
     nonLevelled: Map<ItemUpgradeCategory, NonLevelledItemUpgradeDefinition> = emptyMap()
 ) {
-    val baseData = baseData.copy(statMultipliers = baseData.statMultipliers.mapValues { (_, values) ->
+    private val fixedBaseData = baseData.copy(display = baseData.display.copy(), statMultipliers = baseData.statMultipliers.mapValues { (_, values) ->
         values.map { multiplier -> multiplier.copy(target = when (val target = multiplier.target) {
             StatsPartTarget.Self -> StatsPartTarget.Self
             StatsPartTarget.All -> StatsPartTarget.All
             is StatsPartTarget.Parts -> StatsPartTarget.Parts(Collections.unmodifiableSet(target.parts.toSet()))
         }) }
     })
+    /** 取得値のMap/List変更を固定記録へ戻さない値コピーです。 */
+    val baseData: ItemBaseData get() = fixedBaseData.copy(display = fixedBaseData.display.copy())
     val levelled: Map<LevelledItemUpgradeDefinition, Int> = Collections.unmodifiableMap(levelled.toMap())
     val nonLevelled: Map<ItemUpgradeCategory, NonLevelledItemUpgradeDefinition> = Collections.unmodifiableMap(nonLevelled.toMap())
 
