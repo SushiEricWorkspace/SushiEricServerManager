@@ -208,21 +208,13 @@ Managerは、SFTPで接続したあと、書き込みを行う前に`manager-com
 - データ形式の版を上げたときは、Modが起動時に未知の形式を検出してログに残し、読み込まないようにする。これはサーバーの実行を守るためであり、ファイルの書き込み自体は止められない。
 - SSHユーザーを読み取り専用にして、書き込みをModへの申請に限る方法は確実だが、サーバー停止中に編集できなくなるため採用しない。必要になった場合は、別のIssueとして検討する。
 
-## 0.2.2以前からの移行
-
-0.2.2は、`update.json`を取得できない場合に起動を中止する。`update.json`をすぐに廃止すると、0.2.2の利用者が起動できなくなる。
-
-- 新しい更新の仕組みを含む最初のReleaseには、`update.json`も1回だけ添付する。内容は、そのReleaseの成果物へのURLである。
-- 以降のReleaseでは、`update.json`を添付しない。
-- 生成と添付の手順は、[リリースガイド](release-guide.md#移行用のupdatejson)を参照する。
-
 ## 実装の分割
 
 設計に基づき、次のIssueに分けて実装する。
 
 | Issue | 内容 |
 |---|---|
-| SushiEricServerManager#167 | 版の一元化と成果物名の統一（`update.json`の移行用の添付を含む） |
+| SushiEricServerManager#167 | 版の一元化と成果物名の統一 |
 | SushiEricServerManager#168 | 更新確認とダウンロード（Releases API、SHA-256、進捗UI、失敗時の継続） |
 | SushiEricServerManager#169 | Updater（Windows） |
 | SushiEricServerManager#170 | Updater（macOS） |

@@ -282,62 +282,6 @@ val macDmgBaseName = "$appName-$packageVersion.dmg"
 val macDmgReleaseName = "$appName-$releaseVersion-macOS-arm64-Installer.dmg"
 
 /**
- * 0.2.2のManagerが読む移行用のupdate.jsonを生成する。
- *
- * 新しい更新の仕組みを含む最初のReleaseにだけ添付する。0.2.2は、update.jsonを取得できないと
- * 起動を中止するためである。手順はdocs/update/release-guide.mdを参照する。
- *
- * 出力: build/release-installer/update.json
- *
- * 変更内容は-PupdateNotes="1つ目|2つ目"のように、|区切りで指定できる。
- */
-tasks.register("generateTransitionalUpdateJson") {
-    group = "release"
-    description = "0.2.2向けの移行用update.jsonを生成します"
-
-    val version = releaseVersion
-    val windowsName = windowsInstallerReleaseName
-    val macName = macDmgReleaseName
-    val notes = providers.gradleProperty("updateNotes")
-    val output = layout.buildDirectory.file("release-installer/update.json")
-    inputs.property("appVersion", version)
-    inputs.property("updateNotes", notes.orElse(""))
-    outputs.file(output)
-
-    doLast {
-        fun quote(text: String): String = buildString {
-            append('"')
-            text.forEach { character ->
-                when (character) {
-                    '"' -> append("\\\"")
-                    '\\' -> append("\\\\")
-                    '\n' -> append("\\n")
-                    '\r' -> append("\\r")
-                    '\t' -> append("\\t")
-                    else -> append(character)
-                }
-            }
-            append('"')
-        }
-
-        val baseUrl = "https://github.com/SushiEricWorkspace/SushiEricServerManager/releases/download/v$version"
-        val noteList = notes.orNull.orEmpty().split('|').map(String::trim).filter(String::isNotEmpty)
-        val json = buildString {
-            appendLine("{")
-            appendLine("  \"version\": ${quote(version)},")
-            appendLine("  \"windowsDownloadUrl\": ${quote("$baseUrl/$windowsName")},")
-            appendLine("  \"macDownloadUrl\": ${quote("$baseUrl/$macName")},")
-            appendLine("  \"notes\": [${noteList.joinToString(", ") { quote(it) }}]")
-            appendLine("}")
-        }
-        output.get().asFile.apply {
-            parentFile.mkdirs()
-            writeText(json)
-        }
-    }
-}
-
-/**
  * 現在のアプリ名のapp-image出力だけを削除する。
  *
  * appNameを変更した場合、古い名前のフォルダは残るため、
