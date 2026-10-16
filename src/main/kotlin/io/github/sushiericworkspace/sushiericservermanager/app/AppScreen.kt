@@ -16,6 +16,8 @@ enum class AppScreen(val fxml: String?, val css: String) {
     CONSOLE("/fxml/console/console.fxml", "/css/console/console.css"),
     /** サーバー状態のダッシュボード */
     DASHBOARD("/fxml/dashboard/dashboard.fxml", "/css/dashboard/dashboard.css"),
+    /** 手動入力で戦闘計算を確認する画面。 */
+    SIMULATOR("/fxml/simulator/simulator.fxml", "/css/simulator/simulator.css"),
     /** 入出金と実績の履歴閲覧 */
     MONEY_HISTORY("/fxml/moneyhistory/money-history.fxml", "/css/moneyhistory/money-history.css"),
     /** サーバープロセスの操作 */
