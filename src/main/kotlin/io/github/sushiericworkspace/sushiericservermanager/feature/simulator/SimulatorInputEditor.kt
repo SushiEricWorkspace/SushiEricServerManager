@@ -20,18 +20,18 @@ import java.util.UUID
 
 /** 手動入力専用のNode。現在の文字列を固定入力へ変換し、保存/取込/計算は行いません。 */
 internal class SimulatorInputEditor(private val onInputError: (IllegalArgumentException) -> Unit = { throw it }) : VBox(10.0) {
-    val playerIsSource = CheckBox("プレイヤー → Mob（解除でMob → プレイヤー）").apply { isSelected = true }
-    val sample = CheckBox("seed付きサンプル（解除で厳密期待値）")
-    val seed = numberField(1)
-    val tick = numberField(100)
+    val playerIsSource = CheckBox("プレイヤーが攻撃する（オフでMobが攻撃）").apply { isSelected = true }
+    val sample = CheckBox("1回の結果を見る（オフで確率を考慮した平均）")
+    val seed = numberField(1).explain("同じ番号と命中IDなら同じ抽選になります。実際のゲームと同じ抽選結果を保証するものではありません。")
+    val tick = numberField(100).explain("全攻撃に共通する絶対時刻です。通常20tickが1秒ですが、この計算は時間を進めません。")
     val baseStats = SimulatorNumberGrid(StatsType.entries, { it.display }, {
         when (it) { StatsType.MAX_HEALTH -> 1000.0; StatsType.PHYSICS_DAMAGE -> 95.0; else -> it.default }
     })
-    val skills = SimulatorNumberGrid(SkillType.entries, { it.name }, { 0 })
+    val skills = SimulatorNumberGrid(SkillType.entries, { it.display }, { 0 })
     val mobStats = SimulatorNumberGrid(EntityStatsType.entries, { it.display }, {
         if (it == EntityStatsType.MAX_HEALTH) 1000.0 else it.default
     })
-    val mobAttacks = SimulatorNumberGrid(MobAttackMeans.entries, { it.name }, { 100.0 })
+    val mobAttacks = SimulatorNumberGrid(MobAttackMeans.entries, { simulatorLabel(it) }, { 100.0 })
     val equipmentEditor = SimulatorEquipmentEditor()
     val hits = mutableListOf<SimulatorHitEditor>()
     private val hitContainer = VBox(12.0)
@@ -49,38 +49,38 @@ internal class SimulatorInputEditor(private val onInputError: (IllegalArgumentEx
     val mobState = SimulatorActorEditor(allowOverHeal = false)
     val historyEditor = SimulatorStateEditor()
     private val breakValue = numberField(0)
-    private val breakActive = CheckBox("対象BREAK有効")
-    private val breakRuntime = CheckBox("対象BREAK runtimeあり")
+    private val breakActive = CheckBox("対象がBREAK中")
+    private val breakRuntime = CheckBox("BREAK開始の記録あり").explain("BREAK中かどうかとは独立した記録です。開始時刻と同じtickの命中数は数えません。時間切れ処理は行いません。")
     private val breakStart = numberField(100)
     private val breakHits = numberField(0)
     private val parryEnabled = CheckBox("Mobパリィ設定を使う")
     private val parryProbability = numberField(0.0)
     private val parryRate = numberField(0.0)
     private val parryCooldown = numberField(20)
-    private val directTick = TextField().apply { promptText = "直接間隔なし=空白" }
-    private val projectileTick = TextField().apply { promptText = "投射間隔なし=空白" }
-    internal val shotProfile = ComboBox(FXCollections.observableArrayList("なし", "BOW", "STANDARD_CROSSBOW", "MANUAL")).apply { value = "なし" }
+    private val directTick = TextField().apply { promptText = "直接攻撃の前回時刻（空白=なし）" }
+    private val projectileTick = TextField().apply { promptText = "投射物の前回時刻（空白=なし）" }
+    internal val shotProfile = ComboBox(FXCollections.observableArrayList("なし", "BOW", "STANDARD_CROSSBOW", "MANUAL")).apply { value = "なし"; converter = simulatorConverter { when (it) { "BOW" -> "弓1射"; "STANDARD_CROSSBOW" -> "通常クロスボウ1射"; "MANUAL" -> "手動の記録"; else -> "記録しない" } } }
     private val arrowsConsumed = numberField(1)
     private val shotCondition = TextField("手動指定の成立済み1射")
 
     init {
         styleClass.add("simulator-form")
-        children.addAll(fieldRow("評価方法", playerIsSource, sample), fieldRow("seed / 現在tick", seed, tick),
+        children.addAll(fieldRow("攻撃方向・結果の見方", playerIsSource, sample), fieldRow("乱数の固定番号 / 計算時刻(tick)", seed, tick),
             TitledPane("プレイヤー基礎能力（技能・装備補正を含めない）", baseStats).apply { isExpanded = false },
             TitledPane("技能レベル", skills).apply { isExpanded = false },
             TitledPane("Mob能力/攻撃手段", VBox(8.0, mobStats, mobAttacks)).apply { isExpanded = false },
             TitledPane("固定装備（手動指定・取込）", equipmentEditor).apply { isExpanded = false },
-            TitledPane("当事者と現在HP/リソース/構え/CD", VBox(8.0,
-                fieldRow("Player 名前/X/Z/yaw", playerName, playerX, playerZ, playerYaw), playerState,
-                fieldRow("Mob 名前/X/Z/yaw", mobName, mobX, mobZ, mobYaw), mobState)).apply { isExpanded = false },
-            TitledPane("対象BREAK / Mobパリィ / 間隔 / 射撃", VBox(8.0,
-                fieldRow("BREAK値/runtime開始tick/被命中数", breakValue, breakRuntime, breakStart, breakHits, breakActive),
-                fieldRow("Mobパリィ 確率/軽減率/CD tick", parryEnabled, parryProbability, parryRate, parryCooldown),
-                fieldRow("最終間隔tick", directTick, projectileTick),
-                fieldRow("射撃profile/矢消費数(手動)/条件(手動)", shotProfile, arrowsConsumed, shotCondition),
-                Label("射撃profileは成立済み1射のmetadataです。矢種/rank/発射地点からの距離は各行へ指定します。"))).apply { isExpanded = false },
-            TitledPane("攻撃者履歴 / 固有間隔 / 特殊効果CD", historyEditor).apply { isExpanded = false },
-            Label("命中行（上から同tickの処理順、単発は1行）"), hitContainer,
+            TitledPane("位置・現在のHP／スタミナ／マナ・盾", VBox(8.0,
+                fieldRow("プレイヤー 名前／X／Z／向き(度)", playerName, playerX, playerZ, playerYaw), playerState,
+                fieldRow("Mob 名前／X／Z／向き(度)", mobName, mobX, mobZ, mobYaw), mobState)).apply { isExpanded = false },
+            TitledPane("追加条件（BREAK・防御・攻撃間隔・射撃）", VBox(8.0,
+                fieldRow("BREAK蓄積値／開始時刻(tick)／被命中数", breakValue, breakRuntime, breakStart, breakHits, breakActive),
+                fieldRow("Mobパリィ 確率(0～1)／軽減率(0～1)／待ち時間(tick)", parryEnabled, parryProbability, parryRate, parryCooldown),
+                fieldRow("前回攻撃の時刻(tick)：直接／投射物", directTick, projectileTick),
+                fieldRow("射撃の記録／矢の消費数(手動)／条件メモ", shotProfile, arrowsConsumed, shotCondition),
+                Label("射撃の記録は本数と消費数のメモです。攻撃行は自分で追加してください。"))).apply { isExpanded = false },
+            TitledPane("詳細条件（過去の攻撃・効果の再使用時刻）", historyEditor).apply { isExpanded = false },
+            Label("攻撃一覧（同じ時刻に、上から順に処理）"), hitContainer,
             Button("命中行を追加").apply { setOnAction { addHit() } })
         addHit()
     }
@@ -118,7 +118,7 @@ internal class SimulatorInputEditor(private val onInputError: (IllegalArgumentEx
 
     fun readInput(equipmentInput: SimulatorEquipmentInput = equipmentEditor.readInput()): SimulatorMultipleHitInput {
         require(hits.isNotEmpty()) { "命中行を1件以上指定してください。" }
-        val skillLevels = SkillLevelSnapshot(skills.fields.mapValues { (key, field) -> field.integer(key.name) })
+        val skillLevels = SkillLevelSnapshot(skills.fields.mapValues { (key, field) -> field.integer(key.display) })
         val assembled = SimulatorEquipmentAssembler.resolve(equipmentInput, skillLevels)
         val equipment = when (assembled) {
             is SimulatorEquipmentResult.Unsupported -> return SimulatorMultipleHitInput.Unsupported(assembled.problems.joinToString(" / ") { it.reason })
@@ -162,13 +162,13 @@ internal class SimulatorInputEditor(private val onInputError: (IllegalArgumentEx
 
 internal class SimulatorActorEditor(private val allowOverHeal: Boolean = true) : VBox(6.0) {
     val health = numberField(1000)
-    val overHeal = numberField(0).apply { isDisable = !allowOverHeal }
+    val overHeal = numberField(0).apply { isDisable = !allowOverHeal }.explain("通常HPの外側でダメージを吸収する値です。Mobは0だけ指定できます。")
     val stamina = numberField(100)
     val mana = numberField(100)
     val raising = CheckBox("盾を構える")
     val blockUntil = numberField(0)
     val parryUntil = numberField(0)
-    init { children.addAll(fieldRow("HP / OH / ST / MP", health, overHeal, stamina, mana), fieldRow("Block/Parry期限tick", raising, blockUntil, parryUntil)) }
+    init { children.addAll(fieldRow("HP / 追加HP(OH) / スタミナ / マナ", health, overHeal, stamina, mana), fieldRow("盾防御／パリィの再使用可能時刻(tick)", raising, blockUntil, parryUntil)) }
     fun read(): SameTickCombatantState {
         val oh = overHeal.currentValue("OH")
         require(allowOverHeal || oh == 0.0) { "MobのOHは0だけ指定できます。" }

@@ -43,7 +43,9 @@ internal class SimulatorItemLoader(
     private val onLoaded: (StoreResult<SimulatorImportedItem>) -> Unit,
     private val executor: ExecutorService = Executors.newSingleThreadExecutor { task -> Thread(task, "simulator-item-read").apply { isDaemon = true } },
     private val dispatch: (() -> Unit) -> Unit = { Platform.runLater(it) },
-    private val load: (File, String) -> StoreResult<SimulatorImportedItem> = ::loadSimulatorItem
+    private val load: (File, String) -> StoreResult<SimulatorImportedItem> = ::loadSimulatorItem,
+    private val onChoices: (File, StoreResult<List<SimulatorItemChoice.Saved>>) -> Unit = { _, _ -> },
+    private val list: (File) -> StoreResult<List<SimulatorItemChoice.Saved>> = ::listSimulatorItems
 ) {
     private var generation = 0L
     private var disposed = false
@@ -57,6 +59,17 @@ internal class SimulatorItemLoader(
                     StoreErrorCode.IO_ERROR, id, error.message, error))
             }
             dispatch { if (!disposed && isCurrent() && generation == current && calculationGeneration() == calculation) onLoaded(result) }
+        }
+    }
+    fun readChoices(root: File) {
+        check(!disposed && isCurrent()) { "終了済みの画面・接続では読み込めません。" }
+        val current = ++generation
+        val calculation = calculationGeneration()
+        executor.execute {
+            val result = try { list(root) } catch (error: Exception) {
+                StoreResult.Failure(StoreError(StoreErrorCode.IO_ERROR, detail = error.message, cause = error))
+            }
+            dispatch { if (!disposed && isCurrent() && generation == current && calculationGeneration() == calculation) onChoices(root, result) }
         }
     }
     fun invalidate() { generation++ }

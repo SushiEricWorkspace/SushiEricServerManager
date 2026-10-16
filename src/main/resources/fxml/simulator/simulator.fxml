@@ -3,27 +3,30 @@
 <?import javafx.scene.control.Label?>
 <?import javafx.scene.control.TextArea?>
 <?import javafx.scene.control.TextField?>
+<?import javafx.scene.control.Tooltip?>
 <?import javafx.scene.control.ComboBox?>
 <?import javafx.scene.control.ScrollPane?>
 <?import javafx.scene.layout.HBox?>
 <?import javafx.scene.layout.VBox?>
-<VBox xmlns:fx="http://javafx.com/fxml/1" fx:controller="io.github.sushiericworkspace.sushiericservermanager.feature.simulator.SimulatorController"
-      prefWidth="1100.0" prefHeight="800.0" spacing="10.0" styleClass="simulator-root">
+<ScrollPane xmlns:fx="http://javafx.com/fxml/1" fx:controller="io.github.sushiericworkspace.sushiericservermanager.feature.simulator.SimulatorController"
+      prefWidth="1100.0" prefHeight="900.0" fitToWidth="true" fx:id="pageScroll"><content><VBox spacing="8.0" styleClass="simulator-root">
     <Label text="戦闘シミュレーター" styleClass="simulator-title" />
-    <Label text="同じtickの指定順に評価します。飛翔・遅延・ノックバック後の衝突・実環境への効果適用は行いません。" wrapText="true" />
-    <Label text="保存済み取込（明示したローカルOFFLINE_DIRだけを読みます）" />
-    <HBox spacing="8.0"><TextField fx:id="localRoot" promptText="OFFLINE_DIR絶対パス" HBox.hgrow="ALWAYS"/><TextField fx:id="localId" promptText="Item公開ID"/><ComboBox fx:id="localPart"/><Button text="取得・再読込" onAction="#readLocalItem"/></HBox>
+    <Label text="装備と戦闘条件を指定して、同じ時刻の攻撃を上から順に計算します。ゲーム内のデータは変更しません。" wrapText="true" />
+    <Label text="保存済み装備を選ぶ（このPCのローカル保存先）" />
+    <HBox spacing="8.0"><TextField fx:id="localRoot" promptText="ローカル保存先の絶対パス" HBox.hgrow="ALWAYS"><tooltip><Tooltip text="サーバーには接続しません。保存先を変更したら、装備候補を更新してください。"/></tooltip></TextField><Button text="装備候補を更新" onAction="#refreshLocalItems"/></HBox>
+    <HBox spacing="8.0"><VBox fx:id="localChoicesBox" HBox.hgrow="ALWAYS"/><ComboBox fx:id="localPart"/><Button text="選択を適用・再読込" onAction="#readLocalItem"><tooltip><Tooltip text="選択した装備を読み込んで、この部位へ反映します。「なし」は部位を未装備にします。選択だけでは装備は変わりません。"/></tooltip></Button></HBox>
     <Label fx:id="importLabel" wrapText="true" />
-    <ScrollPane fitToWidth="true" minHeight="120.0" prefViewportHeight="260.0" VBox.vgrow="ALWAYS"><content><VBox fx:id="inputContainer" /></content></ScrollPane>
-    <HBox spacing="10.0">
+    <ScrollPane fitToWidth="true" minHeight="180.0" prefViewportHeight="360.0" VBox.vgrow="ALWAYS"><content><VBox fx:id="inputContainer" /></content></ScrollPane>
+    <HBox spacing="8.0">
         <Button text="計算" onAction="#calculate" />
         <Button fx:id="cancelButton" text="取消" onAction="#cancel" disable="true" />
         <Label fx:id="statusLabel" text="未実行" />
     </HBox>
-    <Label text="直前の固定要求の結果（入力を変更した後は再計算してください）" />
-    <Label fx:id="resultLabel" wrapText="true" minHeight="40.0" />
+    <Label text="計算結果・比較" />
+    <Label text="表示中の結果は、最後に計算した入力のものです。入力変更後は再計算してください。" wrapText="true" />
+    <Label fx:id="resultLabel" wrapText="true" minHeight="40.0"><tooltip><Tooltip text="算出は計算上のダメージ。純HP減少と追加HP吸収は実際に減った量で、実適用量は両方の合計です。残りHPを超えた分は含みません。"/></tooltip></Label>
     <HBox spacing="8.0"><Button text="詳細の前ページ" onAction="#previousDetails"/><Button text="詳細の次ページ" onAction="#nextDetails"/></HBox>
-    <TextArea fx:id="detailsArea" editable="false" wrapText="true" prefRowCount="8" minHeight="140.0" maxHeight="200.0" />
+    <TextArea fx:id="detailsArea" editable="false" wrapText="true" prefRowCount="10" minHeight="200.0" prefHeight="260.0" />
     <HBox spacing="8.0"><Button text="基準を保持・更新" onAction="#holdBaseline"/><Button text="比較" onAction="#compare"/><Button text="基準解除" onAction="#clearBaseline"/><Button fx:id="previousComparisonButton" disable="true" text="比較の前ページ" onAction="#previousComparison"/><Button fx:id="nextComparisonButton" disable="true" text="比較の次ページ" onAction="#nextComparison"/></HBox>
-    <ScrollPane fitToWidth="true" prefViewportHeight="100.0" minHeight="70.0" maxHeight="180.0"><content><Label fx:id="comparisonLabel" wrapText="true" /></content></ScrollPane>
-</VBox>
+    <ScrollPane fitToWidth="true" prefViewportHeight="180.0" minHeight="100.0"><content><Label fx:id="comparisonLabel" wrapText="true" /></content></ScrollPane>
+</VBox></content></ScrollPane>

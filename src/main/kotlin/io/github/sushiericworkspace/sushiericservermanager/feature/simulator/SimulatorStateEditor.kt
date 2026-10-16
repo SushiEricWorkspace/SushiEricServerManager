@@ -20,9 +20,9 @@ internal class SimulatorStateEditor : VBox(8.0) {
     private val intervalBox = VBox(6.0)
     private val cooldownBox = VBox(6.0)
     init {
-        children.addAll(Label("攻撃者の履歴は古い順。同tickでは適用順です。対象UUIDの空白は今回の対象です。"),
+        children.addAll(Label("攻撃者の履歴は古い順。同時刻では適用順です。対象IDの空白は今回の対象です。"),
             historyBox, Button("履歴を追加").apply { setOnAction { addHistory() } }, fieldRow("次の履歴ID", nextRecordId),
-            Label("固有間隔のKind/Effect型IDと、特殊効果の役割/提供元/effect IDはCoreの識別子を指定します。"),
+            Label("この詳細条件は、記録済みの識別子と時刻を再現する場合に使います。通常は空のままで計算できます。"),
             intervalBox, Button("固有間隔を追加").apply { setOnAction { addInterval() } },
             cooldownBox, Button("特殊効果CDを追加").apply { setOnAction { addCooldown() } })
     }
@@ -45,10 +45,10 @@ internal class SimulatorStateEditor : VBox(8.0) {
 
 internal class SimulatorHistoryRow(recordId: Long) : VBox(5.0) {
     val target = TextField().apply { promptText = "対象UUID（空白=今回）" }
-    val item = TextField().apply { promptText = "Item ID（空白=null）" }
+    val item = TextField().apply { promptText = "Item ID（空白=なし）" }
     val tick = numberField(99)
     val id = numberField(recordId)
-    val category = ComboBox(FXCollections.observableArrayList(AttackRecordCategory.entries)).apply { value = AttackRecordCategory.DIRECT_MELEE }
+    val category = ComboBox(FXCollections.observableArrayList(AttackRecordCategory.entries)).apply { value = AttackRecordCategory.DIRECT_MELEE; converter = simulatorConverter { simulatorLabel(it) } }
     val remove = Button("履歴削除")
     init { children.addAll(fieldRow("対象/Item ID", target, item), fieldRow("適用tick/履歴ID/分類", tick, id, category, remove)) }
     fun read(targetId: UUID) = AttackRecord(target.text.takeIf(String::isNotBlank)?.let(UUID::fromString) ?: targetId,
@@ -64,7 +64,7 @@ internal class SimulatorIntervalRow : VBox(5.0) {
 }
 
 internal class SimulatorCooldownRow : VBox(5.0) {
-    val role = ComboBox(FXCollections.observableArrayList(ItemSpecialEffectRole.entries)).apply { value = ItemSpecialEffectRole.SOURCE }
+    val role = ComboBox(FXCollections.observableArrayList(ItemSpecialEffectRole.entries)).apply { value = ItemSpecialEffectRole.SOURCE; converter = simulatorConverter { simulatorLabel(it) } }
     val provider = TextField().apply { promptText = "提供元key" }
     val effect = TextField().apply { promptText = "effect ID" }
     val tick = numberField(120)

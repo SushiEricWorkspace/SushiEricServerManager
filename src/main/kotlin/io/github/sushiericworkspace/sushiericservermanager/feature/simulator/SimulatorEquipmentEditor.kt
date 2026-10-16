@@ -16,21 +16,24 @@ import javafx.scene.layout.VBox
 
 /** 保存先を参照しない手動装備指定。型/技能/強化の適用判定はEquipmentAssemblerだけが行います。 */
 internal class SimulatorEquipmentEditor : VBox(8.0) {
-    internal val slots = StatsPart.entries.filter { it.isEquipment }.associateWith { EquipmentSlot(it) }
+    var onSelectionChange: () -> Unit = {}
+    internal val slots = StatsPart.entries.filter { it.isEquipment }.associateWith { EquipmentSlot(it) { onSelectionChange() } }
     init { children.addAll(slots.values.map { it.pane }) }
     fun readInput() = SimulatorEquipmentInput(slots.mapNotNull { (part, slot) -> slot.readItem()?.let { part to it } }.toMap())
+    fun without(part: StatsPart) = SimulatorEquipmentInput(slots.filterKeys { it != part }.mapNotNull { (key, slot) -> slot.readItem()?.let { key to it } }.toMap())
     fun withImported(part: StatsPart, value: SimulatorImportedItem): SimulatorEquipmentInput = SimulatorEquipmentInput(
         slots.mapNotNull { (key, slot) -> slot.readItem(if (key == part) value else null)?.let { key to it } }.toMap())
 }
 
-internal class EquipmentSlot(private val part: StatsPart) {
+internal class EquipmentSlot(private val part: StatsPart, private val onSelectionChange: () -> Unit = {}) {
     val enabled = CheckBox("装備を使用")
-    val itemId = TextField("manual_${part.name.lowercase()}")
+    val itemId = TextField("manual_${part.name.lowercase()}").apply { tooltip = Tooltip("履歴や発射時の記録と装備IDを合わせて再現するときだけ変更します。保存済み装備は上の検索から選べます。") }
     val type = ComboBox(FXCollections.observableArrayList(ItemType.entries)).apply {
         value = part.supportType.firstOrNull() ?: ItemType.SWORD
+        converter = simulatorConverter { it.display }
     }
     val stats = SimulatorNumberGrid(StatsType.entries, { it.display }, { 0.0 })
-    val requirements = SimulatorNumberGrid(SkillType.entries, { it.name }, { 0 })
+    val requirements = SimulatorNumberGrid(SkillType.entries, { it.display }, { 0 })
     private val upgrades: List<LevelledItemUpgradeDefinition> = MeleeSushiEricEnchantment.entries + ArmorCustomEnchantment.entries
     val levels = SimulatorNumberGrid(upgrades, { it.displayName }, { 0 })
     val honing = CheckBox("刃研ぎ")
@@ -38,21 +41,22 @@ internal class EquipmentSlot(private val part: StatsPart) {
     val arrowCount = numberField(1)
     val arrowEfficiency = numberField(1.0)
     private val reforges: List<ReforgeDefinition> = MeleeReforge.entries + BowReforge.entries + CrossbowReforge.entries + ArmorReforge.entries
-    val reforge = ComboBox(FXCollections.observableArrayList(reforges)).apply { promptText = "リフォージなし" }
+    val reforge = ComboBox(FXCollections.observableArrayList(reforges)).apply { promptText = "リフォージなし"; converter = simulatorConverter { it.displayName } }
     private val blockCd = numberField(20)
     private val parryCd = numberField(20)
     private val multipliers = VBox(6.0)
     private val multiplierRows = mutableListOf<MultiplierRow>()
     internal fun addMultiplier(): MultiplierRow = MultiplierRow().also { row -> multiplierRows += row; multipliers.children += row }
     val pane = TitledPane(part.display, VBox(8.0,
-        fieldRow("種類/ID", enabled, type, itemId),
-        fieldRow("盾 Block/Parry CD", blockCd, parryCd),
-        fieldRow("弓multi / クロスボウ本数/矢消費効率", multi, arrowCount, arrowEfficiency),
+        fieldRow("手動装備の種類", enabled, type),
+        TitledPane("再現用の識別子（通常は変更不要）", fieldRow("手動装備ID", itemId)).apply { isExpanded = false },
+        fieldRow("盾の待ち時間(tick)：防御／パリィ", blockCd, parryCd),
+        fieldRow("弓の発射数／クロスボウの本数／矢消費効率", multi, arrowCount, arrowEfficiency),
         fieldRow("リフォージ", reforge, Button("リフォージ解除").apply { setOnAction { reforge.value = null } }),
         TitledPane("装備の固定値（基礎能力には加算しない）", stats).apply { isExpanded = false },
         TitledPane("必要技能レベル", requirements).apply { isExpanded = false },
         TitledPane("強化レベル", levels).apply { isExpanded = false }, honing,
-        TitledPane("倍率（Self/All/指定部位）", VBox(6.0, multipliers, Button("倍率を追加").apply {
+        TitledPane("倍率（この装備／全能力部位／指定部位）", VBox(6.0, multipliers, Button("倍率を追加").apply {
             setOnAction { addMultiplier() }
         })).apply { isExpanded = false }
     )).apply { isExpanded = false }
@@ -62,9 +66,21 @@ internal class EquipmentSlot(private val part: StatsPart) {
     private val importedPreview = ImageView().apply { isPreserveRatio = true; fitWidth = 200.0 }
 
     init {
+        enabled.selectedProperty().addListener { _, _, _ -> onSelectionChange() }
         (pane.content as VBox).children.addAll(importedLabel, importedPreview, Button("手動装備へ戻す").apply {
-            setOnAction { imported = null; importedLabel.text = "手動指定"; importedPreview.image = null }
+            setOnAction { onSelectionChange(); clearImported(); importedLabel.text = "手動指定" }
         })
+    }
+
+    private fun clearImported() {
+        imported = null
+        importedLabel.text = ""
+        importedPreview.image = null
+    }
+
+    fun unequip() {
+        clearImported()
+        enabled.isSelected = false
     }
 
     fun importItem(value: SimulatorImportedItem) {
@@ -75,7 +91,7 @@ internal class EquipmentSlot(private val part: StatsPart) {
         PreviewCanvas(item, preview).refreshPreview()
         imported = value
         enabled.isSelected = true
-        importedLabel.text = "${value.source} / revision=${value.revision} / ${item.id}（明示取込まで固定。手動の型/能力/要求/倍率は使用せず強化指定だけを追加）"
+        importedLabel.text = "${value.source} / 取得版=${value.revision} / ${item.id}（再読込まで固定。取込装備に下の強化指定を追加します）"
         importedPreview.image = preview.image
         importedPreview.fitWidth = preview.fitWidth
         importedPreview.fitHeight = preview.fitHeight
@@ -105,12 +121,12 @@ internal class EquipmentSlot(private val part: StatsPart) {
 
 internal class MultiplierRow : VBox(5.0) {
     val enabled = CheckBox("有効").apply { isSelected = true }
-    val stat = ComboBox(FXCollections.observableArrayList(StatsType.entries)).apply { value = StatsType.PHYSICS_DAMAGE }
-    val target = ComboBox(FXCollections.observableArrayList("Self", "All", "Parts")).apply { value = "Self" }
+    val stat = ComboBox(FXCollections.observableArrayList(StatsType.entries)).apply { value = StatsType.PHYSICS_DAMAGE; converter = simulatorConverter { it.display } }
+    val target = ComboBox(FXCollections.observableArrayList("Self", "All", "Parts")).apply { value = "Self"; converter = simulatorConverter { when (it) { "Self" -> "この装備"; "All" -> "全能力部位（基礎・技能を含む）"; else -> "指定部位" } } }
     val factor = numberField(1.0)
     val parts = StatsPart.entries.associateWith { CheckBox(it.display) }
     init {
-        children.addAll(fieldRow("倍率", enabled, stat, target, factor), fieldRow("Parts対象", *parts.values.toTypedArray()))
+        children.addAll(fieldRow("倍率", enabled, stat, target, factor), fieldRow("対象部位", *parts.values.toTypedArray()))
     }
     fun read() = ItemStatMultiplier(when (target.value) {
         "Self" -> StatsPartTarget.Self

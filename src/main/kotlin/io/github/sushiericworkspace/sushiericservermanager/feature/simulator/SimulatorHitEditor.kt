@@ -20,28 +20,28 @@ internal class SimulatorHitEditor : VBox(6.0) {
     val kind = ComboBox(FXCollections.observableArrayList(SimulatorAttackKind.entries)).apply { value = SimulatorAttackKind.PROJECTILE }
     val matched = CheckBox("命中").apply { isSelected = true }
     val vanillaCritical = CheckBox("バニラ会心")
-    val pierceOverHeal = CheckBox("OH貫通")
-    val arrow = ComboBox(FXCollections.observableArrayList(listOf("指定なし") + ArrowType.entries.map { it.id })).apply { value = "指定なし" }
-    val rank = TextField().apply { promptText = "rankなし=空白"; prefColumnCount = 7 }
+    val pierceOverHeal = CheckBox("追加HPを貫通")
+    val arrow = ComboBox(FXCollections.observableArrayList(listOf("指定なし") + ArrowType.entries.map { it.id })).apply { value = "指定なし"; converter = simulatorConverter { id -> ArrowType.entries.firstOrNull { it.id == id }?.display ?: "指定なし" } }
+    val rank = TextField().apply { promptText = "ランク未指定=空白"; prefColumnCount = 7 }
     val distance = TextField().apply { promptText = "距離なし=空白"; prefColumnCount = 9 }
     val cooldown = numberField(0)
     val up = Button("上へ")
     val down = Button("下へ")
     val remove = Button("削除")
-    val captureLaunch = Button("現在入力で発射状態を固定")
+    val captureLaunch = Button("現在入力で発射状態を固定").explain("現在の情報を発射時の記録として保持し、該当する特殊効果の判定へ渡します。計算式全体を発射時の能力へ戻す操作ではありません。")
     val clearLaunch = Button("発射状態を解除")
     val launchBaseDamage = numberField(0)
-    private val launchStatus = Label("発射Snapshotなし")
+    private val launchStatus = Label("発射時の記録なし")
     var launchSnapshot: AttackSnapshot? = null
         private set
     fun setLaunch(snapshot: AttackSnapshot?) {
         launchSnapshot = snapshot
-        launchStatus.text = snapshot?.let { "発射tick=${it.createdTick}（現在能力と独立）" } ?: "発射Snapshotなし"
+        launchStatus.text = snapshot?.let { "発射tick=${it.createdTick}（過去の攻撃記録として使用）" } ?: "発射時の記録なし"
     }
     init {
-        children.addAll(fieldRow("hitId=$hitId", up, down, remove),
+        children.addAll(fieldRow("命中ID=$hitId", up, down, remove),
             fieldRow("直接攻撃", kind, matched, vanillaCritical, pierceOverHeal),
-            fieldRow("矢種/rank/距離/固有間隔tick", arrow, rank, distance, cooldown),
+            fieldRow("矢の種類／ランク／発射地点からの距離／最小間隔(tick)", arrow, rank, distance, cooldown),
             fieldRow("発射基本値", launchBaseDamage, captureLaunch, clearLaunch), launchStatus)
     }
     fun read(playerIsSource: Boolean): SimulatorHit {

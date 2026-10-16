@@ -43,7 +43,7 @@ class SimulatorDetailsViewTest {
             await { view.controller.workspace.state is SimulatorRunState.Finished }
             val before=fx { assertIs<SimulatorRunState.Finished>(view.controller.workspace.state) }
             fx {
-                assertTrue((view.root.lookup("#detailsArea") as TextArea).text.contains("厳密評価回数"))
+                assertTrue((view.root.lookup("#detailsArea") as TextArea).text.contains("計算に使った命中評価回数"))
                 button(view.root,"基準を保持・更新").fire()
                 val model=MutableItemBaseData(id="fixed").apply { display.displayName="固定Item" }
                 view.controller.acceptImportedItem(StatsPart.MAIN_HAND,SimulatorImportedItem.fromEdited(model))
@@ -58,7 +58,7 @@ class SimulatorDetailsViewTest {
             fx {
                 button(view.root,"比較").fire()
                 val text=(view.root.lookup("#comparisonLabel") as Label).text
-                assertTrue(text.contains("厳密期待値比較")); assertTrue(text.contains("hitId="))
+                assertTrue(text.contains("平均ダメージの比較（厳密期待値）")); assertTrue(text.contains("命中ID="))
                 assertTrue(text.contains("純HP")); assertTrue(text.contains("OH"))
                 view.root.applyCss(); view.root.layout()
                 assertTrue((view.root.lookup("#detailsArea") as TextArea).height >= 140.0)
@@ -83,8 +83,8 @@ class SimulatorDetailsViewTest {
         val input=SimulatorInputEditor().readInput()
         val result=assertIs<SimulatorMultipleHitResult.Sample>(SimulatorMultipleHitSimulator.calculate(SimulatorMultipleHitRequest(1,input,SimulatorMultipleHitMode.Sample(77))))
         val text=result.details()
-        assertTrue(text.contains("seed=77")); assertTrue(text.contains("hitId=")); assertTrue(text.contains("前:")); assertTrue(text.contains("後:"))
-        assertTrue(text.contains("BREAK有効")); assertTrue(text.contains("履歴=")); assertTrue(text.contains("抽選"))
+        assertTrue(text.contains("seed)=77")); assertTrue(text.contains("命中ID=")); assertTrue(text.contains("前:")); assertTrue(text.contains("後:"))
+        assertTrue(text.contains("BREAK中")); assertTrue(text.contains("履歴=")); assertTrue(text.contains("抽選"))
         val many=result.copy(result=SameTickDamageResult.Completed(
             List(51) { result.result.rows.first().copy(hitId="stable-$it") },result.result.finalState))
         val snapshot=SimulatorComparisonSnapshot.capture(SimulatorMultipleHitRequest(1,input,SimulatorMultipleHitMode.Sample(77)),result,SimulatorComparisonVersion("core","dm","calc"))
@@ -94,7 +94,7 @@ class SimulatorDetailsViewTest {
             (0..50).associate { "compare-$it" to emptyList<SimulatorDrawComparison>() })
         assertEquals(2,comparison.detailPages()); assertTrue(comparison.details(1).contains("compare-50"))
         assertFalse(comparison.details(0).contains("compare-50")); assertFalse(comparison.details(1).contains("compare-0:"))
-        assertTrue(comparison.details(1).contains("削除")); assertTrue(comparison.details(1).contains("基準:")); assertTrue(comparison.details(1).contains("phaseTrace="))
+        assertTrue(comparison.details(1).contains("削除")); assertTrue(comparison.details(1).contains("基準:")); assertTrue(comparison.details(1).contains("補正の順序="))
         assertEquals(2,many.detailPages())
         assertTrue(many.details(1).contains("stable-50")); assertFalse(many.details(0).contains("stable-50"))
         for (incomplete in listOf(SimulatorMultipleHitResult.Cancelled(1),SimulatorMultipleHitResult.Unsupported(1,"unsupported"),SimulatorMultipleHitResult.LimitExceeded(1,65536,"limit"))) {
@@ -106,20 +106,24 @@ class SimulatorDetailsViewTest {
         val root=createTempDirectory("simulator-view-local").toFile()
         val model=MutableItemBaseData(id="saved").apply { display.displayName="保存済み" }
         LocalEditorDataStore(root).save(EditorDataDescriptors.item,model.id,model)
-        val view=fx { SimulatorView.load() }
+        val view=fx { SimulatorView.load().also { Utility.createScene(AppScreen.SIMULATOR,customRoot=it.root); it.root.applyCss(); it.root.layout() } }
         try {
             fx {
                 (view.root.lookup("#localRoot") as TextField).text=root.absolutePath
-                (view.root.lookup("#localId") as TextField).text=model.id
-                button(view.root,"取得・再読込").fire()
+                button(view.root,"装備候補を更新").fire()
             }
-            await { (view.root.lookup("#importLabel") as Label).text.contains("revision=") }
+            await { view.controller.localChoices.comboBox.items.any { it is SimulatorItemChoice.Saved } }
+            fx {
+                view.controller.localChoices.comboBox.value = view.controller.localChoices.comboBox.items.filterIsInstance<SimulatorItemChoice.Saved>().single()
+                button(view.root,"選択を適用・再読込").fire()
+            }
+            await { (view.root.lookup("#importLabel") as Label).text.contains("取得版=") }
             fx {
                 assertEquals("保存済み",view.controller.inputEditor.equipmentEditor.readInput().items.getValue(StatsPart.MAIN_HAND).baseData.display.displayName)
-                (view.root.lookup("#localId") as TextField).text="missing"
-                button(view.root,"取得・再読込").fire()
+                root.resolve("item_data/stats/${model.id}.yml").delete()
+                button(view.root,"選択を適用・再読込").fire()
             }
-            await { (view.root.lookup("#importLabel") as Label).text.contains("FILE_NOT_FOUND") }
+            await { (view.root.lookup("#importLabel") as Label).text.contains("読込失敗") }
             fx { assertEquals("saved",view.controller.inputEditor.equipmentEditor.readInput().items.getValue(StatsPart.MAIN_HAND).baseData.id) }
         } finally { fx { view.dispose() }; root.deleteRecursively() }
     }
