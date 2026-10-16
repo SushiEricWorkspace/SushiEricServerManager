@@ -9,25 +9,64 @@
     -fx-background-color: -fx-bg-shallow;
     -fx-border-color: -fx-line-color;
     -fx-border-width: 0 0 1 0;
-    -fx-padding: 8 16 8 16;
+    -fx-padding: 0;
 }
 
 #topInfoLabel {
     -fx-font-size: 13px;
     -fx-text-fill: -fx-text-muted-color;
+    -fx-padding: 0 2 0 0;
 }
 
 /* サイドバー */
-#sidebarScroll {
+#sidebarContainer {
     -fx-background-color: -fx-bg-shallow;
     -fx-border-color: -fx-line-color;
     -fx-border-width: 0 1 0 0;
 }
 
+.sidebar-search-field {
+    -fx-background-color: -fx-bg-deep;
+    -fx-border-color: -fx-line-color;
+    -fx-text-fill: -fx-text-color;
+    -fx-prompt-text-fill: -fx-text-muted-color;
+}
+
+.sidebar-list {
+    -fx-background-color: transparent;
+    -fx-padding: 0;
+    -fx-fixed-cell-size: 32px;
+}
+
+.sidebar-list .list-cell {
+    -fx-background-color: transparent;
+    -fx-padding: 0;
+}
+
+.sidebar-list .button {
+    -fx-min-height: 32px;
+    -fx-pref-height: 32px;
+    -fx-max-height: 32px;
+}
+
+.sidebar-tree-guide {
+    -fx-border-color: transparent transparent transparent -fx-line-emphasis-color;
+    -fx-border-width: 0 0 0 1px;
+    -fx-border-insets: 0 0 0 6px;
+}
+
+.sidebar-no-results-label {
+    -fx-padding: 12px 10px;
+    -fx-text-fill: -fx-text-muted-color;
+    -fx-alignment: CENTER;
+}
+
 #sidebarContainer .button {
     -fx-background-color: transparent;
+    -fx-background-radius: 0;
     -fx-alignment: CENTER_LEFT;
     -fx-border-color: transparent;
+    -fx-border-radius: 0;
     -fx-font-weight: normal;
 }
 
@@ -36,14 +75,103 @@
 }
 
 .button-selected {
-    -fx-background-color: -fx-accent-color !important;
-    -fx-text-fill: white !important;
-    -fx-font-weight: bold !important;
+    -fx-background-color: -fx-bg-elevated !important;
 }
 
 .button-modified {
     -fx-text-fill: -fx-success-color !important;
     -fx-font-weight: bold !important;
+    -fx-border-color: transparent -fx-success-color transparent transparent !important;
+    -fx-border-width: 0 4 0 0 !important;
+}
+
+.button-warning {
+    -fx-text-fill: -fx-warning-color !important;
+    -fx-font-weight: bold !important;
+    -fx-border-color: transparent transparent transparent -fx-warning-color !important;
+    -fx-border-width: 0 0 0 4 !important;
+}
+
+.button-invalid {
+    -fx-text-fill: -fx-danger-color !important;
+    -fx-font-weight: bold !important;
+    -fx-border-color: transparent transparent transparent -fx-danger-color !important;
+    -fx-border-width: 0 0 0 4 !important;
+}
+
+/*
+ * サーバーへ未保存で、ローカルにだけ存在するデータ。
+ * JavaFXは斜体フェイスを持たないフォントで-fx-font-styleを無視するため、文字色で表す。
+ */
+.button-local-only {
+    -fx-text-fill: -fx-warning-color !important;
+    -fx-font-weight: bold !important;
+}
+
+/* 入力内容の問題は、サーバー未保存よりも優先して伝える */
+.button-warning.button-local-only {
+    -fx-text-fill: -fx-warning-color !important;
+}
+
+.button-invalid.button-local-only {
+    -fx-text-fill: -fx-danger-color !important;
+}
+
+/* 選択中は背景が強調色になるため、文字色を戻す */
+.button-selected.button-local-only {
+    -fx-text-fill: -fx-warning-color !important;
+}
+
+.sidebar-directory-button {
+    -fx-font-weight: bold !important;
+    -fx-text-fill: -fx-text-muted-color !important;
+}
+
+.sidebar-directory-disclosure {
+    -fx-text-fill: -fx-text-muted-color;
+}
+
+.sidebar-data-name {
+    -fx-text-fill: -fx-text-color;
+}
+
+.sidebar-data-modified {
+    -fx-text-fill: -fx-success-color;
+    -fx-font-weight: bold;
+}
+
+.sidebar-error-mark {
+    -fx-text-fill: -fx-danger-color;
+    -fx-font-weight: bold;
+}
+
+.sidebar-warning-mark,
+.sidebar-local-only-mark {
+    -fx-text-fill: -fx-warning-color;
+    -fx-font-weight: bold;
+}
+
+.sidebar-pending-deletion-mark {
+    -fx-text-fill: -fx-danger-color;
+    -fx-font-weight: bold;
+}
+
+.public-id-directory {
+    -fx-text-fill: -fx-text-muted-color;
+}
+
+.public-id-name {
+    -fx-text-fill: -fx-text-color;
+}
+
+.button-modified.button-warning {
+    -fx-border-color: transparent -fx-success-color transparent -fx-warning-color !important;
+    -fx-border-width: 0 4 0 4 !important;
+}
+
+.button-modified.button-invalid {
+    -fx-border-color: transparent -fx-success-color transparent -fx-danger-color !important;
+    -fx-border-width: 0 4 0 4 !important;
 }
 
 /* メインエリア */
@@ -56,17 +184,41 @@
     -fx-background-color: -fx-bg-shallow;
     -fx-border-color: -fx-line-color;
     -fx-border-width: 1px;
-    -fx-border-radius: 8px;
-    -fx-background-radius: 8px;
+    -fx-border-radius: 0;
+    -fx-background-radius: 0;
     -fx-padding: 16px;
+}
+
+.editor-identity-pane {
+    -fx-spacing: 6px;
+}
+
+.editor-identity-row {
+    -fx-spacing: 8px;
+}
+
+.editor-identity-label {
+    -fx-font-weight: bold;
+    -fx-min-width: 60px;
+}
+
+.editor-identity-value {
+    -fx-font-size: 16px;
+    -fx-font-weight: bold;
+}
+
+.editor-internal-id-field {
+    -fx-background-color: -fx-bg-deep;
+    -fx-border-color: -fx-line-color;
+    -fx-text-fill: -fx-text-color;
 }
 
 .editor-preview-scroll {
     -fx-background-color: -fx-bg-deep;
     -fx-border-color: -fx-line-color;
     -fx-border-width: 1px;
-    -fx-border-radius: 8px;
-    -fx-background-radius: 8px;
+    -fx-border-radius: 0;
+    -fx-background-radius: 0;
 }
 
 .editor-current-title {
@@ -78,6 +230,46 @@
     -fx-min-height: 34px;
 }
 
+.editor-menu-button {
+    -fx-background-color: -fx-bg-shallow;
+    -fx-text-fill: -fx-text-color;
+    -fx-font-size: 14px;
+    -fx-padding: 2;
+    -fx-background-radius: 0;
+    -fx-border-color: -fx-line-color;
+    -fx-border-radius: 0;
+    -fx-cursor: hand;
+}
+
+.editor-menu-button:hover,
+.editor-menu-button:showing {
+    -fx-background-color: -fx-hover-color;
+    -fx-border-color: -fx-line-emphasis-color;
+}
+
+.editor-menu-button > .label {
+    -fx-text-fill: -fx-text-color;
+}
+
+.editor-menu-button > .arrow-button,
+.editor-menu-button > .arrow-button > .arrow {
+    -fx-min-width: 0;
+    -fx-pref-width: 0;
+    -fx-max-width: 0;
+    -fx-min-height: 0;
+    -fx-pref-height: 0;
+    -fx-max-height: 0;
+    -fx-padding: 0;
+}
+
+.editor-menu-button-first {
+    -fx-border-width: 1 0 1 1;
+}
+
+.editor-menu-button-last {
+    -fx-border-width: 1;
+}
+
 .tree-inline-button {
     -fx-font-size: 13px;
     -fx-padding: 0 3 0 3;
@@ -87,26 +279,37 @@
     -fx-max-height: 24px;
 }
 
+.tree-inline-button-add,
+.tree-inline-button-remove {
+    -fx-background-color: -fx-bg-shallow;
+    -fx-border-width: 1px;
+}
+
 .tree-inline-button-add {
-    -fx-background-color: -fx-success-color;
+    -fx-text-fill: -fx-success-color;
+    -fx-border-color: derive(-fx-success-color, -35%);
 }
 
 .tree-inline-button-add:hover {
-    -fx-background-color: derive(-fx-success-color, 15%);
+    -fx-background-color: -fx-hover-color;
+    -fx-border-color: -fx-success-color;
 }
 
 .tree-inline-button-add:pressed {
-    -fx-background-color: derive(-fx-success-color, -15%);
+    -fx-background-color: -fx-selected-color;
 }
 
 .tree-inline-button-remove {
-    -fx-background-color: -fx-danger-color
+    -fx-text-fill: -fx-danger-color;
+    -fx-border-color: derive(-fx-danger-color, -30%);
 }
 
 .tree-inline-button-remove:hover {
-    -fx-background-color: derive(-fx-danger-color, 15%);
+    -fx-background-color: -fx-hover-color;
+    -fx-border-color: -fx-danger-color;
+    -fx-text-fill: derive(-fx-danger-color, 20%);
 }
 
 .tree-inline-button-remove:pressed {
-    -fx-background-color: derive(-fx-danger-color, -15%);
+    -fx-background-color: -fx-selected-color;
 }

@@ -2,6 +2,9 @@
  * variables.css
  * 役割: 全CSSで使う共通カラー変数を定義する。
  * widgets.cssの先頭で読み込むため、他ファイルでは原則importしない。
+ *
+ * 暗色・低彩度・直線的なデザインを前提とし、領域は明度差と境界線で区別する。
+ * 彩度のある色は、状態表示と危険操作の識別だけに使用する。
  */
 
 .root {
@@ -13,12 +16,14 @@
     -fx-bg-deep: #121314;
     -fx-bg-shallow: #191a1b;
     -fx-bg-elevated: #202224;
-    -fx-radius-medium: 6px;
-    -fx-radius-large: 8px;
+
+    /* 状態表示用の背景色 */
+    -fx-hover-color: #26282a;
+    -fx-selected-color: #2f3235;
 
     /* アクセント・ステータスカラー */
-    -fx-accent-color: #3498db;
-    -fx-success-color: #2ECC71;
-    -fx-danger-color: #F44336;
-    -fx-warning-color: #f0ad4e;
+    -fx-accent-color: #4a8cc7;
+    -fx-success-color: #6aa88a;
+    -fx-danger-color: #cf6a65;
+    -fx-warning-color: #c9a15a;
 }

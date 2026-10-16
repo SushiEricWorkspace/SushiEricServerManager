@@ -1,0 +1,141 @@
+package io.github.sushiericworkspace.sushiericservermanager.editor.upload
+
+import io.github.sushiericworkspace.sushiericdatamodel.data.core.ManagedData
+import io.github.sushiericworkspace.sushiericdatamodel.data.item.model.mutable.MutableItemBaseData
+import io.github.sushiericworkspace.sushiericdatamodel.stats.player.StatsType
+import io.github.sushiericworkspace.sushiericservermanager.editor.merge.ItemDataMerger
+import io.github.sushiericworkspace.sushiericservermanager.editor.store.*
+import kotlin.io.path.createTempDirectory
+import kotlin.test.*
+
+class LocalEditImportTest {
+    @Test
+    fun `既存と新規を保存せず指定ディレクトリへ読み込みローカルを保持する`() {
+        val root = createTempDirectory("local-edit-import").toFile().canonicalFile
+        try {
+            val local = LocalEditorDataStore(root)
+            val descriptor = EditorDataDescriptors.item
+            local.save(descriptor, "existing", item("existing", "Local"))
+            local.save(descriptor, "new", item("new", "New"))
+            val remote = InMemoryEditorDataStore("server")
+            remote.save(descriptor, "folder.existing", item("folder.existing", "Remote"))
+            val existing = UploadKey(UploadDataCategory.ITEM, "existing")
+            val new = UploadKey(UploadDataCategory.ITEM, "new")
+
+            val result = OfflineUploadService(root, SaveForbiddenStore(remote)).loadForEditing(
+                descriptor, setOf(existing, new), setOf(existing), "folder"
+            )
+
+            assertTrue(result.failed.isEmpty())
+            val imported = result.entries.single { it.key == existing }
+            assertEquals("folder.existing", imported.data.id)
+            assertEquals("Local", imported.data.display.displayName)
+            assertEquals("Remote", imported.original?.display?.displayName)
+            assertNull(result.entries.single { it.key == new }.original)
+            imported.data.display.displayName = "Edited"
+            assertEquals("Remote", imported.original?.display?.displayName)
+            assertEquals("Remote", remote.load(descriptor, "folder.existing").success().display.displayName)
+            assertIs<StoreResult.Failure>(remote.load(descriptor, "folder.new"))
+            assertEquals("Local", local.load(descriptor, "existing").success().display.displayName)
+        } finally {
+            root.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun `選択後に追加された宛先は未承認の上書きとして拒否する`() {
+        val root = createTempDirectory("local-edit-race").toFile().canonicalFile
+        try {
+            val descriptor = EditorDataDescriptors.item
+            LocalEditorDataStore(root).save(descriptor, "same", item("same", "Local"))
+            val remote = InMemoryEditorDataStore("server")
+            val service = OfflineUploadService(root, SaveForbiddenStore(remote))
+            assertIs<UploadScanResult.Success>(service.scan(UploadDataCategory.ITEM))
+            remote.save(descriptor, "same", item("same", "Remote"))
+
+            val result = service.loadForEditing(
+                descriptor, setOf(UploadKey(UploadDataCategory.ITEM, "same")), emptySet(), ""
+            )
+
+            assertTrue(result.entries.isEmpty())
+            assertEquals(StoreErrorCode.ALREADY_EXISTS, result.failed.single().error.code)
+            assertEquals("Remote", remote.load(descriptor, "same").success().display.displayName)
+        } finally {
+            root.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun `取り込み時の元データを基準に後続のサーバー変更をマージできる`() {
+        val root = createTempDirectory("local-edit-merge").toFile().canonicalFile
+        try {
+            val descriptor = EditorDataDescriptors.item
+            val base = item("same", "Original")
+            LocalEditorDataStore(root).save(
+                descriptor, "same", base.deepCopy().apply { display.displayName = "Local" }
+            )
+            val remote = InMemoryEditorDataStore("server")
+            remote.save(descriptor, "same", base)
+            val key = UploadKey(UploadDataCategory.ITEM, "same")
+            val imported = OfflineUploadService(root, SaveForbiddenStore(remote)).loadForEditing(
+                descriptor, setOf(key), setOf(key), ""
+            ).entries.single()
+            val latest = base.deepCopy().apply { stats[StatsType.PHYSICS_DAMAGE] = 16.0 }
+            remote.save(descriptor, "same", latest)
+
+            val merge = ItemDataMerger.merge(requireNotNull(imported.original), imported.data, latest)
+
+            assertTrue(merge.conflicts.isEmpty())
+            assertEquals("Local", merge.merged.display.displayName)
+            assertEquals(16.0, merge.merged.stats[StatsType.PHYSICS_DAMAGE])
+            assertEquals("Original", remote.load(descriptor, "same").success().display.displayName)
+            val conflict = ItemDataMerger.merge(
+                requireNotNull(imported.original), imported.data,
+                latest.deepCopy().apply { display.displayName = "Other" }
+            )
+            assertTrue(conflict.conflicts.isNotEmpty())
+        } finally {
+            root.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun `大量取り込みの進捗は宛先重複と読み込み失敗を含む最終件数に一致する`() {
+        val root = createTempDirectory("local-edit-progress").toFile().canonicalFile
+        try {
+            val descriptor = EditorDataDescriptors.item
+            val local = LocalEditorDataStore(root)
+            val keys = (1..80).mapTo(linkedSetOf()) { index ->
+                val id = "data.n$index"
+                assertIs<StoreResult.Success<Unit>>(local.save(descriptor, id, item(id, id)))
+                UploadKey(UploadDataCategory.ITEM, id)
+            }
+            local.save(descriptor, "duplicate.n1", item("duplicate.n1", "duplicate"))
+            keys += UploadKey(UploadDataCategory.ITEM, "duplicate.n1")
+            keys += UploadKey(UploadDataCategory.ITEM, "missing")
+            val progress = mutableListOf<Triple<Int, Int, String?>>()
+            val remote = InMemoryEditorDataStore("server")
+            val result = OfflineUploadService(root, SaveForbiddenStore(remote)).loadForEditing(
+                descriptor, keys, emptySet(), "target"
+            ) { done, total, name -> progress += Triple(done, total, name) }
+            assertEquals(80, result.entries.size)
+            assertEquals(2, result.failed.size)
+            assertEquals((0..keys.size).toList(), progress.map { it.first })
+            assertTrue(progress.all { it.second == keys.size })
+            assertEquals(keys.map { it.id }.sorted(), progress.drop(1).map { it.third })
+            assertTrue(remote.list(descriptor).success().isEmpty())
+            assertIs<StoreResult.Success<MutableItemBaseData>>(local.load(descriptor, "data.n1"))
+        } finally { root.deleteRecursively() }
+    }
+
+    private fun item(id: String, name: String) =
+        MutableItemBaseData(id = id).apply { display.displayName = name }
+
+    private fun <T> StoreResult<T>.success(): T = assertIs<StoreResult.Success<T>>(this).value
+
+    private class SaveForbiddenStore(delegate: EditorDataStore) : EditorDataStore by delegate {
+        override fun <T : ManagedData<T, *>> save(
+            descriptor: EditorDataDescriptor<T>, id: String, data: T
+        ): StoreResult<Unit> = error("読み込み処理からサーバーへ保存してはいけません")
+    }
+}

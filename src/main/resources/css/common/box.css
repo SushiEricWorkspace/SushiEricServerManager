@@ -1,6 +1,6 @@
 .custom-border {
     -fx-border-color: -fx-line-color;
     -fx-border-width: 2px;
-    -fx-border-radius: 6px;
+    -fx-border-radius: 0;
     -fx-padding: 10px;
 }

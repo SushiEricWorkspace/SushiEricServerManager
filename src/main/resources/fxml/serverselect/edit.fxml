@@ -15,7 +15,7 @@
 <ScrollPane fitToWidth="true" prefHeight="650.0" prefWidth="680.0" styleClass="server-form-root"
             xmlns="http://javafx.com/javafx/21.0.1"
             xmlns:fx="http://javafx.com/fxml/1"
-            fx:controller="io.github.sushiericworkspace.sushiericdataeditor2.serverselect.controller.EditController">
+            fx:controller="io.github.sushiericworkspace.sushiericservermanager.serverselect.controller.EditController">
     <content>
         <VBox styleClass="server-form-content">
             <Label styleClass="server-form-title" text="SSH接続設定を編集"/>
@@ -44,6 +44,8 @@
                     <TextField fx:id="keyPathField" editable="false" HBox.hgrow="ALWAYS"/>
                     <Button fx:id="selectKeyButton" onAction="#handleSelectKeyFile" styleClass="button, btn-secondary" text="参照..."/>
                 </HBox>
+                <Label styleClass="server-form-label" text="Management APIポート:" GridPane.rowIndex="8"/>
+                <TextField fx:id="managementPortField" GridPane.columnIndex="1" GridPane.rowIndex="8"/>
             </GridPane>
 
             <HBox styleClass="server-form-actions">

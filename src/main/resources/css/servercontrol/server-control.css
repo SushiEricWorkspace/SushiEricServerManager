@@ -1,0 +1,77 @@
+@import "/css/common/widgets.css";
+
+.server-control-root {
+    -fx-background-color: -fx-bg-deep;
+}
+
+.server-control-header {
+    -fx-padding: 16px;
+    -fx-spacing: 8px;
+    -fx-border-color: transparent transparent -fx-line-color transparent;
+    -fx-border-width: 0 0 1px 0;
+}
+
+.server-control-title {
+    -fx-font-size: 20px;
+    -fx-font-weight: bold;
+    -fx-text-fill: -fx-text-color;
+}
+
+.server-control-section-title {
+    -fx-font-size: 13px;
+    -fx-font-weight: bold;
+    -fx-text-fill: -fx-accent-color;
+}
+
+.server-control-actions {
+    -fx-spacing: 10px;
+    -fx-padding: 4px 0 0 0;
+}
+
+.server-control-status {
+    -fx-font-size: 12px;
+    -fx-text-fill: -fx-text-color;
+}
+
+.server-control-note {
+    -fx-font-size: 11px;
+    -fx-text-fill: -fx-text-muted-color;
+    -fx-padding: 10px 16px;
+}
+
+.server-control-note-inline {
+    -fx-font-size: 11px;
+    -fx-text-fill: -fx-text-muted-color;
+}
+
+.server-control-content {
+    -fx-padding: 12px 16px;
+    -fx-spacing: 6px;
+}
+
+.server-control-grid {
+    -fx-hgap: 10px;
+    -fx-vgap: 6px;
+    -fx-padding: 4px 0 6px 0;
+}
+
+.server-control-label {
+    -fx-text-fill: -fx-text-muted-color;
+}
+
+.server-control-field {
+    -fx-font-family: "Consolas", "Courier New", monospace;
+}
+
+.server-control-command-field {
+    -fx-pref-height: 68px;
+}
+
+.server-control-output {
+    -fx-font-family: "Consolas", "Courier New", monospace;
+    -fx-font-size: 12px;
+}
+
+.server-control-output .content {
+    -fx-background-color: -fx-bg-shallow;
+}

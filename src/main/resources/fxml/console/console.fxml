@@ -1,0 +1,45 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<?import javafx.scene.control.Button?>
+<?import javafx.scene.control.Label?>
+<?import javafx.scene.control.ListView?>
+<?import javafx.scene.control.Slider?>
+<?import javafx.scene.control.TextArea?>
+<?import javafx.scene.layout.BorderPane?>
+<?import javafx.scene.layout.HBox?>
+<?import javafx.scene.layout.Region?>
+<?import javafx.scene.layout.VBox?>
+
+<BorderPane fx:id="rootPane" prefHeight="560.0" prefWidth="900.0"
+            xmlns="http://javafx.com/javafx/21.0.1" xmlns:fx="http://javafx.com/fxml/1"
+            fx:controller="io.github.sushiericworkspace.sushiericservermanager.feature.console.ConsoleController">
+    <top>
+        <VBox styleClass="console-header">
+            <children>
+                <Label styleClass="console-title" text="Minecraft Server Console" />
+                <HBox alignment="CENTER_LEFT" spacing="12.0">
+                    <children>
+                        <Label fx:id="connectionLabel" styleClass="console-connection-label" />
+                        <Button fx:id="reconnectButton" onAction="#handleReconnect"
+                                styleClass="button, btn-secondary" text="再接続" />
+                        <Region HBox.hgrow="ALWAYS" />
+                        <Label fx:id="logLevelLabel" styleClass="console-connection-label" />
+                        <Slider fx:id="logLevelSlider" prefWidth="180.0" showTickMarks="true" />
+                    </children>
+                </HBox>
+            </children>
+        </VBox>
+    </top>
+    <center>
+        <ListView fx:id="outputListView" focusTraversable="true" styleClass="console-output-list" />
+    </center>
+    <bottom>
+        <HBox alignment="CENTER_LEFT" styleClass="console-command-bar">
+            <children>
+                <Label styleClass="console-prompt" text="&gt;" />
+                <TextArea fx:id="commandField" HBox.hgrow="ALWAYS" prefRowCount="1"
+                          wrapText="false" styleClass="console-command-field" />
+            </children>
+        </HBox>
+    </bottom>
+</BorderPane>

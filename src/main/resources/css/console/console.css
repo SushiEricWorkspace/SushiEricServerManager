@@ -1,0 +1,100 @@
+@import "/css/common/widgets.css";
+
+.root {
+    -fx-background-color: -fx-bg-deep;
+}
+
+.console-header {
+    -fx-padding: 16px;
+    -fx-spacing: 4px;
+    -fx-border-color: transparent transparent -fx-line-color transparent;
+    -fx-border-width: 0 0 1px 0;
+}
+
+.console-title {
+    -fx-font-size: 20px;
+    -fx-font-weight: bold;
+    -fx-text-fill: -fx-text-color;
+}
+
+.console-connection-label {
+    -fx-font-size: 12px;
+    -fx-text-fill: -fx-text-muted-color;
+}
+
+.console-output-list,
+.console-suggestion-list {
+    -fx-background-color: -fx-bg-deep;
+    -fx-border-color: -fx-line-color;
+}
+
+.console-output-list .virtual-flow,
+.console-output-list .virtual-flow .clipped-container,
+.console-output-list .virtual-flow .sheet,
+.console-suggestion-list .virtual-flow,
+.console-suggestion-list .virtual-flow .clipped-container,
+.console-suggestion-list .virtual-flow .sheet {
+    -fx-background-color: -fx-bg-deep;
+}
+
+.console-output-list .list-cell,
+.console-suggestion-list .list-cell {
+    -fx-background-color: transparent;
+    -fx-text-fill: -fx-text-color;
+    -fx-font-family: "Consolas", "Courier New", monospace;
+    -fx-font-size: 12px;
+    -fx-padding: 4px 8px;
+}
+
+.console-output-list .list-cell:selected,
+.console-suggestion-list .list-cell:selected {
+    -fx-background-color: -fx-selected-color;
+}
+
+.console-command-bar {
+    -fx-padding: 10px 12px;
+    -fx-spacing: 8px;
+    -fx-border-color: -fx-line-color transparent transparent transparent;
+    -fx-border-width: 1px 0 0 0;
+}
+
+.console-prompt {
+    -fx-font-family: "Consolas", "Courier New", monospace;
+    -fx-font-weight: bold;
+    -fx-text-fill: -fx-accent-color;
+}
+
+.console-command-field {
+    -fx-font-family: "Consolas", "Courier New", monospace;
+}
+
+.console-command-field .content {
+    -fx-padding: 4px 6px;
+}
+
+.console-output-list .console-line-command {
+    -fx-text-fill: -fx-accent-color;
+}
+
+.console-output-list .console-line-output,
+.console-output-list .console-line-success,
+.console-output-list .console-log-info {
+    -fx-text-fill: -fx-text-color;
+}
+
+.console-output-list .console-line-error,
+.console-output-list .console-log-error {
+    -fx-text-fill: -fx-danger-color;
+}
+
+.console-output-list .console-log-warn {
+    -fx-text-fill: -fx-warning-color;
+}
+
+.console-output-list .console-log-debug {
+    -fx-text-fill: -fx-accent-color;
+}
+
+.console-output-list .console-log-trace {
+    -fx-text-fill: -fx-text-disabled-color;
+}

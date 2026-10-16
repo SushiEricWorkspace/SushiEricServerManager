@@ -19,7 +19,7 @@
 
 .text-field {
     -fx-text-fill: -fx-text-color;
-    -fx-prompt-text-fill: #8a8d91;
+    -fx-prompt-text-fill: -fx-text-muted-color;
 }
 
 .button:focused,

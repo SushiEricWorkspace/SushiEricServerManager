@@ -10,20 +10,20 @@
     -fx-font-weight: normal;
     -fx-min-height: 36px;
     -fx-padding: 7 14 7 14;
-    -fx-background-radius: 6px;
+    -fx-background-radius: 0;
     -fx-border-color: -fx-line-color;
     -fx-border-width: 1px;
-    -fx-border-radius: 6px;
+    -fx-border-radius: 0;
     -fx-cursor: hand;
 }
 
 .button:hover {
-    -fx-background-color: -fx-bg-elevated;
+    -fx-background-color: -fx-hover-color;
     -fx-border-color: -fx-line-emphasis-color;
 }
 
 .button:pressed {
-    -fx-background-color: derive(-fx-bg-elevated, -8%);
+    -fx-background-color: -fx-selected-color;
 }
 
 .button:focused {
@@ -38,62 +38,64 @@
     -fx-cursor: default;
 }
 
-.btn-success {
-    -fx-background-color: -fx-success-color;
-    -fx-text-fill: white;
-    -fx-border-color: transparent;
-    -fx-border-width: 0;
-}
-
+/*
+ * 意味付きボタンは全面を塗らず、文字色と境界線で種別を示す。
+ * hoverで境界と文字を強め、危険操作は通常操作と区別できる状態を保つ。
+ */
+.btn-primary,
+.btn-success,
 .btn-danger {
-    -fx-background-color: -fx-danger-color;
-    -fx-text-fill: white;
-    -fx-border-color: transparent;
-    -fx-border-width: 0;
+    -fx-background-color: -fx-bg-shallow;
+    -fx-border-width: 1px;
 }
 
 .btn-primary {
-    -fx-background-color: -fx-accent-color;
-    -fx-text-fill: white;
-    -fx-border-color: transparent;
-    -fx-border-width: 0;
+    -fx-text-fill: -fx-accent-color;
+    -fx-border-color: derive(-fx-accent-color, -35%);
 }
 
-.btn-success:hover {
-    -fx-background-color: derive(-fx-success-color, 10%);
+.btn-success {
+    -fx-text-fill: -fx-success-color;
+    -fx-border-color: derive(-fx-success-color, -35%);
 }
 
-.btn-danger:hover {
-    -fx-background-color: derive(-fx-danger-color, 10%);
+.btn-danger {
+    -fx-text-fill: -fx-danger-color;
+    -fx-border-color: derive(-fx-danger-color, -30%);
 }
 
 .btn-primary:hover {
-    -fx-background-color: derive(-fx-accent-color, 10%);
+    -fx-background-color: -fx-hover-color;
+    -fx-border-color: -fx-accent-color;
 }
 
-.btn-success:pressed {
-    -fx-background-color: derive(-fx-success-color, -10%);
+.btn-success:hover {
+    -fx-background-color: -fx-hover-color;
+    -fx-border-color: -fx-success-color;
 }
 
+.btn-danger:hover {
+    -fx-background-color: -fx-hover-color;
+    -fx-border-color: -fx-danger-color;
+    -fx-text-fill: derive(-fx-danger-color, 20%);
+}
+
+.btn-primary:pressed,
+.btn-success:pressed,
 .btn-danger:pressed {
-    -fx-background-color: derive(-fx-danger-color, -10%);
-}
-
-.btn-primary:pressed {
-    -fx-background-color: derive(-fx-accent-color, -10%);
+    -fx-background-color: -fx-selected-color;
 }
 
 .btn-cancel {
     -fx-background-color: -fx-bg-shallow;
-    -fx-text-fill: -fx-text-color;
+    -fx-text-fill: -fx-text-muted-color;
     -fx-border-color: -fx-line-color;
     -fx-border-width: 1px;
-    -fx-background-radius: 5px;
-    -fx-border-radius: 5px;
 }
 
 .btn-cancel:hover {
-    -fx-background-color: -fx-line-color;
+    -fx-background-color: -fx-hover-color;
+    -fx-text-fill: -fx-text-color;
 }
 
 .btn-secondary {
@@ -102,11 +104,10 @@
 }
 
 .btn-secondary:hover {
-    -fx-background-color: derive(-fx-bg-elevated, 8%);
+    -fx-background-color: -fx-hover-color;
 }
 
-.btn-danger,
-.btn-primary,
-.btn-success {
-    -fx-font-weight: bold;
+.sidebar-validation-status {
+    -fx-font-size: 11px;
+    -fx-text-fill: #c8b778;
 }

@@ -1,14 +1,18 @@
 /*
  * checkbox.css
- * 役割: CheckBoxとCheckBoxTreeCellのチェック枠、選択状態、ホバー状態を定義する。
+ * 役割: CheckBoxとCheckBoxTreeCellのラベル文字色、チェック枠、選択状態、ホバー状態を定義する。
  */
+
+.check-box {
+    -fx-text-fill: -fx-text-color;
+}
 
 .check-box .box {
     -fx-background-color: -fx-bg-deep;
     -fx-border-color: -fx-line-color;
     -fx-border-width: 1px;
-    -fx-background-radius: 4px;
-    -fx-border-radius: 4px;
+    -fx-background-radius: 0;
+    -fx-border-radius: 0;
 }
 
 .check-box:hover .box {

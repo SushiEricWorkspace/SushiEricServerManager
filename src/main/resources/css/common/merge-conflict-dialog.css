@@ -1,0 +1,50 @@
+/*
+ * merge-conflict-dialog.css
+ * 役割: 保存競合ダイアログの値一覧と採用先選択の見た目を定義する。
+ */
+
+.merge-conflict-row {
+    -fx-padding: 12px;
+    -fx-background-color: -fx-bg-shallow;
+    -fx-border-color: -fx-line-color;
+    -fx-border-width: 1px;
+}
+
+.merge-conflict-field-name {
+    -fx-font-weight: bold;
+    -fx-font-size: 14px;
+}
+
+.merge-conflict-value {
+    -fx-padding: 8px;
+    -fx-background-color: -fx-bg-deep;
+    -fx-border-color: -fx-line-color;
+    -fx-border-width: 1px;
+}
+
+.merge-conflict-choice {
+    -fx-alignment: center-left;
+    -fx-padding: 10px;
+}
+
+.dialog-pane .merge-conflict-choice.selected {
+    -fx-background-color: -fx-selected-color;
+    -fx-border-color: -fx-accent-color;
+    -fx-border-width: 2px;
+}
+
+.merge-conflict-branch-stem,
+.merge-conflict-branch-line {
+    -fx-stroke: -fx-line-emphasis-color;
+    -fx-stroke-width: 2px;
+}
+
+.merge-conflict-branch-line.selected {
+    -fx-stroke: -fx-accent-color;
+    -fx-stroke-width: 3px;
+}
+
+.merge-conflict-branches .label,
+.merge-conflict-branches .button {
+    -fx-text-fill: -fx-text-color;
+}

@@ -1,0 +1,62 @@
+@import "/css/common/widgets.css";
+
+.dashboard-root {
+    -fx-background-color: -fx-bg-deep;
+}
+
+.dashboard-content {
+    -fx-padding: 16px;
+    -fx-spacing: 10px;
+    -fx-background-color: -fx-bg-deep;
+}
+
+.dashboard-title {
+    -fx-font-size: 20px;
+    -fx-font-weight: bold;
+    -fx-text-fill: -fx-text-color;
+}
+
+.dashboard-section-title {
+    -fx-font-size: 13px;
+    -fx-font-weight: bold;
+    -fx-text-fill: -fx-accent-color;
+    -fx-padding: 8px 0 0 0;
+}
+
+.dashboard-grid {
+    -fx-hgap: 12px;
+    -fx-vgap: 6px;
+    -fx-padding: 4px 0 4px 4px;
+}
+
+.dashboard-label {
+    -fx-text-fill: -fx-text-muted-color;
+}
+
+.dashboard-value {
+    -fx-font-family: "Consolas", "Courier New", monospace;
+    -fx-text-fill: -fx-text-color;
+}
+
+/* 値を取得できていない項目 */
+.dashboard-value-missing {
+    -fx-text-fill: -fx-text-disabled-color;
+}
+
+/* 接続できている状態 */
+.dashboard-value-online {
+    -fx-text-fill: -fx-success-color;
+    -fx-font-weight: bold;
+}
+
+/* 接続できていない状態 */
+.dashboard-value-offline {
+    -fx-text-fill: -fx-danger-color;
+    -fx-font-weight: bold;
+}
+
+.dashboard-note {
+    -fx-font-size: 11px;
+    -fx-text-fill: -fx-text-muted-color;
+    -fx-padding: 10px 0 0 0;
+}

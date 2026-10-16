@@ -1,0 +1,77 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<?import javafx.scene.control.Label?>
+<?import javafx.scene.control.ScrollPane?>
+<?import javafx.scene.layout.ColumnConstraints?>
+<?import javafx.scene.layout.GridPane?>
+<?import javafx.scene.layout.VBox?>
+
+<ScrollPane fx:id="rootPane" fitToWidth="true" prefHeight="560.0" prefWidth="520.0"
+            styleClass="dashboard-root"
+            xmlns="http://javafx.com/javafx/21.0.1" xmlns:fx="http://javafx.com/fxml/1"
+            fx:controller="io.github.sushiericworkspace.sushiericservermanager.feature.dashboard.DashboardController">
+    <content>
+        <VBox styleClass="dashboard-content">
+            <children>
+                <Label styleClass="dashboard-title" text="Dashboard" />
+
+                <Label styleClass="dashboard-section-title" text="接続" />
+                <GridPane styleClass="dashboard-grid">
+                    <columnConstraints>
+                        <ColumnConstraints minWidth="160.0" prefWidth="160.0" />
+                        <ColumnConstraints hgrow="ALWAYS" minWidth="200.0" />
+                    </columnConstraints>
+                    <Label styleClass="dashboard-label" text="Management API:" GridPane.rowIndex="0" />
+                    <Label fx:id="managementConnectionValue" styleClass="dashboard-value"
+                           GridPane.columnIndex="1" GridPane.rowIndex="0" />
+                    <Label styleClass="dashboard-label" text="SSH:" GridPane.rowIndex="1" />
+                    <Label fx:id="sshConnectionValue" styleClass="dashboard-value"
+                           GridPane.columnIndex="1" GridPane.rowIndex="1" />
+                </GridPane>
+
+                <Label styleClass="dashboard-section-title" text="Minecraftサーバー（Management API）" />
+                <GridPane styleClass="dashboard-grid">
+                    <columnConstraints>
+                        <ColumnConstraints minWidth="160.0" prefWidth="160.0" />
+                        <ColumnConstraints hgrow="ALWAYS" minWidth="200.0" />
+                    </columnConstraints>
+                    <Label styleClass="dashboard-label" text="状態:" GridPane.rowIndex="0" />
+                    <Label fx:id="serverStateValue" styleClass="dashboard-value"
+                           GridPane.columnIndex="1" GridPane.rowIndex="0" />
+                    <Label styleClass="dashboard-label" text="TPS:" GridPane.rowIndex="1" />
+                    <Label fx:id="tpsValue" styleClass="dashboard-value"
+                           GridPane.columnIndex="1" GridPane.rowIndex="1" />
+                    <Label styleClass="dashboard-label" text="MSPT:" GridPane.rowIndex="2" />
+                    <Label fx:id="msptValue" styleClass="dashboard-value"
+                           GridPane.columnIndex="1" GridPane.rowIndex="2" />
+                    <Label styleClass="dashboard-label" text="プレイヤー:" GridPane.rowIndex="3" />
+                    <Label fx:id="playersValue" styleClass="dashboard-value"
+                           GridPane.columnIndex="1" GridPane.rowIndex="3" />
+                    <Label styleClass="dashboard-label" text="稼働時間:" GridPane.rowIndex="4" />
+                    <Label fx:id="uptimeValue" styleClass="dashboard-value"
+                           GridPane.columnIndex="1" GridPane.rowIndex="4" />
+                    <Label styleClass="dashboard-label" text="JVMヒープ:" GridPane.rowIndex="5" />
+                    <Label fx:id="heapValue" styleClass="dashboard-value"
+                           GridPane.columnIndex="1" GridPane.rowIndex="5" />
+                </GridPane>
+
+                <Label styleClass="dashboard-section-title" text="ホストOS（SSH）" />
+                <GridPane styleClass="dashboard-grid">
+                    <columnConstraints>
+                        <ColumnConstraints minWidth="160.0" prefWidth="160.0" />
+                        <ColumnConstraints hgrow="ALWAYS" minWidth="200.0" />
+                    </columnConstraints>
+                    <Label styleClass="dashboard-label" text="CPU:" GridPane.rowIndex="0" />
+                    <Label fx:id="cpuValue" styleClass="dashboard-value"
+                           GridPane.columnIndex="1" GridPane.rowIndex="0" />
+                    <Label styleClass="dashboard-label" text="メモリ:" GridPane.rowIndex="1" />
+                    <Label fx:id="memoryValue" styleClass="dashboard-value"
+                           GridPane.columnIndex="1" GridPane.rowIndex="1" />
+                </GridPane>
+
+                <Label styleClass="dashboard-note" wrapText="true"
+                       text="「未取得」は値を受け取れていないことを表します。取得元ごとに接続状態を確認してください。" />
+            </children>
+        </VBox>
+    </content>
+</ScrollPane>

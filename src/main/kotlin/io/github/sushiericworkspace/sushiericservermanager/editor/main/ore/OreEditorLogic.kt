@@ -1,0 +1,492 @@
+package io.github.sushiericworkspace.sushiericservermanager.editor.main.ore
+
+import io.github.sushiericworkspace.sushiericdatamodel.data.core.identity.VanillaBlockId
+import io.github.sushiericworkspace.sushiericdatamodel.data.core.validation.SushiEricValidationError
+import io.github.sushiericworkspace.sushiericdatamodel.data.item.model.ItemInternalId
+import io.github.sushiericworkspace.sushiericdatamodel.data.ore.model.OreBaseDataView
+import io.github.sushiericworkspace.sushiericdatamodel.data.ore.model.mutable.MutableOreBaseData
+import io.github.sushiericworkspace.sushiericdatamodel.registry.VanillaIdRegistry
+import io.github.sushiericworkspace.sushiericdatamodel.stats.player.SkillType
+import io.github.sushiericworkspace.sushiericservermanager.editor.component.ItemReferenceBinding
+import io.github.sushiericworkspace.sushiericservermanager.editor.component.DropItemEditorDialog
+import io.github.sushiericworkspace.sushiericservermanager.editor.component.EditorSpinnerFactory
+import io.github.sushiericworkspace.sushiericservermanager.editor.component.SearchableComboBox
+import io.github.sushiericworkspace.sushiericservermanager.editor.controller.MainController
+import io.github.sushiericworkspace.sushiericservermanager.editor.service.EditorDataService
+import io.github.sushiericworkspace.sushiericservermanager.editor.service.ItemReferenceStatus
+import io.github.sushiericworkspace.sushiericservermanager.editor.view.ManagedDataEditorView
+import io.github.sushiericworkspace.sushiericservermanager.editor.view.createPublicIdDisplay
+import io.github.sushiericworkspace.sushiericservermanager.editor.validation.ValidationRepairRegistry
+import io.github.sushiericworkspace.sushiericservermanager.editor.validation.ValidationRepairResult
+import io.github.sushiericworkspace.sushiericservermanager.ui.dialog.CustomDialog
+import io.github.sushiericworkspace.sushiericservermanager.ui.dialog.MergeConflictDialog
+import javafx.event.EventHandler
+import javafx.geometry.Insets
+import javafx.geometry.Pos
+import javafx.scene.Node
+import javafx.scene.control.Button
+import javafx.scene.control.Label
+import javafx.scene.control.TextField
+import javafx.scene.control.TextFormatter
+import javafx.scene.input.KeyCode
+import javafx.scene.layout.GridPane
+import javafx.scene.layout.HBox
+import javafx.scene.layout.Priority
+import javafx.scene.layout.VBox
+
+internal fun parseHardnessInput(text: String): Double? =
+    text.toDoubleOrNull()?.takeIf(Double::isFinite)
+
+/**
+ * 魔力量の入力を`Double`として解釈します。
+ *
+ * 空欄は既定値の0として扱い、数値として解釈できない入力や有限でない値では`null`を返します。
+ * 負数は解釈できる値として返し、範囲の検証はSushiEricDataModelの検証結果として表示します。
+ */
+internal fun parseMagicPowerAmountInput(text: String): Double? {
+    val normalized = text.trim()
+    if (normalized.isEmpty()) {
+        return 0.0
+    }
+
+    return normalized.toDoubleOrNull()?.takeIf(Double::isFinite)
+}
+
+/**
+ * スキル経験値の入力を反映した新しいMapを返します。
+ *
+ * 空欄は未設定として対象スキルを削除し、数値として解釈できない入力では`null`を返します。
+ * 元のMapは変更せず、編集履歴や変更前データと可変参照を共有しないようにします。
+ */
+internal fun updatedSkillExperienceMap(
+    current: Map<SkillType, Double>,
+    skill: SkillType,
+    text: String
+): MutableMap<SkillType, Double>? {
+    val normalized = text.trim()
+    val updated = current.toMutableMap()
+    if (normalized.isEmpty()) {
+        updated.remove(skill)
+        return updated
+    }
+
+    val value = normalized.toDoubleOrNull()?.takeIf(Double::isFinite) ?: return null
+    updated[skill] = value
+    return updated
+}
+
+/**
+ * ドロップ参照に使うアイテム一覧の読込状態です。
+ *
+ * 参照先が存在しないのか、まだ一覧を読み込めていないだけなのかを区別するために使用します。
+ */
+internal enum class ItemCatalogState {
+    /** 読み込み中。 */
+    LOADING,
+
+    /** 読み込み済み。参照の検証ができます。 */
+    LOADED,
+
+    /** 読み込みに失敗した。参照の検証はできません。 */
+    FAILED
+}
+
+/**
+ * アイテム一覧を読み込むまで判定を保留する検証結果かどうかを返します。
+ *
+ * ドロップ参照の警告だけが対象です。未選択や試行回数など、参照先に依存しない問題は保留しません。
+ *
+ * @param error SushiEricDataModel側の検証が返した結果。
+ * @param state アイテム一覧の読込状態。
+ */
+internal fun isPendingDropItemReferenceError(
+    error: SushiEricValidationError,
+    state: ItemCatalogState
+): Boolean =
+    state != ItemCatalogState.LOADED &&
+            error.isWarning &&
+            error.property.name == OreBaseDataView::dropItems.name
+
+/**
+ * アイテム一覧の読込状態を伝える文言を返します。
+ *
+ * 読み込み済みで伝えることがない場合は`null`です。
+ */
+internal fun itemCatalogStatusMessage(state: ItemCatalogState): String? = when (state) {
+    ItemCatalogState.LOADED -> null
+
+    ItemCatalogState.FAILED ->
+        "アイテム一覧を読み込めなかったため、ドロップアイテムの参照を検証できません。"
+
+    ItemCatalogState.LOADING ->
+        "アイテム一覧を読み込んでいます。ドロップアイテムの参照はまだ検証していません。"
+}
+
+internal fun formatDropItemCount(count: Int): String = "ドロップアイテムを編集（${count}件）"
+
+internal fun createOreValidationRepairRegistry(): ValidationRepairRegistry<MutableOreBaseData> =
+    ValidationRepairRegistry<MutableOreBaseData>().apply {
+        register(
+            matches = { it.property.name == "dropItems" && it.key is Int },
+            description = { error ->
+                val index = error.key as Int
+                "ドロップアイテム ${index + 1} 番目を削除"
+            },
+            repair = { data, error ->
+                val index = error.key as? Int
+                if (index == null || index !in data.mutableDropItems.indices) {
+                    ValidationRepairResult.Failed("削除対象のドロップ行が見つかりません。")
+                } else {
+                    data.mutableDropItems.removeAt(index)
+                    ValidationRepairResult.Applied("ドロップアイテム ${index + 1} 番目を削除")
+                }
+            }
+        )
+    }
+
+/** 共通エディタ基盤上で鉱石固有の入力項目を提供します。 */
+internal class OreEditorLogic(
+    main: MainController,
+    dataService: EditorDataService
+) : ManagedDataEditorView<MutableOreBaseData>(
+    main = main,
+    dataService = dataService,
+    dataAccess = dataService.ores
+) {
+    override val validationRepairRegistry = createOreValidationRepairRegistry()
+
+    private val availableItems get() = dataService.itemReferences.snapshot.items
+    private val itemCatalogState get() = when (dataService.itemReferences.snapshot.status) {
+        ItemReferenceStatus.READY -> ItemCatalogState.LOADED
+        ItemReferenceStatus.FAILED -> ItemCatalogState.FAILED
+        else -> ItemCatalogState.LOADING
+    }
+    private var refreshCurrentValidation: (() -> Unit)? = null
+    private val validationFocusTargets = mutableMapOf<String, Node>()
+    private val skillExperienceFields = mutableMapOf<SkillType, TextField>()
+
+    private val itemBinding = ItemReferenceBinding(dataService.itemReferences, {
+        registeredSidebarIds.forEach(::refreshSidebarState)
+        refreshCurrentValidation?.invoke()
+    }, { error ->
+        logger.error("ドロップ参照用のアイテム一覧を読み込めませんでした", error.cause)
+        CustomDialog.error().title("アイテム一覧の読込エラー")
+            .header("ドロップアイテムを編集できません")
+            .content("アイテム一覧を読み込めませんでした。接続状態とデータを確認してください。")
+            .owner(main.currentStage).show()
+    })
+
+    override fun loadEditorReferences() {
+        itemBinding.load()
+    }
+
+    override fun setupMainContent(selectData: MutableOreBaseData) {
+        val validationBox = VBox(4.0).apply {
+            styleClass.add("ore-validation-box")
+        }
+        val dropItemButton = Button(formatDropItemCount(selectData.mutableDropItems.size)).apply {
+            isFocusTraversable = false
+            styleClass.add("btn-secondary")
+        }
+
+        val refreshItems = Button("参照アイテムを更新").apply {
+            setOnAction { itemBinding.load(force = true) }
+        }
+        fun refreshValidation() {
+            refreshItems.isDisable = itemCatalogState == ItemCatalogState.LOADING
+            dropItemButton.text = formatDropItemCount(selectData.mutableDropItems.size)
+            dropItemButton.isDisable = itemCatalogState == ItemCatalogState.LOADING
+
+            /*
+             * アイテム一覧を読み込むまではドロップの参照を検証できないため、
+             * 参照の警告の代わりに現在の状態を表示する。
+             */
+            val labels = buildList {
+                itemCatalogStatusMessage(itemCatalogState)?.let { message ->
+                    add(
+                        Label(message + if (itemCatalogState == ItemCatalogState.LOADING)
+                            " ${dataService.itemReferences.snapshot.loadedCount} / ${dataService.itemReferences.snapshot.totalCount} 件" else "").apply {
+                            styleClass.add(
+                                if (itemCatalogState == ItemCatalogState.FAILED) {
+                                    "warning-label"
+                                } else {
+                                    "status-label"
+                                }
+                            )
+                            isWrapText = true
+                        }
+                    )
+                }
+
+                validationErrors(selectData).forEach { result ->
+                    add(
+                        Label(result.message).apply {
+                            styleClass.add(if (result.isWarning) "warning-label" else "error-label")
+                            isWrapText = true
+                        }
+                    )
+                }
+            }
+
+            validationBox.children.setAll(labels)
+            refreshSidebarState(selectData.id)
+        }
+        refreshCurrentValidation = ::refreshValidation
+
+        val blockIdSelector = createBlockIdSelector(selectData) {
+            refreshValidation()
+        }
+        val hardnessField = createHardnessField(selectData) {
+            refreshValidation()
+        }
+        val requiredTierSpinner = EditorSpinnerFactory.intSpinner(
+            initialValue = selectData.requiredTier,
+            min = 0,
+            max = Int.MAX_VALUE,
+            step = 1,
+            prefWidth = 180.0
+        ) { value ->
+            selectData.requiredTier = value
+            refreshValidation()
+        }
+        val magicPowerAmountField = createMagicPowerAmountField(selectData) {
+            refreshValidation()
+        }
+        skillExperienceFields.clear()
+        val skillExperienceGrid = GridPane().apply {
+            hgap = 12.0
+            vgap = 8.0
+            SkillType.entries.forEachIndexed { index, skill ->
+                val field = createSkillExperienceField(selectData, skill) {
+                    refreshValidation()
+                }
+                skillExperienceFields[skill] = field
+                add(Label("${skill.display} (${skill.id}):"), 0, index)
+                add(field, 1, index)
+            }
+        }
+        validationFocusTargets.clear()
+        validationFocusTargets["blockId"] = blockIdSelector.children.first()
+        validationFocusTargets["hardness"] = hardnessField
+        validationFocusTargets["requiredTier"] = requiredTierSpinner
+        validationFocusTargets["dropItems"] = dropItemButton
+        validationFocusTargets[OreBaseDataView::magicPowerAmount.name] = magicPowerAmountField
+        skillExperienceFields.values.firstOrNull()?.let { field ->
+            validationFocusTargets[OreBaseDataView::skillExperienceMap.name] = field
+        }
+        dropItemButton.onAction = EventHandler {
+            val owner = main.currentStage ?: return@EventHandler
+            itemBinding.load {
+                DropItemEditorDialog.show(
+                    owner = owner,
+                    dropItems = selectData.mutableDropItems,
+                    items = availableItems
+                ) {
+                    refreshValidation()
+                }
+            }
+        }
+
+        val inputGrid = GridPane().apply {
+            styleClass.add("ore-editor-grid")
+            hgap = 12.0
+            vgap = 12.0
+            maxWidth = Double.MAX_VALUE
+            add(Label("公開ID:"), 0, 0)
+            add(createPublicIdDisplay(selectData.id).apply { styleClass.add("editor-identity-value") }, 1, 0)
+            add(Label("ブロックID:"), 0, 1)
+            add(blockIdSelector, 1, 1)
+            add(Label("硬度:"), 0, 2)
+            add(hardnessField, 1, 2)
+            add(Label("要求Tier:"), 0, 3)
+            add(requiredTierSpinner, 1, 3)
+            add(Label("ドロップアイテム:"), 0, 4)
+            add(dropItemButton, 1, 4)
+            add(Label("スキル経験値:"), 0, 5)
+            add(skillExperienceGrid, 1, 5)
+            add(Label("魔力量:"), 0, 6)
+            add(magicPowerAmountField, 1, 6)
+        }
+
+        val content = VBox(16.0, inputGrid, refreshItems, validationBox).apply {
+            styleClass.add("ore-editor-content")
+            padding = Insets(20.0)
+            maxWidth = Double.MAX_VALUE
+            maxHeight = Double.MAX_VALUE
+        }
+        HBox.setHgrow(content, Priority.ALWAYS)
+        main.mainContentContainer.children.setAll(content)
+        refreshValidation()
+    }
+
+    override fun focusValidationError(error: SushiEricValidationError): Boolean {
+        val target = if (error.property.name == OreBaseDataView::skillExperienceMap.name) {
+            (error.key as? SkillType)?.let(skillExperienceFields::get)
+                ?: validationFocusTargets[error.property.name]
+        } else {
+            validationFocusTargets[error.property.name]
+        } ?: return false
+        target.requestFocus()
+        return true
+    }
+
+    override fun availableItemInternalIds(): Set<ItemInternalId> =
+        dataService.itemReferences.snapshot.byInternalId.keys
+
+    /**
+     * アイテム一覧を読み込めていない間は、ドロップの参照に関する警告を保留します。
+     *
+     * 参照先が存在しないのか、まだ一覧を読み込めていないだけなのかを区別できないためです。
+     * 未選択や試行回数など、参照先に依存しない問題はそのまま表示します。
+     */
+    override fun isHiddenValidationError(
+        data: MutableOreBaseData,
+        error: SushiEricValidationError
+    ): Boolean = isPendingDropItemReferenceError(error, itemCatalogState)
+
+    override fun prepareNewData(data: MutableOreBaseData): MutableOreBaseData = data.apply {
+        blockId = VanillaIdRegistry.defaultBlock
+    }
+
+    override fun resolveSaveConflict(
+        dataId: String,
+        originalData: MutableOreBaseData,
+        currentData: MutableOreBaseData,
+        serverData: MutableOreBaseData
+    ): MutableOreBaseData? {
+        val merge = dataAccess.merge(originalData, currentData, serverData)
+        if (merge.conflicts.isEmpty()) return merge.merged
+        val localPaths = MergeConflictDialog.show(
+            owner = main.currentStage,
+            dataId = dataId,
+            conflicts = merge.conflicts
+        ) ?: return null
+        return merge.resolveWithLocal(localPaths)
+    }
+
+    private fun createBlockIdSelector(
+        ore: MutableOreBaseData,
+        onChanged: () -> Unit
+    ): VBox {
+        val registryIds = VanillaIdRegistry.allBlocks.map(VanillaBlockId::value)
+        val allIds = (listOf(ore.blockId.value) + registryIds).filter(String::isNotBlank).distinct()
+        return SearchableComboBox(
+            allChoices = allIds,
+            initialValue = ore.blockId.value,
+            promptText = "ブロックIDを検索",
+            displayText = { it },
+            onSelected = { selected ->
+                ore.blockId = VanillaBlockId(selected)
+                onChanged()
+            }
+        ).apply {
+            comboBox.prefWidth = 360.0
+            maxWidth = Double.MAX_VALUE
+        }
+    }
+
+    private fun createHardnessField(
+        ore: MutableOreBaseData,
+        onChanged: () -> Unit
+    ): TextField {
+        return TextField(ore.hardness.toString()).apply {
+            prefWidth = 180.0
+            maxWidth = 180.0
+            textFormatter = TextFormatter<String> { change ->
+                if (change.controlNewText.matches(Regex("-?\\d*(\\.\\d*)?"))) change else null
+            }
+
+            fun commitValue() {
+                val parsed = parseHardnessInput(text)
+                if (parsed == null) {
+                    text = ore.hardness.toString()
+                    return
+                }
+                ore.hardness = parsed
+                text = parsed.toString()
+                onChanged()
+            }
+
+            focusedProperty().addListener { _, _, focused ->
+                if (!focused) commitValue()
+            }
+            setOnKeyPressed { event ->
+                if (event.code == KeyCode.ENTER) {
+                    commitValue()
+                    event.consume()
+                }
+            }
+        }
+    }
+
+    private fun createMagicPowerAmountField(
+        ore: MutableOreBaseData,
+        onChanged: () -> Unit
+    ): TextField = TextField(ore.magicPowerAmount.toString()).apply {
+        prefWidth = 180.0
+        maxWidth = 180.0
+        textFormatter = TextFormatter<String> { change ->
+            if (change.controlNewText.matches(Regex("-?\\d*(\\.\\d*)?"))) change else null
+        }
+
+        fun commitValue() {
+            val parsed = parseMagicPowerAmountInput(text)
+            if (parsed == null) {
+                text = ore.magicPowerAmount.toString()
+                return
+            }
+            ore.magicPowerAmount = parsed
+            text = parsed.toString()
+            onChanged()
+        }
+
+        focusedProperty().addListener { _, _, focused ->
+            if (!focused) commitValue()
+        }
+        setOnKeyPressed { event ->
+            if (event.code == KeyCode.ENTER) {
+                commitValue()
+                event.consume()
+            }
+        }
+    }
+
+    private fun createSkillExperienceField(
+        ore: MutableOreBaseData,
+        skill: SkillType,
+        onChanged: () -> Unit
+    ): TextField = TextField(ore.skillExperienceMap[skill]?.toString().orEmpty()).apply {
+        promptText = "未設定"
+        prefWidth = 180.0
+        maxWidth = 180.0
+        textFormatter = TextFormatter<String> { change ->
+            if (change.controlNewText.matches(Regex("-?\\d*(\\.\\d*)?"))) change else null
+        }
+
+        fun restoreInvalidInput() {
+            if (text.isNotBlank() && updatedSkillExperienceMap(ore.skillExperienceMap, skill, text) == null) {
+                text = ore.skillExperienceMap[skill]?.toString().orEmpty()
+            }
+        }
+
+        textProperty().addListener { _, _, value ->
+            updatedSkillExperienceMap(ore.skillExperienceMap, skill, value)?.let { updated ->
+                ore.skillExperienceMap = updated
+                onChanged()
+            }
+        }
+        focusedProperty().addListener { _, _, focused ->
+            if (!focused) restoreInvalidInput()
+        }
+        setOnKeyPressed { event ->
+            if (event.code == KeyCode.ENTER) {
+                restoreInvalidInput()
+                event.consume()
+            }
+        }
+    }
+
+    override fun afterClose() {
+        itemBinding.close()
+    }
+}

@@ -1,0 +1,47 @@
+@import "/css/common/widgets.css";
+
+.simulator-root {
+    -fx-background-color: -fx-bg-deep;
+    -fx-padding: 14px;
+}
+.simulator-title {
+    -fx-font-size: 20px;
+    -fx-font-weight: bold;
+}
+.simulator-form {
+    -fx-spacing: 10px;
+    -fx-padding: 10px;
+    -fx-background-color: -fx-bg-deep;
+}
+.simulator-fields {
+    -fx-hgap: 12px;
+    -fx-vgap: 6px;
+}
+
+.simulator-root .titled-pane > .title {
+    -fx-background-color: -fx-bg-shallow;
+}
+.simulator-root .titled-pane {
+    -fx-text-fill: -fx-text-color;
+}
+.simulator-root .titled-pane > .content {
+    -fx-background-color: -fx-bg-deep;
+    -fx-padding: 8px;
+    -fx-border-color: -fx-bg-shallow;
+}
+
+.simulator-root,
+.simulator-root .label,
+.simulator-root .text-field,
+.simulator-root .text-area,
+.simulator-root .combo-box,
+.simulator-root .button,
+.simulator-root .check-box {
+    -fx-font-size: 16px;
+}
+.simulator-root .simulator-title {
+    -fx-font-size: 22px;
+}
+.simulator-root .tooltip {
+    -fx-font-size: 15px;
+}

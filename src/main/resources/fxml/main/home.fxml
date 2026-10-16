@@ -2,28 +2,79 @@
 
 <?import javafx.scene.control.Button?>
 <?import javafx.scene.control.Label?>
+<?import javafx.scene.control.ProgressIndicator?>
 <?import javafx.scene.control.ScrollPane?>
+<?import javafx.scene.layout.ColumnConstraints?>
+<?import javafx.scene.layout.GridPane?>
+<?import javafx.scene.layout.HBox?>
 <?import javafx.scene.layout.Region?>
 <?import javafx.scene.layout.VBox?>
 
-<VBox fx:id="rootPane" prefHeight="400.0" prefWidth="300.0" xmlns="http://javafx.com/javafx/21.0.1" xmlns:fx="http://javafx.com/fxml/1" fx:controller="io.github.sushiericworkspace.sushiericdataeditor2.editor.controller.HomeController">
+<VBox fx:id="rootPane" prefHeight="520.0" prefWidth="720.0" xmlns="http://javafx.com/javafx/21.0.1" xmlns:fx="http://javafx.com/fxml/1" fx:controller="io.github.sushiericworkspace.sushiericservermanager.editor.controller.HomeController">
 
     <children>
         <ScrollPane fitToHeight="true" fitToWidth="true" VBox.vgrow="ALWAYS">
             <content>
                 <VBox styleClass="home-content">
                     <children>
-                        <Label alignment="CENTER" maxWidth="1.7976931348623157E308" styleClass="home-title" text="データ選択" />
-                        <Label fx:id="modeLabel" alignment="CENTER" maxWidth="1.7976931348623157E308" styleClass="home-mode-label" />
-                        <Button focusTraversable="false" maxWidth="1.7976931348623157E308" mnemonicParsing="false" onAction="#onOpenItemEditor" styleClass="button, data-btn" text="アイテム" />
-                        <Button disable="true" focusTraversable="false" maxWidth="1.7976931348623157E308" mnemonicParsing="false" styleClass="button, data-btn, data-btn-unavailable" text="鉱石（未実装）" />
-                        <Button disable="true" focusTraversable="false" maxWidth="1.7976931348623157E308" mnemonicParsing="false" styleClass="button, data-btn, data-btn-unavailable" text="作物（未実装）" />
-                        <Button focusTraversable="false" maxWidth="1.7976931348623157E308" mnemonicParsing="false" onAction="#onOpenMobEditor" styleClass="button, data-btn" text="モブ" />
-                        <Button fx:id="uploadLocalButton" focusTraversable="false" maxWidth="1.7976931348623157E308"
-                                mnemonicParsing="false" onAction="#onUploadLocalData"
-                                styleClass="button, btn-secondary, home-upload-button"
-                                text="ローカルデータをアップロード" />
+                        <Label maxWidth="1.7976931348623157E308" styleClass="home-title" text="ホーム" />
+                        <VBox styleClass="home-status-panel">
+                            <children>
+                                <Label fx:id="modeLabel" maxWidth="1.7976931348623157E308" styleClass="home-mode-label" />
+                                <Label fx:id="compatibilityLabel" maxWidth="1.7976931348623157E308" wrapText="true" styleClass="home-mode-label" />
+                                <HBox alignment="CENTER_LEFT" spacing="8.0">
+                                    <Button fx:id="updateButton" text="更新する（必須）" onAction="#onRequiredUpdate" />
+                                    <ProgressIndicator fx:id="updateCheckProgress" prefWidth="18.0" prefHeight="18.0" visible="false" managed="false" />
+                                    <Label fx:id="updateCheckLabel" wrapText="true" visible="false" managed="false" styleClass="home-mode-label" />
+                                </HBox>
+                                <Label fx:id="managementLabel" maxWidth="1.7976931348623157E308" styleClass="home-mode-label" />
+                                <Label fx:id="monitorLabel" maxWidth="1.7976931348623157E308" styleClass="home-mode-label" wrapText="true" />
+                            </children>
+                        </VBox>
+                        <GridPane fx:id="homeSections" hgap="16.0" styleClass="home-sections">
+                            <columnConstraints>
+                                <ColumnConstraints hgrow="ALWAYS" minWidth="180.0" percentWidth="50.0" />
+                                <ColumnConstraints hgrow="ALWAYS" minWidth="180.0" percentWidth="50.0" />
+                            </columnConstraints>
+                            <children>
+                                <VBox maxWidth="1.7976931348623157E308" styleClass="home-section">
+                                    <children>
+                                        <Label maxWidth="1.7976931348623157E308" styleClass="home-section-title" text="エディター" />
+                                        <Button focusTraversable="false" maxWidth="1.7976931348623157E308" mnemonicParsing="false" onAction="#onOpenItemEditor" styleClass="button, data-btn" text="アイテム" />
+                                        <Button focusTraversable="false" maxWidth="1.7976931348623157E308" mnemonicParsing="false" onAction="#onOpenOreEditor" styleClass="button, data-btn" text="鉱石" />
+                                        <Button focusTraversable="false" maxWidth="1.7976931348623157E308" mnemonicParsing="false" onAction="#onOpenShopEditor" styleClass="button, data-btn" text="ショップ" />
+                                        <Button focusTraversable="false" maxWidth="1.7976931348623157E308" mnemonicParsing="false" onAction="#onOpenRecipeEditor" styleClass="button, data-btn" text="レシピ" />
+                                        <Button focusTraversable="false" maxWidth="1.7976931348623157E308" mnemonicParsing="false" onAction="#onOpenSimulator" styleClass="button, data-btn" text="戦闘シミュレーター" />
+                                        <Button disable="true" focusTraversable="false" maxWidth="1.7976931348623157E308" mnemonicParsing="false" styleClass="button, data-btn, data-btn-unavailable" text="作物（未実装）" />
+                                    </children>
+                                </VBox>
+                                <VBox fx:id="onlineToolsPane" maxWidth="1.7976931348623157E308" styleClass="home-section" GridPane.columnIndex="1">
+                                    <children>
+                                        <Label maxWidth="1.7976931348623157E308" styleClass="home-section-title" text="管理ツール" />
+                                        <Button fx:id="dashboardButton" focusTraversable="false" maxWidth="1.7976931348623157E308"
+                                                mnemonicParsing="false" onAction="#onOpenDashboard"
+                                                styleClass="button, data-btn" text="Dashboard" />
+                                        <Button fx:id="serverControlButton" focusTraversable="false" maxWidth="1.7976931348623157E308"
+                                                mnemonicParsing="false" onAction="#onOpenServerControl"
+                                                styleClass="button, data-btn" text="Server Control" />
+                                        <Button fx:id="consoleButton" focusTraversable="false" maxWidth="1.7976931348623157E308"
+                                                mnemonicParsing="false" onAction="#onOpenConsole"
+                                                styleClass="button, data-btn" text="Minecraftコンソール" />
+                                        <Button fx:id="modConfigButton" focusTraversable="false" maxWidth="1.7976931348623157E308"
+                                                mnemonicParsing="false" onAction="#onOpenModConfig"
+                                                styleClass="button, data-btn" text="Mod設定" />
+                                        <Button fx:id="historyButton" focusTraversable="false" maxWidth="1.7976931348623157E308"
+                                                mnemonicParsing="false" onAction="#onOpenMoneyHistory"
+                                                styleClass="button, data-btn" text="履歴閲覧" />
+                                    </children>
+                                </VBox>
+                            </children>
+                        </GridPane>
                         <Region VBox.vgrow="ALWAYS" />
+                        <Button fx:id="modeSelectButton" maxWidth="1.7976931348623157E308"
+                                mnemonicParsing="false" onAction="#handleReturnToModeSelect"
+                                styleClass="button, btn-secondary, home-back-button"
+                                text="モード選択へ戻る" />
                         <Button fx:id="backButton" maxWidth="1.7976931348623157E308" mnemonicParsing="false" onAction="#handleDisconnect" styleClass="button, btn-danger, home-back-button" text="戻る" />
                     </children>
                 </VBox>

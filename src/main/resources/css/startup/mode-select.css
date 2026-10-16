@@ -25,8 +25,8 @@
 .mode-card {
     -fx-background-color: -fx-bg-shallow;
     -fx-border-color: -fx-line-color;
-    -fx-border-radius: -fx-radius-large;
-    -fx-background-radius: -fx-radius-large;
+    -fx-border-radius: 0;
+    -fx-background-radius: 0;
     -fx-padding: 16px;
     -fx-spacing: 8px;
 }

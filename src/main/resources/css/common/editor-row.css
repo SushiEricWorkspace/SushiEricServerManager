@@ -54,13 +54,18 @@
     -fx-text-fill: -fx-danger-color;
 }
 
+.warning-label {
+    -fx-font-size: 13px;
+    -fx-text-fill: -fx-warning-color;
+}
+
 .editor-small-button {
     -fx-font-size: 12px;
     -fx-padding: 0 8px;
 }
 
 .editor-color-button {
-    -fx-background-radius: 6px;
+    -fx-background-radius: 0;
     -fx-border-color: transparent;
     -fx-padding: 0;
 }

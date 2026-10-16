@@ -41,3 +41,12 @@ Thumbs.db
 /nbdist/
 /.nb-gradle/
 .vscode/
+
+# Claude Code（.github/scripts/setup-worktrees.py --install-skill で各自が配置する）
+.claude/
+
+# 他AIエージェントがローカルへ配置する作業用ファイル
+.agents/
+
+# 明示準備した、このcheckoutだけの固定開発依存
+.manager-development.properties

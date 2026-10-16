@@ -14,7 +14,7 @@
            styleClass="server-select-root"
            xmlns="http://javafx.com/javafx/21.0.1"
            xmlns:fx="http://javafx.com/fxml/1"
-           fx:controller="io.github.sushiericworkspace.sushiericdataeditor2.serverselect.controller.ServerSelector">
+           fx:controller="io.github.sushiericworkspace.sushiericservermanager.serverselect.controller.ServerSelector">
     <children>
         <VBox fx:id="mainContent" alignment="TOP_CENTER" spacing="14.0">
             <padding>
@@ -24,6 +24,10 @@
             <HBox alignment="CENTER_LEFT" spacing="12.0" styleClass="server-select-header">
                 <Label styleClass="server-select-title" text="サーバー選択"/>
                 <Region HBox.hgrow="ALWAYS"/>
+                <Button focusTraversable="false" mnemonicParsing="false"
+                        onAction="#handleReturnToModeSelect"
+                        styleClass="button, btn-secondary, server-mode-select-button"
+                        text="モード選択へ戻る"/>
                 <Button focusTraversable="false" mnemonicParsing="false"
                         onAction="#openCreateServerWindow"
                         styleClass="button, btn-primary, server-add-button"

@@ -1,0 +1,36 @@
+/* 開発環境画面の展開欄と余白にも共通テーマを適用する。 */
+.managed-connection,
+.managed-connection > .viewport,
+.managed-connection .titled-pane > .content {
+    -fx-background-color: -fx-bg-deep;
+}
+
+.managed-connection .titled-pane {
+    -fx-text-fill: -fx-text-color;
+}
+
+.managed-connection .titled-pane > .title {
+    -fx-background-color: -fx-bg-elevated;
+    -fx-background-insets: 0;
+    -fx-background-radius: 0;
+    -fx-border-color: -fx-line-emphasis-color;
+}
+
+.managed-connection .titled-pane > .title:hover {
+    -fx-background-color: -fx-hover-color;
+}
+
+.managed-connection .titled-pane > .title > .arrow-button > .arrow {
+    -fx-background-color: -fx-text-color;
+    -fx-effect: null;
+}
+
+.managed-connection .titled-pane > .content {
+    -fx-border-color: -fx-line-color;
+}
+
+.managed-connection .button:disabled {
+    -fx-opacity: 1;
+    -fx-text-fill: -fx-text-muted-color;
+    -fx-background-color: -fx-bg-deep;
+}

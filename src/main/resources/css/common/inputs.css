@@ -8,8 +8,8 @@
     -fx-text-fill: -fx-text-color;
     -fx-border-color: -fx-line-color;
     -fx-border-width: 1px;
-    -fx-border-radius: 4px;
-    -fx-background-radius: 4px;
+    -fx-border-radius: 0;
+    -fx-background-radius: 0;
     -fx-padding: 6px;
 }
 
@@ -27,8 +27,8 @@
     -fx-min-height: 36px;
     -fx-border-color: -fx-line-color;
     -fx-border-width: 1px;
-    -fx-border-radius: 6px;
-    -fx-background-radius: 6px;
+    -fx-border-radius: 0;
+    -fx-background-radius: 0;
 }
 
 .text-field {
@@ -62,7 +62,7 @@
     -fx-background-color: -fx-bg-shallow;
     -fx-text-fill: -fx-text-color;
     -fx-prompt-text-fill: -fx-text-muted-color;
-    -fx-background-radius: 6px 0 0 6px;
+    -fx-background-radius: 0;
     -fx-border-width: 0;
 }
 
@@ -92,7 +92,7 @@
 
 .combo-box .arrow-button {
     -fx-background-color: -fx-bg-deep;
-    -fx-background-radius: 0 6px 6px 0;
+    -fx-background-radius: 0;
 }
 
 .combo-box .arrow-button:hover,

@@ -1,0 +1,91 @@
+package io.github.sushiericworkspace.sushiericservermanager.editor.store
+
+import io.github.sushiericworkspace.sushiericdatamodel.data.core.ManagedData
+
+interface EditorDataStore {
+    val kind: EditorDataStoreKind
+    val identity: String
+    /** ローカル取り込み元の隔離領域。nullの場合はアプリ共通のオフライン領域を使います。 */
+    val offlineDirectory: java.io.File? get() = null
+    val isAvailable: Boolean
+
+    fun <T : ManagedData<T, *>> list(
+        descriptor: EditorDataDescriptor<T>
+    ): StoreResult<List<StoreResource>>
+
+    fun <T : ManagedData<T, *>> load(
+        descriptor: EditorDataDescriptor<T>,
+        id: String
+    ): StoreResult<T>
+
+    fun <T : ManagedData<T, *>> save(
+        descriptor: EditorDataDescriptor<T>,
+        id: String,
+        data: T
+    ): StoreResult<Unit>
+
+    /** 完全IDを維持したまま、同じディレクトリ内で葉名だけを変更します。 */
+    fun <T : ManagedData<T, *>> rename(
+        descriptor: EditorDataDescriptor<T>,
+        oldId: String,
+        newName: String
+    ): StoreResult<Unit>
+
+    fun <T : ManagedData<T, *>> delete(
+        descriptor: EditorDataDescriptor<T>,
+        id: String
+    ): StoreResult<Unit>
+
+    /** 空ディレクトリを含め、指定したディレクトリと不足している親を作成します。 */
+    fun <T : ManagedData<T, *>> createDirectory(
+        descriptor: EditorDataDescriptor<T>,
+        directory: String
+    ): StoreResult<Unit>
+
+    /** 指定ディレクトリと配下のデータ・子ディレクトリを削除します。 */
+    fun <T : ManagedData<T, *>> deleteDirectory(
+        descriptor: EditorDataDescriptor<T>,
+        directory: String
+    ): StoreResult<Unit>
+
+    /** 直下を表す空文字を除き、存在するディレクトリを完全ディレクトリIDで返します。 */
+    fun <T : ManagedData<T, *>> listDirectories(
+        descriptor: EditorDataDescriptor<T>
+    ): StoreResult<List<String>>
+
+    /** データの葉名を維持したまま別ディレクトリへ移動し、変更後の完全IDを返します。 */
+    fun <T : ManagedData<T, *>> move(
+        descriptor: EditorDataDescriptor<T>,
+        id: String,
+        targetDirectory: String
+    ): StoreResult<String>
+
+    /**
+     * 基準ディレクトリからの相対パスにあるファイルを、テキストとして読み込みます。
+     *
+     * 解析や変換は行わず、UTF-8の文字列として返します。
+     *
+     * @param relativePath 基準ディレクトリからの相対パス（区切りは`/`）。
+     */
+    fun readText(relativePath: String): StoreResult<String>
+
+    /**
+     * サーバー実行ディレクトリからの相対パスをUTF-8で読み込みます。
+     * ローカルストアでは、オフラインデータの基準ディレクトリに置いたコピーを読み込みます。
+     */
+    fun readServerText(relativePath: String): StoreResult<String> = readText(relativePath)
+
+    /**
+     * 基準ディレクトリからの相対パスへ、テキストをそのまま保存します。
+     *
+     * 整形や変換は行わず、UTF-8で書き込みます。親ディレクトリがなければ作成します。
+     *
+     * @param relativePath 基準ディレクトリからの相対パス（区切りは`/`）。
+     * @param text 保存する内容。
+     */
+    fun writeText(relativePath: String, text: String): StoreResult<Unit>
+
+    /** 相対パス直下の項目を列挙します。存在しないディレクトリは空一覧として返します。 */
+    fun listPath(relativePath: String): StoreResult<List<StorePathEntry>> =
+        StoreResult.Failure(StoreError(StoreErrorCode.UNSUPPORTED_FORMAT, relativePath))
+}

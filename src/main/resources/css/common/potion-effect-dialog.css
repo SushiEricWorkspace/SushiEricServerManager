@@ -25,8 +25,8 @@
     -fx-background-color: -fx-bg-deep;
     -fx-border-color: -fx-line-color;
     -fx-border-width: 1px;
-    -fx-border-radius: 4px;
-    -fx-background-radius: 4px;
+    -fx-border-radius: 0;
+    -fx-background-radius: 0;
     -fx-padding: 0;
 }
 
@@ -44,12 +44,12 @@
 
 .potion-effect-list-scroll .scroll-bar .track {
     -fx-background-color: -fx-bg-shallow;
-    -fx-background-radius: 6px;
+    -fx-background-radius: 0;
 }
 
 .potion-effect-list-scroll .scroll-bar .thumb {
     -fx-background-color: -fx-line-color;
-    -fx-background-radius: 6px;
+    -fx-background-radius: 0;
 }
 
 .potion-effect-list-scroll .scroll-bar .thumb:hover {

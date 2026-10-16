@@ -1,0 +1,183 @@
+package io.github.sushiericworkspace.sushiericservermanager.editor.view
+
+import io.github.sushiericworkspace.sushiericdatamodel.data.core.ManagedData
+import io.github.sushiericworkspace.sushiericdatamodel.data.shop.model.mutable.MutableShopProductData
+import io.github.sushiericworkspace.sushiericdatamodel.data.item.model.ItemInternalId
+import io.github.sushiericworkspace.sushiericdatamodel.data.item.model.mutable.MutableItemBaseData
+import io.github.sushiericworkspace.sushiericdatamodel.data.ore.model.mutable.MutableOreBaseData
+import io.github.sushiericworkspace.sushiericdatamodel.data.recipe.model.mutable.MutableRecipeData
+import io.github.sushiericworkspace.sushiericservermanager.editor.merge.ConflictValueFormatter
+
+/** 保存確認に表示する、操作と項目単位の変更内容を組み立てます。 */
+internal fun saveChangeDetails(
+    dataId: String,
+    operation: PendingStoreOperation?,
+    original: ManagedData<*, *>,
+    current: ManagedData<*, *>,
+    automaticallyMerged: ManagedData<*, *>? = null,
+    finalData: ManagedData<*, *>? = null,
+    itemDisplayText: (ItemInternalId) -> String = { it.value }
+): List<String> = buildList {
+    add("【ストア操作】")
+    val contentChanged = original != current ||
+        (automaticallyMerged != null && current != automaticallyMerged) ||
+        (finalData != null && automaticallyMerged != null && finalData != automaticallyMerged)
+    addAll(saveChangeSummary(dataId, operation, contentChanged).map { "・$it" })
+
+    if (operation is PendingStoreOperation.Delete) return@buildList
+
+    val changes = changesBetween(original, current, operation is PendingStoreOperation.Create, itemDisplayText)
+    add("")
+    add("【内容の変更】")
+    appendChanges(changes, itemDisplayText)
+
+    if (automaticallyMerged != null) {
+        val mergedChanges = changesBetween(current, automaticallyMerged, created = false, itemDisplayText)
+        if (mergedChanges.isNotEmpty()) {
+            add("")
+            add("【自動マージ内容】")
+            appendChanges(mergedChanges, itemDisplayText)
+        }
+    }
+
+    if (finalData != null && automaticallyMerged != null) {
+        val resolutionChanges = changesBetween(automaticallyMerged, finalData, created = false, itemDisplayText)
+        if (resolutionChanges.isNotEmpty()) {
+            add("")
+            add("【競合の解決内容】")
+            appendChanges(resolutionChanges, itemDisplayText)
+        }
+    }
+}
+
+private fun MutableList<String>.appendChanges(changes: List<Change>, itemDisplayText: (ItemInternalId) -> String) {
+    if (changes.isEmpty()) {
+        add("・なし")
+    } else {
+        changes.forEach { change ->
+            add("・${change.label}")
+            if (change.created) {
+                add("  値: ${formatValue(change.after, itemDisplayText)}")
+            } else {
+                add("  変更前: ${formatValue(change.before, itemDisplayText)}")
+                add("  変更後: ${formatValue(change.after, itemDisplayText)}")
+            }
+        }
+    }
+}
+
+private fun changesBetween(
+    before: ManagedData<*, *>,
+    after: ManagedData<*, *>,
+    created: Boolean,
+    itemDisplayText: (ItemInternalId) -> String
+): List<Change> = when {
+    before is MutableRecipeData && after is MutableRecipeData -> buildList {
+        addValue("材料盤", before.size to before.ingredients, after.size to after.ingredients, created)
+        addValue("完成品", before.resultItemInternalId?.let(itemDisplayText) ?: "未選択", after.resultItemInternalId?.let(itemDisplayText) ?: "未選択", created)
+        addValue("完成数", before.resultCount, after.resultCount, created)
+        addMap("要求スキルレベル", before.skillLevelRequirements, after.skillLevelRequirements, created)
+        addValue("要求実績", before.achievementRequirements, after.achievementRequirements, created)
+    }
+    before is MutableShopProductData && after is MutableShopProductData -> buildList {
+        if (created || before.itemInternalId != after.itemInternalId) {
+            add(Change("対象アイテム", before.itemInternalId?.let(itemDisplayText) ?: "未選択", after.itemInternalId?.let(itemDisplayText) ?: "未選択", created))
+        }
+        addValue("購入価格", before.purchasePrice ?: "売買不可", after.purchasePrice ?: "売買不可", created)
+        addValue("販売価格", before.salePrice ?: "売買不可", after.salePrice ?: "売買不可", created)
+        addValue("在庫", before.stock ?: "無限", after.stock ?: "無限", created)
+        addValue("販売時の在庫追加", if (before.increaseStockOnSale) "する" else "しない", if (after.increaseStockOnSale) "する" else "しない", created)
+        addValue("表示順", before.displayOrder, after.displayOrder, created)
+    }
+    before is MutableItemBaseData && after is MutableItemBaseData ->
+        itemChanges(before, after, created)
+    before is MutableOreBaseData && after is MutableOreBaseData ->
+        oreChanges(before, after, created)
+    before != after -> listOf(Change("データ全体", before, after, created))
+    else -> emptyList()
+}
+
+/** 複数データの保存内容を、データIDごとの見出し付きで1つの確認表示へまとめます。 */
+internal fun combinedSaveChangeDetails(entries: List<Pair<String, List<String>>>): List<String> = buildList {
+    entries.forEachIndexed { index, (dataId, details) ->
+        if (index > 0) add("")
+        add("【$dataId】")
+        addAll(details)
+    }
+}
+
+private data class Change(
+    val label: String,
+    val before: Any?,
+    val after: Any?,
+    val created: Boolean = false
+)
+
+private fun itemChanges(
+    original: MutableItemBaseData,
+    current: MutableItemBaseData,
+    created: Boolean
+): List<Change> = buildList {
+    addValue("レアリティ", original.rarity, current.rarity, created)
+    addValue("バニラID", original.itemDetail.vanillaId, current.itemDetail.vanillaId, created)
+    addValue("最大スタック数", original.itemDetail.maxStackSize, current.itemDetail.maxStackSize, created)
+    addValue("エンチャント表示", original.itemDetail.enchantAura, current.itemDetail.enchantAura, created)
+    addValue("ヘッドスキン", original.itemDetail.mutableHeadSkin, current.itemDetail.mutableHeadSkin, created)
+    addValue("種別固有データ", original.itemDetail.content, current.itemDetail.content, created)
+    addValue("表示名", original.display.displayName, current.display.displayName, created)
+    addList("Lore", original.display.mutableLore, current.display.mutableLore, created)
+    addMap("ステータス", original.stats, current.stats, created)
+    addMap("ステータス倍率", original.statMultipliers, current.statMultipliers, created)
+    addList("エディターコメント", original.editorMeta.comment, current.editorMeta.comment, created)
+}
+
+private fun oreChanges(
+    original: MutableOreBaseData,
+    current: MutableOreBaseData,
+    created: Boolean
+): List<Change> = buildList {
+    addValue("ブロックID", original.blockId, current.blockId, created)
+    addValue("硬度", original.hardness, current.hardness, created)
+    addValue("要求Tier", original.requiredTier, current.requiredTier, created)
+    addList("ドロップアイテム", original.mutableDropItems, current.mutableDropItems, created)
+    addMap("スキル経験値", original.skillExperienceMap, current.skillExperienceMap, created)
+    addValue("魔力量", original.magicPowerAmount, current.magicPowerAmount, created)
+    addList("エディターコメント", original.editorMeta.comment, current.editorMeta.comment, created)
+}
+
+private fun MutableList<Change>.addValue(label: String, before: Any?, after: Any?, created: Boolean) {
+    if (created || before != after) add(Change(label, before, after, created))
+}
+
+private fun MutableList<Change>.addList(
+    label: String,
+    before: List<*>,
+    after: List<*>,
+    created: Boolean
+) {
+    val indexes = if (created) after.indices else 0 until maxOf(before.size, after.size)
+    indexes.forEach { index ->
+        addValue("$label / ${index + 1}番目", before.getOrNull(index), after.getOrNull(index), created)
+    }
+}
+
+private fun MutableList<Change>.addMap(
+    label: String,
+    before: Map<*, *>,
+    after: Map<*, *>,
+    created: Boolean
+) {
+    val keys = (before.keys + after.keys).distinct().sortedBy(Any?::toString)
+    keys.forEach { key ->
+        addValue("$label / ${ConflictValueFormatter.format(key)}", before[key], after[key], created)
+    }
+}
+
+private fun formatValue(value: Any?, itemDisplayText: (ItemInternalId) -> String): String {
+    val normalized = ConflictValueFormatter.format(value, itemDisplayText)
+    if (value is Pair<*, *> && value.first is io.github.sushiericworkspace.sushiericdatamodel.data.recipe.model.RecipeSize &&
+        value.second is io.github.sushiericworkspace.sushiericdatamodel.data.recipe.model.RecipeIngredients
+    ) return normalized
+    val singleLine = normalized.replace(Regex("\\s+"), " ").trim()
+    return if (singleLine.length <= 180) singleLine else singleLine.take(177) + "..."
+}

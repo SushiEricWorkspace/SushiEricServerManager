@@ -10,11 +10,11 @@
 }
 
 .toggle-switch .thumb-area {
-    -fx-background-color: #3A3B3C;
+    -fx-background-color: -fx-line-emphasis-color;
 }
 
 .toggle-switch .thumb {
-    -fx-background-color: #E4E6EB;
+    -fx-background-color: -fx-text-color;
 }
 
 .toggle-switch:selected .thumb-area {
