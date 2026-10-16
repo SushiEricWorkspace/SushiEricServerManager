@@ -69,7 +69,7 @@ internal class SimulatorInputEditor(private val onInputError: (IllegalArgumentEx
             TitledPane("プレイヤー基礎能力（技能・装備補正を含めない）", baseStats).apply { isExpanded = false },
             TitledPane("技能レベル", skills).apply { isExpanded = false },
             TitledPane("Mob能力/攻撃手段", VBox(8.0, mobStats, mobAttacks)).apply { isExpanded = false },
-            TitledPane("固定装備（手動指定）", equipmentEditor).apply { isExpanded = false },
+            TitledPane("固定装備（手動指定・取込）", equipmentEditor).apply { isExpanded = false },
             TitledPane("当事者と現在HP/リソース/構え/CD", VBox(8.0,
                 fieldRow("Player 名前/X/Z/yaw", playerName, playerX, playerZ, playerYaw), playerState,
                 fieldRow("Mob 名前/X/Z/yaw", mobName, mobX, mobZ, mobYaw), mobState)).apply { isExpanded = false },
@@ -116,10 +116,10 @@ internal class SimulatorInputEditor(private val onInputError: (IllegalArgumentEx
     fun readMode(): SimulatorMultipleHitMode = if (sample.isSelected) SimulatorMultipleHitMode.Sample(seed.longValue("seed"))
         else SimulatorMultipleHitMode.Expected
 
-    fun readInput(): SimulatorMultipleHitInput {
+    fun readInput(equipmentInput: SimulatorEquipmentInput = equipmentEditor.readInput()): SimulatorMultipleHitInput {
         require(hits.isNotEmpty()) { "命中行を1件以上指定してください。" }
         val skillLevels = SkillLevelSnapshot(skills.fields.mapValues { (key, field) -> field.integer(key.name) })
-        val assembled = SimulatorEquipmentAssembler.resolve(equipmentEditor.readInput(), skillLevels)
+        val assembled = SimulatorEquipmentAssembler.resolve(equipmentInput, skillLevels)
         val equipment = when (assembled) {
             is SimulatorEquipmentResult.Unsupported -> return SimulatorMultipleHitInput.Unsupported(assembled.problems.joinToString(" / ") { it.reason })
             is SimulatorEquipmentResult.Ready -> assembled

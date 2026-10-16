@@ -1,5 +1,11 @@
 package io.github.sushiericworkspace.sushiericservermanager.editor.main.item
 
+import io.github.sushiericworkspace.sushiericdatamodel.stats.player.StatsPart
+import io.github.sushiericworkspace.sushiericservermanager.editor.session.EditorSession
+import io.github.sushiericworkspace.sushiericservermanager.feature.simulator.SimulatorImportedItem
+import io.github.sushiericworkspace.sushiericservermanager.feature.simulator.SimulatorWindowManager
+import javafx.collections.FXCollections
+import javafx.scene.control.ComboBox
 import io.github.sushiericworkspace.sushiericdatamodel.data.core.identity.PublicId
 import io.github.sushiericworkspace.sushiericdatamodel.data.core.validation.SushiEricValidationError
 import io.github.sushiericworkspace.sushiericdatamodel.data.item.LoreLineEditor
@@ -222,6 +228,13 @@ class ItemEditorLogic(
     ).apply {
         styleClass.add("editor-identity-pane")
     }
+
+    private val simulatorPart = ComboBox(FXCollections.observableArrayList(
+        StatsPart.entries.filter { it.isEquipment }
+    )).apply { value = StatsPart.MAIN_HAND }
+    private val simulatorButton = Button("シミュレーターへ取込")
+    private val simulatorImportMessage = Label().apply { isWrapText = true }
+    private var simulatorImport: ItemSimulatorImport? = null
 
     private val sidebarSearchField = TextField().apply {
         promptText = "公開IDを検索"
@@ -603,6 +616,8 @@ class ItemEditorLogic(
         return finalSaveData
     }
 
+    override fun afterClose() { simulatorImport?.dispose() }
+
     override fun setupMainContent(selectData: MutableItemBaseData) {
         previewCanvas = PreviewCanvas(
             itemData = selectData,
@@ -610,6 +625,17 @@ class ItemEditorLogic(
         )
 
         previewCanvas?.refreshPreview()
+        if (simulatorImport == null) simulatorImport = ItemSimulatorImport(
+            main.mainContentContainer, simulatorButton, simulatorImportMessage,
+            busy = { closeBusy || storeOperationBlocked || EditorSession.dataService !== dataService },
+            snapshot = { currentSelectedDataId?.let { editingDataMap[it] }?.let {
+                SimulatorImportedItem.fromEdited(it)
+            } },
+            accept = { item ->
+                SimulatorWindowManager.importItem(
+                    main.mainContentContainer.scene.window, checkNotNull(simulatorPart.value) { "取込部位を選択してください。" }, item)
+            }
+        )
 
         if (main.mainContentContainer.children.isEmpty()) {
             val editorPane = VBox(12.0).apply {
@@ -619,6 +645,7 @@ class ItemEditorLogic(
                 maxHeight = Double.MAX_VALUE
                 children.addAll(
                     currentIdentityPane,
+                    HBox(8.0, simulatorPart, simulatorButton), simulatorImportMessage,
                     treeView
                 )
                 VBox.setVgrow(treeView, Priority.ALWAYS)
@@ -1306,7 +1333,7 @@ class ItemEditorLogic(
      * - TreeViewのVirtualFlowは行数が変化してもスクロール位置を割合で保ちます。
      *   このツリーは行ごとに高さが異なるため、行を開くと表示中の位置が上下へ飛びます。
      * - 開閉の前後で操作した行の位置をpxで比較し、ずれた分だけ戻します。
-     *   [javafx.scene.control.TreeView.scrollTo]は表示範囲内の行に対しては位置を変えないため使用できません。
+     *   [TreeView.scrollTo]は表示範囲内の行に対しては位置を変えないため使用できません。
      * - TreeItemのイベントはルートまで伝播するため、ルートへ登録するだけで配下すべての開閉を扱えます。
      *
      * @param rootItem 対象ツリーのルート。
@@ -1340,7 +1367,7 @@ class ItemEditorLogic(
      *
      * 表示範囲外の行はセルが生成されていないため`null`になります。
      *
-     * @param row [javafx.scene.control.TreeView.getRow]で得られる行番号。
+     * @param row [TreeView.getRow]で得られる行番号。
      * @return TreeView上端を0とした位置。取得できない場合は`null`。
      */
     private fun rowTopOffset(row: Int): Double? {

@@ -1,5 +1,7 @@
 package io.github.sushiericworkspace.sushiericservermanager.feature.simulator
 
+import io.github.sushiericworkspace.sushiericservermanager.editor.main.item.PreviewCanvas
+import javafx.scene.image.ImageView
 import io.github.sushiericworkspace.combatcore.item.upgrade.definition.LevelledItemUpgradeDefinition
 import io.github.sushiericworkspace.combatcore.item.upgrade.definition.enchantment.ArmorCustomEnchantment
 import io.github.sushiericworkspace.combatcore.item.upgrade.definition.enchantment.MeleeSushiEricEnchantment
@@ -17,9 +19,11 @@ internal class SimulatorEquipmentEditor : VBox(8.0) {
     internal val slots = StatsPart.entries.filter { it.isEquipment }.associateWith { EquipmentSlot(it) }
     init { children.addAll(slots.values.map { it.pane }) }
     fun readInput() = SimulatorEquipmentInput(slots.mapNotNull { (part, slot) -> slot.readItem()?.let { part to it } }.toMap())
+    fun withImported(part: StatsPart, value: SimulatorImportedItem): SimulatorEquipmentInput = SimulatorEquipmentInput(
+        slots.mapNotNull { (key, slot) -> slot.readItem(if (key == part) value else null)?.let { key to it } }.toMap())
 }
 
-internal class EquipmentSlot(part: StatsPart) {
+internal class EquipmentSlot(private val part: StatsPart) {
     val enabled = CheckBox("装備を使用")
     val itemId = TextField("manual_${part.name.lowercase()}")
     val type = ComboBox(FXCollections.observableArrayList(ItemType.entries)).apply {
@@ -53,18 +57,44 @@ internal class EquipmentSlot(part: StatsPart) {
         })).apply { isExpanded = false }
     )).apply { isExpanded = false }
 
-    fun readItem(): SimulatorEquippedItem? {
-        if (!enabled.isSelected) return null
-        val content = when (type.value) {
-            ItemType.SHIELD -> ShieldData(blockCooldown = blockCd.tick("盾Block CD"), parryCooldown = parryCd.tick("盾Parry CD"))
-            ItemType.BOW -> BowData(multi = multi.integer("弓multi"))
-            ItemType.SHORT_BOW -> ShortBowData(multi = multi.integer("弓multi"))
-            ItemType.CROSSBOW -> CrossbowData(arrowCount = arrowCount.integer("クロスボウ本数"), arrowEfficiency = arrowEfficiency.number("矢消費効率"))
-            else -> type.value.createContent()
+    private var imported: SimulatorImportedItem? = null
+    private val importedLabel = Label().apply { isWrapText = true }
+    private val importedPreview = ImageView().apply { isPreserveRatio = true; fitWidth = 200.0 }
+
+    init {
+        (pane.content as VBox).children.addAll(importedLabel, importedPreview, Button("手動装備へ戻す").apply {
+            setOnAction { imported = null; importedLabel.text = "手動指定"; importedPreview.image = null }
+        })
+    }
+
+    fun importItem(value: SimulatorImportedItem) {
+        val item = value.item
+        require(item.itemDetail.itemType in part.supportType || (part == StatsPart.OFF_HAND && item.itemDetail.itemType == ItemType.SHORT_SWORD)) { "この部位には${item.itemDetail.itemType}を装備できません。" }
+        require(item.validate().none { it.isError }) { "Itemに検証エラーがあります。" }
+        val preview = ImageView()
+        PreviewCanvas(item, preview).refreshPreview()
+        imported = value
+        enabled.isSelected = true
+        importedLabel.text = "${value.source} / revision=${value.revision} / ${item.id}（明示取込まで固定。手動の型/能力/要求/倍率は使用せず強化指定だけを追加）"
+        importedPreview.image = preview.image
+        importedPreview.fitWidth = preview.fitWidth
+        importedPreview.fitHeight = preview.fitHeight
+    }
+
+    fun readItem(candidate: SimulatorImportedItem? = null): SimulatorEquippedItem? {
+        if (candidate == null && !enabled.isSelected) return null
+        val item = candidate?.item ?: imported?.item ?: run {
+            val content = when (type.value) {
+                ItemType.SHIELD -> ShieldData(blockCooldown = blockCd.tick("盾Block CD"), parryCooldown = parryCd.tick("盾Parry CD"))
+                ItemType.BOW -> BowData(multi = multi.integer("弓multi"))
+                ItemType.SHORT_BOW -> ShortBowData(multi = multi.integer("弓multi"))
+                ItemType.CROSSBOW -> CrossbowData(arrowCount = arrowCount.integer("クロスボウ本数"), arrowEfficiency = arrowEfficiency.number("矢消費効率"))
+                else -> type.value.createContent()
+            }
+            ItemBaseData(id = itemId.text, itemDetail = ItemDetail(content = content),
+                stats = stats.values(), skillLevelRequirements = requirements.fields.mapValues { (key, field) -> field.integer(key.name) },
+                statMultipliers = multiplierRows.filter { it.enabled.isSelected }.groupBy({ it.stat.value }, { it.read() }))
         }
-        val item = ItemBaseData(id = itemId.text, itemDetail = ItemDetail(content = content),
-            stats = stats.values(), skillLevelRequirements = requirements.fields.mapValues { (key, field) -> field.integer(key.name) },
-            statMultipliers = multiplierRows.filter { it.enabled.isSelected }.groupBy({ it.stat.value }, { it.read() }))
         return SimulatorEquippedItem(item, levels.fields.mapValues { (key, field) -> field.integer(key.displayName) }.filterValues { it != 0 },
             buildMap {
                 if (honing.isSelected) put(Honing.category, Honing)
