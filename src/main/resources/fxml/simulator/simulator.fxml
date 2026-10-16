@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<?import javafx.scene.control.Button?>
+<?import javafx.scene.control.Label?>
+<?import javafx.scene.control.ScrollPane?>
+<?import javafx.scene.layout.HBox?>
+<?import javafx.scene.layout.VBox?>
+<VBox xmlns:fx="http://javafx.com/fxml/1" fx:controller="io.github.sushiericworkspace.sushiericservermanager.feature.simulator.SimulatorController"
+      prefWidth="1100.0" prefHeight="800.0" spacing="10.0" styleClass="simulator-root">
+    <Label text="戦闘シミュレーター" styleClass="simulator-title" />
+    <Label text="同じtickの指定順に評価します。飛翔・遅延・ノックバック後の衝突・実環境への効果適用は行いません。" wrapText="true" />
+    <ScrollPane fitToWidth="true" VBox.vgrow="ALWAYS"><content><VBox fx:id="inputContainer" /></content></ScrollPane>
+    <HBox spacing="10.0">
+        <Button text="計算" onAction="#calculate" />
+        <Button fx:id="cancelButton" text="取消" onAction="#cancel" disable="true" />
+        <Label fx:id="statusLabel" text="未実行" />
+    </HBox>
+    <Label text="直前の固定要求の結果（入力を変更した後は再計算してください）" />
+    <Label fx:id="resultLabel" wrapText="true" minHeight="40.0" />
+</VBox>

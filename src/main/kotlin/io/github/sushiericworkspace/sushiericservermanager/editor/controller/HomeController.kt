@@ -17,6 +17,7 @@ import io.github.sushiericworkspace.sushiericservermanager.editor.view.EditorVie
 import io.github.sushiericworkspace.sushiericservermanager.editor.view.EditorWindowManager
 import io.github.sushiericworkspace.sushiericservermanager.feature.console.ConsoleWindowManager
 import io.github.sushiericworkspace.sushiericservermanager.feature.dashboard.DashboardWindowManager
+import io.github.sushiericworkspace.sushiericservermanager.feature.simulator.SimulatorWindowManager
 import io.github.sushiericworkspace.sushiericservermanager.feature.modconfig.ModConfigWindowManager
 import io.github.sushiericworkspace.sushiericservermanager.feature.servercontrol.ServerControlWindowManager
 import io.github.sushiericworkspace.sushiericservermanager.feature.moneyhistory.MoneyHistoryWindowManager
@@ -417,6 +418,13 @@ class HomeController internal constructor(
     fun onOpenConsole() {
         if (EditorSession.mode != AppMode.ONLINE) return
         ConsoleWindowManager.open(rootPane.scene?.window)
+    }
+
+    /** オンラインでもサーバーへ書き込まない手動シミュレーターを開きます。 */
+    @FXML
+    @Suppress("unused")
+    fun onOpenSimulator() {
+        SimulatorWindowManager.open(rootPane.scene?.window)
     }
 
     /** サーバー状態のDashboardを開きます。 */
