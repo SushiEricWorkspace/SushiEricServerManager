@@ -47,3 +47,6 @@ Thumbs.db
 
 # 他AIエージェントがローカルへ配置する作業用ファイル
 .agents/
+
+# 明示準備した、このcheckoutだけの固定開発依存
+.manager-development.properties

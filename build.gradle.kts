@@ -1,3 +1,5 @@
+import java.util.Properties
+import java.io.File
 import java.nio.file.Path
 import java.nio.file.Files
 import java.net.URI
@@ -16,6 +18,37 @@ plugins {
 
 group = "io.github.sushiericworkspace.sushiericservermanager"
 version = "1.0-SNAPSHOT"
+
+val developmentInputKeys = listOf("dataModelDevelopmentCoordinate", "combatCoreDevelopmentCoordinate",
+    "combatCoreDataModelCoordinate", "dataModelDevelopmentRepository", "combatCoreDevelopmentRepository",
+    "dataModelSourceCommit", "combatCoreSourceCommit")
+val localDevelopment = gradle.extensions.extraProperties.get("managerDevelopmentInputs") as Properties
+fun developmentInput(key: String) = providers.gradleProperty(key).orElse(providers.provider {
+    localDevelopment.getProperty(key)
+})
+
+if (localDevelopment.isNotEmpty()) {
+    check(localDevelopment.getProperty("format") == "1" && developmentInputKeys.all {
+        !localDevelopment.getProperty(it).isNullOrBlank()
+    }) { "固定開発依存の設定が不完全です。scripts/prepare-development.pyで再準備してください。" }
+    for ((key, repositoryKey) in listOf("dataModelDevelopmentCoordinate" to "dataModelDevelopmentRepository",
+        "combatCoreDataModelCoordinate" to "dataModelDevelopmentRepository",
+        "combatCoreDevelopmentCoordinate" to "combatCoreDevelopmentRepository")) {
+        val coordinate = localDevelopment.getProperty(key).split(':')
+        check(coordinate.size == 3) { "固定開発座標が不正です: $key" }
+        val (group, module, version) = coordinate
+        val repository = File(localDevelopment.getProperty(repositoryKey))
+        check(repository.isAbsolute) { "開発repositoryは絶対パスが必要です。" }
+        for (extension in listOf("jar", "pom")) {
+            val artifact = repository.resolve("${group.replace('.', '/')}/$module/$version/$module-$version.$extension")
+            val expected = localDevelopment.getProperty("sha256.$module.$extension")
+            check(artifact.isFile && expected != null && MessageDigest.getInstance("SHA-256")
+                .digest(artifact.readBytes()).joinToString("") { "%02x".format(it) } == expected) {
+                "固定開発成果物が不足または変更されています: $artifact。scripts/prepare-development.pyで再準備してください。"
+            }
+        }
+    }
+}
 
 val dataModelReleaseVersion = providers.gradleProperty("dataModelReleaseVersion")
     .orNull
@@ -36,7 +69,7 @@ if (releaseTaskRequested && dataModelReleaseVersion == null) {
     )
 }
 
-val dataModelDevelopmentCoordinate = providers.gradleProperty("dataModelDevelopmentCoordinate").orNull
+val dataModelDevelopmentCoordinate = developmentInput("dataModelDevelopmentCoordinate").orNull
 if (dataModelDevelopmentCoordinate != null && (dataModelReleaseVersion != null || !Regex(
         """io\.github\.sushiericworkspace:sushieric-datamodel-editor-dev:0\.1\.0-dev\.[a-zA-Z0-9.-]+"""
     ).matches(dataModelDevelopmentCoordinate))) {
@@ -45,14 +78,14 @@ if (dataModelDevelopmentCoordinate != null && (dataModelReleaseVersion != null |
 
 val dataModelDependency = dataModelDevelopmentCoordinate
     ?: dataModelReleaseVersion?.let { "io.github.sushiericworkspace:sushieric-datamodel:$it" }
-    ?: throw GradleException("開発ビルドにはEditor用SushiEricDataModelの完全座標が必要です。")
+    ?: throw GradleException("開発ビルドにはEditor用SushiEricDataModelの完全座標が必要です。scripts/prepare-development.pyで固定開発依存を準備してください。")
 
 val combatCoreReleaseVersion = providers.gradleProperty("combatCoreReleaseVersion")
     .orNull
     ?.trim()
     ?.takeIf { it.isNotEmpty() }
-val combatCoreDevelopmentCoordinate = providers.gradleProperty("combatCoreDevelopmentCoordinate").orNull
-val combatCoreDataModelCoordinate = providers.gradleProperty("combatCoreDataModelCoordinate").orNull
+val combatCoreDevelopmentCoordinate = developmentInput("combatCoreDevelopmentCoordinate").orNull
+val combatCoreDataModelCoordinate = developmentInput("combatCoreDataModelCoordinate").orNull
 if ((combatCoreReleaseVersion == null) != (dataModelReleaseVersion == null)) {
     throw GradleException("CombatCoreとSushiEricDataModelは開発版または正式版を同じモードで指定してください。")
 }
@@ -78,7 +111,7 @@ if (combatCoreDataModelCoordinate != null) {
 }
 val combatCoreDependency = combatCoreDevelopmentCoordinate
     ?: combatCoreReleaseVersion?.let { "io.github.sushiericworkspace:sushieric-combat-core:$it" }
-    ?: throw GradleException("開発ビルドにはCombatCoreの完全座標が必要です。")
+    ?: throw GradleException("開発ビルドにはCombatCoreの完全座標が必要です。scripts/prepare-development.pyで固定開発依存を準備してください。")
 
 if (dataModelReleaseVersion == null &&
     (dataModelDevelopmentCoordinate == null || combatCoreDevelopmentCoordinate == null || combatCoreDataModelCoordinate == null)) {
@@ -729,8 +762,8 @@ val recordCombatCoreDependency = tasks.register("recordCombatCoreDependency") {
     inputs.property("dataModelCoordinate", dataModelDependency)
     inputs.property("combatCoreCoordinate", combatCoreDependency)
     inputs.property("combatCoreDataModelCoordinate", combatCoreDataModelCoordinate!!)
-    inputs.property("dataModelSourceCommit", providers.gradleProperty("dataModelSourceCommit"))
-    inputs.property("combatCoreSourceCommit", providers.gradleProperty("combatCoreSourceCommit"))
+    inputs.property("dataModelSourceCommit", developmentInput("dataModelSourceCommit"))
+    inputs.property("combatCoreSourceCommit", developmentInput("combatCoreSourceCommit"))
     inputs.files(configurations.runtimeClasspath, combatCoreMetadata)
     doLast {
         val runtimeFiles = configurations.runtimeClasspath.get().files
@@ -743,8 +776,8 @@ val recordCombatCoreDependency = tasks.register("recordCombatCoreDependency") {
                 .digest(file.readBytes()).joinToString("") { "%02x".format(it) }
             "artifact.${file.name}=sha256:$digest"
         }
-        val dataModelCommit = providers.gradleProperty("dataModelSourceCommit").orNull ?: "未指定"
-        val combatCoreCommit = providers.gradleProperty("combatCoreSourceCommit").orNull ?: "未指定"
+        val dataModelCommit = developmentInput("dataModelSourceCommit").orNull ?: "未指定"
+        val combatCoreCommit = developmentInput("combatCoreSourceCommit").orNull ?: "未指定"
         check(Regex("[0-9a-f]{40}").matches(dataModelCommit) && Regex("[0-9a-f]{40}").matches(combatCoreCommit)) {
             "固定artifactの検証記録にはDataModelとCombatCoreの完全なsource commit hashが必要です。"
         }
