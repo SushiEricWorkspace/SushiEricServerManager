@@ -32,8 +32,10 @@ internal class SimulatorWorkspace(
     private var active: SimulatorMultipleHitRequest? = null
     private var disposed = false
 
+    fun acceptsInput(): Boolean = !disposed && isSessionCurrent()
+
     fun start(input: SimulatorMultipleHitInput, mode: SimulatorMultipleHitMode) {
-        check(!disposed && isSessionCurrent()) { "終了済みの画面または接続では計算できません。" }
+        check(acceptsInput()) { "終了済みの画面または接続では計算できません。" }
         active?.cancel()
         val request = SimulatorMultipleHitRequest(++generation, input, mode)
         active = request
