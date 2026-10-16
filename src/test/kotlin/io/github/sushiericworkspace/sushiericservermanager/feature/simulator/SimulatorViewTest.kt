@@ -104,6 +104,7 @@ class SimulatorViewTest {
         onFxThread {
             view = SimulatorView.load()
             Utility.createScene(AppScreen.SIMULATOR, customRoot = view.root)
+            view.root.applyCss(); view.root.layout()
             view.root.lookupAll(".button").filterIsInstance<Button>().single { it.text == "計算" }.fire()
             assertIs<SimulatorRunState.Running>(view.controller.workspace.state)
         }
@@ -159,6 +160,7 @@ class SimulatorViewTest {
         val view = SimulatorView.load()
         try {
             Utility.createScene(AppScreen.SIMULATOR, customRoot = view.root)
+            view.root.applyCss(); view.root.layout()
             view.root.lookupAll(".button").filterIsInstance<Button>().single { it.text == "計算" }.fire()
             assertTrue(view.controller.inputEditor.isDisable)
             assertIs<Button>(view.root.lookup("#cancelButton")).fire()

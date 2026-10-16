@@ -77,8 +77,8 @@ internal class SimulatorWorkspace(
 
 /** Coreが返した合計だけを表示し、未完了を0や途中値へ変換しません。 */
 internal fun SimulatorMultipleHitResult.summary(): String = when (this) {
-    is SimulatorMultipleHitResult.Expected -> "厳密期待値  算出: ${result.meanCalculatedDamage} / 純HP減少: ${result.meanHealthDamage} / OH吸収: ${result.meanOverHealDamage} / 適用量: ${result.meanAppliedDamage}"
-    is SimulatorMultipleHitResult.Sample -> "サンプル seed=$seed  算出: ${result.calculatedDamage} / 純HP減少: ${result.healthDamage} / OH吸収: ${result.overHealDamage} / 適用量: ${result.appliedDamage}"
+    is SimulatorMultipleHitResult.Expected -> "平均ダメージ（厳密期待値）  算出: ${result.meanCalculatedDamage} / 純HP減少: ${result.meanHealthDamage} / 追加HP(OH)吸収: ${result.meanOverHealDamage} / 実適用量: ${result.meanAppliedDamage}"
+    is SimulatorMultipleHitResult.Sample -> "1回の結果（乱数の固定番号=$seed）  算出: ${result.calculatedDamage} / 純HP減少: ${result.healthDamage} / 追加HP(OH)吸収: ${result.overHealDamage} / 実適用量: ${result.appliedDamage}"
     is SimulatorMultipleHitResult.Cancelled -> "取消済み（ダメージ値なし）"
     is SimulatorMultipleHitResult.LimitExceeded -> "厳密計算上限超過: $reason / 評価回数: $evaluatedHits（ダメージ値なし）"
     is SimulatorMultipleHitResult.Unsupported -> "非対応: $reason${hitId?.let { " / hitId=$it" }.orEmpty()}（ダメージ値なし）"

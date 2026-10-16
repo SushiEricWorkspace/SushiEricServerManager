@@ -6,6 +6,7 @@ import io.github.sushiericworkspace.sushiericdatamodel.stats.player.StatsPart
 import io.github.sushiericworkspace.sushiericservermanager.config.FilePath
 import io.github.sushiericworkspace.sushiericservermanager.editor.store.StoreResult
 import java.io.File
+import io.github.sushiericworkspace.sushiericservermanager.editor.component.SearchableComboBox
 import javafx.scene.control.ComboBox
 import javafx.scene.control.TextArea
 import javafx.scene.control.TextField
@@ -34,7 +35,11 @@ class SimulatorController {
     @FXML private lateinit var nextComparisonButton: Button
     @FXML private lateinit var importLabel: Label
     @FXML private lateinit var localRoot: TextField
-    @FXML private lateinit var localId: TextField
+    @FXML private lateinit var localChoicesBox: VBox
+    internal lateinit var localChoices: SearchableComboBox<SimulatorItemChoice>
+        private set
+    private var catalogRoot: File? = null
+    private var searchHasMatches = true
     @FXML private lateinit var localPart: ComboBox<StatsPart>
     private lateinit var itemLoader: SimulatorItemLoader
     private val comparison = SimulatorComparisonSession()
@@ -53,15 +58,43 @@ class SimulatorController {
         localRoot.text = FilePath.OFFLINE_DIR.path
         localPart.items.setAll(StatsPart.entries.filter { it.isEquipment })
         localPart.value = StatsPart.MAIN_HAND
+        localPart.converter = simulatorConverter { it.display }
+        localChoices = SearchableComboBox(listOf(SimulatorItemChoice.None), SimulatorItemChoice.None,
+            "装備名・公開IDで検索", { choice -> when (choice) {
+                SimulatorItemChoice.None -> "なし（この部位を未装備にする）"
+                is SimulatorItemChoice.Saved -> choice.name?.let { "$it / ${choice.id}" } ?: choice.id
+            } }, { choice -> when (choice) {
+                SimulatorItemChoice.None -> listOf("なし", "未装備")
+                is SimulatorItemChoice.Saved -> listOf(choice.id, choice.name.orEmpty())
+            } }, { itemLoader.invalidate() }, { matches ->
+                searchHasMatches = matches
+                if (!matches) importLabel.text = "一致する装備がありません。全候補を表示しています。"
+            })
+        localChoices.comboBox.id = "localId"
+        localChoicesBox.children.setAll(localChoices)
         itemLoader = SimulatorItemLoader({ EditorSession.dataService === session && EditorSession.mode == mode }, { workspace.generation }, { loaded ->
             when (loaded) {
-                is StoreResult.Failure -> importLabel.text = "読込失敗: ${loaded.error.code} / ${loaded.error.detail.orEmpty()}（直前の入力・結果を保持）"
+                is StoreResult.Failure -> importLabel.text = "読込失敗: 装備が見つからないか、内容を読み込めませんでした。${loaded.error.detail.orEmpty()}（直前の入力・結果を保持）"
                 is StoreResult.Success -> try {
                     acceptImportedItem(checkNotNull(requestedPart), loaded.value)
                 } catch (error: IllegalArgumentException) { importLabel.text = "変換失敗: ${error.message}（直前の入力・結果を保持）" }
                 catch (error: IllegalStateException) { importLabel.text = error.message.orEmpty() }
             }
+        }, onChoices = { root, result ->
+            when (result) {
+                is StoreResult.Failure -> importLabel.text = "候補の取得に失敗しました。直前の装備・結果は変更していません。${result.error.detail.orEmpty()}"
+                is StoreResult.Success -> {
+                    catalogRoot = root
+                    val selectedId = (localChoices.comboBox.value as? SimulatorItemChoice.Saved)?.id
+                    localChoices.updateChoices(listOf(SimulatorItemChoice.None) + result.value)
+                    result.value.firstOrNull { it.id == selectedId }?.let { localChoices.comboBox.value = it }
+                    importLabel.text = "装備候補 ${result.value.size}件。選択後に「選択を適用・再読込」を押してください。"
+                }
+            }
         })
+        localRoot.textProperty().addListener { _, _, _ -> catalogRoot = null; itemLoader.invalidate() }
+        localPart.valueProperty().addListener { _, _, _ -> itemLoader.invalidate() }
+        inputEditor.equipmentEditor.onSelectionChange = { itemLoader.invalidate() }
     }
 
     @FXML @Suppress("unused")
@@ -92,11 +125,11 @@ class SimulatorController {
         when (state) {
             SimulatorRunState.Idle -> { statusLabel.text = "未実行"; resultLabel.text = "" }
             is SimulatorRunState.Running -> {
-                statusLabel.text = "計算中（要求 ${state.request.generation}）"
+                statusLabel.text = "計算中"
                 resultLabel.text = ""
             }
             is SimulatorRunState.Finished -> {
-                statusLabel.text = "要求 ${state.request.generation}"
+                statusLabel.text = "計算結果 #${state.request.generation}"
                 resultLabel.text = state.result.summary()
             }
             is SimulatorRunState.Failed -> {
@@ -116,16 +149,48 @@ class SimulatorController {
     @FXML private fun readLocalItem() {
         if (workspace.state is SimulatorRunState.Running) { importLabel.text = "計算中は取り込めません。"; return }
         try {
+            require(searchHasMatches) { "一致する装備がありません。検索欄を空にして、装備または「なし」を選んでください。" }
             val root = File(localRoot.text)
-            require(root.isAbsolute) { "OFFLINE_DIRの絶対パスを指定してください。" }
             val part = localPart.value
             require(part != null) { "取込部位を選択してください。" }
             // 選択変更後の通知へ別部位を割り当てないよう、要求中は部位を固定する。
             requestedPart = part
-            itemLoader.read(root, localId.text)
-            importLabel.text = "明示ローカル取得中（サーバー原本は取得しません）"
+            when (val choice = localChoices.comboBox.value) {
+                SimulatorItemChoice.None -> unequip(part)
+                is SimulatorItemChoice.Saved -> {
+                    require(root.isAbsolute) { "ローカル保存先の絶対パスを指定してください。" }
+                    require(root == catalogRoot) { "保存先を変更した場合は装備候補を更新してください。" }
+                    require(choice in localChoices.comboBox.items) { "候補から装備を選んでください。" }
+                    itemLoader.read(root, choice.id)
+                    importLabel.text = "ローカル装備を読み込んでいます（サーバーには接続しません）"
+                }
+                null -> throw IllegalArgumentException("装備または「なし」を選んでください。")
+            }
         } catch (error: IllegalArgumentException) { importLabel.text = error.message.orEmpty() }
         catch (error: IllegalStateException) { importLabel.text = error.message.orEmpty() }
+    }
+
+    @FXML private fun refreshLocalItems() {
+        if (workspace.state is SimulatorRunState.Running) { importLabel.text = "計算中は候補を更新できません。"; return }
+        try {
+            val root = File(localRoot.text)
+            require(root.isAbsolute) { "ローカル保存先の絶対パスを指定してください。" }
+            itemLoader.readChoices(root)
+            importLabel.text = "装備候補を取得しています。装備・結果は変更しません。"
+        } catch (error: IllegalArgumentException) { importLabel.text = error.message.orEmpty() }
+        catch (error: IllegalStateException) { importLabel.text = error.message.orEmpty() }
+    }
+
+    internal fun unequip(part: StatsPart) {
+        check(workspace.acceptsInput() && workspace.state !is SimulatorRunState.Running) { "計算中または終了済みの画面では装備を変更できません。" }
+        when (val candidate = inputEditor.readInput(inputEditor.equipmentEditor.without(part))) {
+            is SimulatorMultipleHitInput.Unsupported -> throw IllegalArgumentException("変更できません: ${candidate.reason}（直前の装備・結果を保持）")
+            is SimulatorMultipleHitInput.Ready -> Unit
+        }
+        itemLoader.invalidate()
+        inputEditor.equipmentEditor.slots.getValue(part).unequip()
+        importLabel.text = "${part.display}を未装備にしました。"
+        statusLabel.text = "入力を更新しました。表示中の結果は変更前のものです。再計算してください。"
     }
 
     private var requestedPart: StatsPart? = null
@@ -140,8 +205,8 @@ class SimulatorController {
         }
         inputEditor.equipmentEditor.slots.getValue(part).importItem(value)
         itemLoader.invalidate()
-        importLabel.text = "${value.source} / revision=${value.revision}（固定取得、明示再読込で更新）"
-        statusLabel.text = "入力を更新しました。直前の固定要求の結果は再計算まで保持します。"
+        importLabel.text = "${value.source} / 取得版=${value.revision}（再読込するまで、この装備内容で固定）"
+        statusLabel.text = "入力を更新しました。表示中の結果は変更前のものです。再計算してください。"
     }
 
     private var detailPage = 0
@@ -162,7 +227,7 @@ class SimulatorController {
             lastComparison = null
             comparisonPage = 0
             updateComparisonNavigation()
-            comparisonLabel.text = "固定要求 ${it.generation} を比較基準へ保持しました。"
+            comparisonLabel.text = "表示中の結果を比較基準にしました（計算 #${it.generation}）。"
         }
     }
     @FXML private fun clearBaseline() { comparison.clearBaseline(); lastComparison = null; comparisonPage = 0; updateComparisonNavigation(); comparisonLabel.text = "比較基準を解除しました。" }

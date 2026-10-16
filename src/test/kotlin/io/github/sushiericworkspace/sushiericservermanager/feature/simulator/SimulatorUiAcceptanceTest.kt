@@ -85,8 +85,14 @@ class SimulatorUiAcceptanceTest {
                             assertTrue(message.text.contains("取り込み"))
                         } else {
                             (view.root.lookup("#localRoot") as TextField).text = temporary.absolutePath
-                            (view.root.lookup("#localId") as TextField).text = model.id
-                            button(view.root, "取得・再読込").fire()
+                            button(view.root, "装備候補を更新").fire()
+                        }
+                    }
+                    if (!edited) {
+                        await { view.controller.localChoices.comboBox.items.any { it is SimulatorItemChoice.Saved } }
+                        fx {
+                            view.controller.localChoices.comboBox.value = view.controller.localChoices.comboBox.items.filterIsInstance<SimulatorItemChoice.Saved>().single()
+                            button(view.root, "選択を適用・再読込").fire()
                         }
                     }
                     await { view.controller.inputEditor.equipmentEditor.readInput().items.containsKey(StatsPart.MAIN_HAND) }
@@ -105,15 +111,15 @@ class SimulatorUiAcceptanceTest {
                         verify(view, ids, 139.536, 279.072)
                         button(view.root, "比較").fire()
                         val comparison = (view.root.lookup("#comparisonLabel") as Label).text
-                        for ((label, values) in listOf("算出" to (269.0 to 279.072), "純HP" to (269.0 to 279.072),
-                            "OH" to (0.0 to 0.0), "適用" to (269.0 to 279.072))) {
-                            val match = assertNotNull(Regex("$label: ([-0-9.Ee]+) → ([-0-9.Ee]+)").find(comparison), comparison)
+                        for ((label, values) in listOf("算出" to (269.0 to 279.072), "純HP減少" to (269.0 to 279.072),
+                            "追加HP(OH)吸収" to (0.0 to 0.0), "実適用" to (269.0 to 279.072))) {
+                            val match = assertNotNull(Regex("${Regex.escape(label)}: ([-0-9.Ee]+) → ([-0-9.Ee]+)").find(comparison), comparison)
                             assertEquals(values.first, match.groupValues[1].toDouble(), 1e-9)
                             assertEquals(values.second, match.groupValues[2].toDouble(), 1e-9)
                         }
                         assertSame(window, view.root.scene.window)
                         assertEquals(1, Stage.getWindows().filterIsInstance<Stage>().count { it.title.contains("戦闘シミュレーター") })
-                        ids.forEach { assertTrue(comparison.contains("hitId=$it")) }
+                        ids.forEach { assertTrue(comparison.contains("命中ID=$it")) }
                         assertEquals(original, model)
                         assertEquals(0, accesses.get(), "ONLINEでも明示local以外のStore I/Oをしない")
                     }
@@ -140,16 +146,16 @@ class SimulatorUiAcceptanceTest {
         assertEquals(0.0, result.meanOverHealDamage)
         assertEquals(total, result.meanAppliedDamage, 1e-9)
         val details = (view.root.lookup("#detailsArea") as TextArea).text
-        ids.forEach { assertTrue(details.contains("hitId=$it")) }
+        ids.forEach { assertTrue(details.contains("命中ID=$it")) }
         val summary = (view.root.lookup("#resultLabel") as Label).text
-        for ((label, expected) in listOf("算出" to total, "純HP減少" to total, "OH吸収" to 0.0, "適用量" to total)) {
-            val match = assertNotNull(Regex("$label: ([-0-9.Ee]+)").find(summary), summary)
+        for ((label, expected) in listOf("算出" to total, "純HP減少" to total, "追加HP(OH)吸収" to 0.0, "実適用量" to total)) {
+            val match = assertNotNull(Regex("${Regex.escape(label)}: ([-0-9.Ee]+)").find(summary), summary)
             assertEquals(expected, match.groupValues[1].toDouble(), 1e-9)
         }
         for (id in ids) {
-            val line = details.lineSequence().single { it.startsWith("行") && it.contains("hitId=$id ") }
-            for ((label, expected) in listOf("算出" to rowDamage, "純HP" to rowDamage, "OH" to 0.0, "適用" to rowDamage)) {
-                val match = assertNotNull(Regex("$label=([-0-9.Ee]+)").find(line), line)
+            val line = details.lineSequence().single { it.startsWith("行") && it.contains("命中ID=$id ") }
+            for ((label, expected) in listOf("算出" to rowDamage, "純HP減少" to rowDamage, "追加HP(OH)吸収" to 0.0, "実適用" to rowDamage)) {
+                val match = assertNotNull(Regex("${Regex.escape(label)}=([-0-9.Ee]+)").find(line), line)
                 assertEquals(expected, match.groupValues[1].toDouble(), 1e-9)
             }
         }
