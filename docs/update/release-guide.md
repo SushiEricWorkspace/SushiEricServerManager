@@ -64,27 +64,6 @@ jpackageの版で先頭に1を足すのは、macOSのjpackageが先頭の数字�
 
 成果物の名前は、自動更新がOSごとに成果物を選ぶ規則である。名前を変えない。
 
-## 移行用のupdate.json
-
-0.2.2は、最新のReleaseの`update.json`を取得できないと起動を中止する。そのため、新しい更新の仕組みを含む**最初のRelease**には、`update.json`も添付する。以降のReleaseには添付しない。
-
-1. 上のとおり成果物を作る。
-2. 次のコマンドで移行用の`update.json`を作る。
-
-   ```text
-   ./gradlew generateTransitionalUpdateJson -PupdateNotes="変更内容1|変更内容2"
-   ```
-
-   `-PupdateNotes`は省略できる。複数の変更内容は`|`で区切る。
-3. `build/release-installer/update.json`を、Releaseの成果物として添付する。
-
-生成される`update.json`は、`appVersion`の版と、そのReleaseの成果物へのURLを含む。URLはタグ`v<appVersion>`と、上の成果物の名前から作られる。そのため、タグと成果物の名前が違うと、0.2.2が正しい成果物を開けない。
-
-添付したあとは、次を確認する。
-
-- `https://github.com/SushiEricWorkspace/SushiEricServerManager/releases/latest/download/update.json`が取得できる。
-- `update.json`の2つのURLが、Releaseの成果物に対応している。
-
 ## インストーラーの手動実行の注意
 
 Windowsのインストール先は`%LOCALAPPDATA%\SushiEricServerManager\app`、データ領域はその親である。この配置同士の上書きインストールではデータは保持される。
