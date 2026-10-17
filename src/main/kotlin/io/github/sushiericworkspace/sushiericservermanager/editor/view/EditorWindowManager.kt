@@ -51,7 +51,7 @@ object EditorWindowManager {
 
         val newStage = Stage().apply {
             this.title = appWindowTitle(title)
-            this.scene = Utility.createScene(AppScreen.BASE, customRoot = root)
+            this.scene = Utility.createScene(AppScreen.BASE, customRoot = root, windowKey = key)
         }
 
         val logic = logicFactory(mainController)

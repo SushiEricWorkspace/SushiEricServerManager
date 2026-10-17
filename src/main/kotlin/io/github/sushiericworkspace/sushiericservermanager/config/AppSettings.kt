@@ -9,12 +9,14 @@ import kotlinx.serialization.Serializable
  *
  * @property monitorIntervalTicks 監視情報の更新間隔。サーバー側のtick数で指定します。
  * @property showPlayerUuidInHistory 入出金履歴のプレイヤー選択欄でUUIDを表示するか。
+ * @property windowSizes 画面種別ごとの装飾込み通常外寸と最大化状態。
  */
 @Serializable
 data class AppSettings(
     val monitorIntervalTicks: Int = DEFAULT_MONITOR_INTERVAL_TICKS,
     val sidebarDirectoryExpanded: Map<String, Map<String, Boolean>> = emptyMap(),
-    val showPlayerUuidInHistory: Boolean = false
+    val showPlayerUuidInHistory: Boolean = false,
+    val windowSizes: Map<String, WindowSize> = emptyMap()
 ) {
     /**
      * 指定できる範囲へ丸めた更新間隔を返します。
@@ -49,3 +51,10 @@ object AppSettingsManager : JsonFileHandler<AppSettings>(
     { AppSettings() },
     AppSettings.serializer()
 )
+
+/** 装飾込みの通常外寸と最大化状態。位置と最小化状態は保存しません。 */
+@Serializable
+data class WindowSize(val width: Double, val height: Double, val maximized: Boolean = false) {
+    /** 不正な保存寸法は共通初期値で開くために除外します。 */
+    fun isValid(): Boolean = width.isFinite() && height.isFinite() && width > 0 && height > 0
+}

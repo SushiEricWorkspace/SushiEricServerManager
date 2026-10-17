@@ -189,6 +189,7 @@ object ApplicationFlow {
     }
 
     fun showPreparing(stage: Stage, message: String) {
+        WindowSizePersistence.suspend(stage)
         stage.scene = Utility.createScene(
             AppScreen.WIDGETS_ONLY,
             width = 420.0,
