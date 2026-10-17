@@ -100,6 +100,7 @@ object WindowSizing {
             adjusting = true
             try {
                 if (!stage.width.isFinite() || !stage.height.isFinite()) stage.sizeToScene()
+                if (!stage.width.isFinite() || !stage.height.isFinite()) return
                 val owner = stage.owner
                 val reference = if (initial && owner != null) {
                     Rectangle2D(owner.x, owner.y, owner.width, owner.height)
@@ -120,11 +121,11 @@ object WindowSizing {
                 if (stage.minHeight != limits.minHeight) stage.minHeight = limits.minHeight
                 if (stage.width != limits.width) stage.width = limits.width
                 if (stage.height != limits.height) stage.height = limits.height
-                if (!initial || stage.x.isFinite()) {
+                if (stage.x.isFinite()) {
                     val x = stage.x.coerceIn(bounds.minX, max(bounds.minX, bounds.maxX - limits.width))
                     if (stage.x != x) stage.x = x
                 }
-                if (!initial || stage.y.isFinite()) {
+                if (stage.y.isFinite()) {
                     val y = stage.y.coerceIn(bounds.minY, max(bounds.minY, bounds.maxY - limits.height))
                     if (stage.y != y) stage.y = y
                 }

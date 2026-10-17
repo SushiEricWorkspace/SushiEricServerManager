@@ -244,7 +244,7 @@ class MainController {
     fun requestInput(
         title: String,
         validator: (String) -> ValidationResult = { ValidationResult.Success }
-    ): String? = ValidatedInputDialog.show(title, validator)
+    ): String? = ValidatedInputDialog.show(title, currentStage, validator)
 
     private fun parseColor(color: String): Color {
         return try {
