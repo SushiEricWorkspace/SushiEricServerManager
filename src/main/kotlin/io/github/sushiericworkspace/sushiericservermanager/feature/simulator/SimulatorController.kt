@@ -30,6 +30,8 @@ class SimulatorController {
     internal lateinit var workspace: SimulatorWorkspace
         private set
     @FXML private lateinit var detailsArea: TextArea
+    @FXML private lateinit var formulaHelpArea: TextArea
+    @FXML private lateinit var formulaRequestArea: TextArea
     @FXML private lateinit var comparisonLabel: Label
     @FXML private lateinit var previousComparisonButton: Button
     @FXML private lateinit var nextComparisonButton: Button
@@ -50,6 +52,7 @@ class SimulatorController {
     private val logger = LoggerFactory.getLogger(javaClass)
 
     @FXML private fun initialize() {
+        formulaHelpArea.text = simulatorFormulaHelp
         val session = EditorSession.dataService
         val mode = EditorSession.mode
         inputEditor = SimulatorInputEditor { showError("入力を確認してください", it) }
@@ -118,6 +121,7 @@ class SimulatorController {
         inputEditor.isDisable = state is SimulatorRunState.Running
         detailPage = 0
         detailsArea.text = (state as? SimulatorRunState.Finished)?.result?.details().orEmpty()
+        formulaRequestArea.text = (state as? SimulatorRunState.Finished)?.formulaExplanation() ?: "まだ計算していません。"
         comparisonLabel.text = ""
         lastComparison = null
         comparisonPage = 0
@@ -213,9 +217,11 @@ class SimulatorController {
     @FXML private fun previousDetails() = changeDetailPage(-1)
     @FXML private fun nextDetails() = changeDetailPage(1)
     private fun changeDetailPage(delta: Int) {
-        val result = (workspace.state as? SimulatorRunState.Finished)?.result ?: return
+        val finished = workspace.state as? SimulatorRunState.Finished ?: return
+        val result = finished.result
         detailPage = (detailPage + delta).coerceIn(0, result.detailPages() - 1)
         detailsArea.text = result.details(detailPage)
+        formulaRequestArea.text = finished.formulaExplanation(detailPage)
     }
 
     private fun currentSnapshot(): SimulatorComparisonSnapshot? = (workspace.state as? SimulatorRunState.Finished)?.let {

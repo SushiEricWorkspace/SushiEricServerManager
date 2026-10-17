@@ -4,6 +4,7 @@
 <?import javafx.scene.control.TextArea?>
 <?import javafx.scene.control.TextField?>
 <?import javafx.scene.control.Tooltip?>
+<?import javafx.scene.control.TitledPane?>
 <?import javafx.scene.control.ComboBox?>
 <?import javafx.scene.control.ScrollPane?>
 <?import javafx.scene.layout.FlowPane?>
@@ -23,6 +24,11 @@
         <Button fx:id="cancelButton" text="取消" onAction="#cancel" disable="true" />
         <Label fx:id="statusLabel" text="未実行" />
     </FlowPane>
+    <TitledPane text="計算式・用語" expanded="false" fx:id="formulaHelpPane"><content><VBox spacing="8.0">
+        <TextArea fx:id="formulaHelpArea" editable="false" wrapText="true" prefRowCount="15" minHeight="180.0" />
+        <Label text="最後に計算した要求との対応（詳細のページ切替に連動）" wrapText="true" />
+        <TextArea fx:id="formulaRequestArea" editable="false" wrapText="true" prefRowCount="7" minHeight="140.0" text="まだ計算していません。" />
+    </VBox></content></TitledPane>
     <Label text="計算結果・比較" />
     <Label text="表示中の結果は、最後に計算した入力のものです。入力変更後は再計算してください。" wrapText="true" />
     <Label fx:id="resultLabel" wrapText="true" minHeight="40.0"><tooltip><Tooltip text="算出は計算上のダメージ。純HP減少と追加HP吸収は実際に減った量で、実適用量は両方の合計です。残りHPを超えた分は含みません。"/></tooltip></Label>
