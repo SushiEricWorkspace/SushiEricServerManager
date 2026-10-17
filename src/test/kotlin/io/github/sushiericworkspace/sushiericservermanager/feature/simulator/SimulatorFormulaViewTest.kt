@@ -1,12 +1,14 @@
 package io.github.sushiericworkspace.sushiericservermanager.feature.simulator
 
 import io.github.sushiericworkspace.sushiericservermanager.app.AppScreen
+import io.github.sushiericworkspace.sushiericservermanager.config.AppSettingsManager
 import io.github.sushiericworkspace.sushiericservermanager.util.Utility
 import javafx.application.Platform
 import javafx.scene.Node
 import javafx.scene.Parent
 import javafx.scene.control.Button
 import javafx.scene.control.ButtonBase
+import javafx.scene.control.Label
 import javafx.scene.control.ScrollPane
 import javafx.scene.control.TextArea
 import javafx.scene.control.TitledPane
@@ -105,23 +107,99 @@ class SimulatorFormulaViewTest {
         }
     }
 
+    @Test fun `保存した小画面を復元して式と結果と比較を操作できる`() {
+        val previous = fx { AppSettingsManager.load() }
+        try {
+            withView { _, stage ->
+                fx { stage.width = 640.0; stage.height = 480.0 }
+                settle()
+                fx { stage.close() }
+                val saved = fx { AppSettingsManager.load().windowSizes.getValue(AppScreen.SIMULATOR.name) }
+                assertEquals(640.0, saved.width, 2.0)
+                assertEquals(480.0, saved.height, 2.0)
+                val restored = fx { SimulatorView.load() }
+                val reopened = fx { Stage().apply {
+                    scene = Utility.createScene(AppScreen.SIMULATOR, customRoot = restored.root)
+                    show()
+                    (restored.root.lookup("#formulaHelpPane") as TitledPane).isAnimated = false
+                } }
+                try {
+                    settle()
+                    fx {
+                        assertEquals(saved.width, reopened.width, 2.0)
+                        assertEquals(saved.height, reopened.height, 2.0)
+                        (restored.root.lookup("#formulaHelpPane") as TitledPane).isExpanded = true
+                    }
+                    settle()
+                    for (sample in listOf(true, false)) {
+                        fx {
+                            restored.controller.inputEditor.hits.single().distance.text = ""
+                            restored.controller.inputEditor.sample.isSelected = sample
+                            assertReachable(restored.root, button(restored.root, "計算"))
+                            button(restored.root, "計算").fire()
+                        }
+                        await { restored.controller.workspace.state is SimulatorRunState.Finished &&
+                            (restored.controller.workspace.state as SimulatorRunState.Finished).request.mode.let {
+                                (it is SimulatorMultipleHitMode.Sample) == sample
+                            } }
+                        fx {
+                            val pane = restored.root.lookup("#formulaHelpPane") as TitledPane
+                            val explanation = pane.content.lookup("#formulaRequestArea") as TextArea
+                            val result = (restored.controller.workspace.state as SimulatorRunState.Finished).result
+                            if (sample) assertIs<SimulatorMultipleHitResult.Sample>(result)
+                            else assertIs<SimulatorMultipleHitResult.Expected>(result)
+                            val finished = explanation.text
+                            assertTrue(finished.contains("最後の計算要求"))
+                            assertReachable(restored.root, explanation)
+                            assertReachable(restored.root, restored.root.lookup("#detailsArea"))
+                            assertReachable(restored.root, button(restored.root, "基準を保持・更新"))
+                            button(restored.root, "基準を保持・更新").fire()
+                            assertReachable(restored.root, button(restored.root, "比較"))
+                            button(restored.root, "比較").fire()
+                            val comparison = restored.root.lookup("#comparisonLabel") as Label
+                            assertTrue(comparison.text.contains("算出:"))
+                            assertReachable(restored.root, comparison)
+                            val scroll = generateSequence(comparison.parent) { it.parent }.filterIsInstance<ScrollPane>().first()
+                            for (end in listOf(0.0, 1.0)) {
+                                scroll.vvalue = end
+                                restored.root.layout()
+                                val bounds = comparison.localToScene(comparison.layoutBounds)
+                                val viewport = scroll.lookup(".viewport")
+                                val visible = viewport.localToScene(viewport.layoutBounds)
+                                val edge = if (end == 0.0) bounds.minY else bounds.maxY
+                                assertTrue(edge in (visible.minY - 1)..(visible.maxY + 1), "比較の先頭または末尾が隠れています: $bounds / $visible")
+                            }
+                            restored.controller.inputEditor.hits.single().distance.text = "999"
+                            assertEquals(finished, explanation.text)
+                            pane.isExpanded = false
+                            pane.isExpanded = true
+                            assertEquals(finished, explanation.text)
+                        }
+                    }
+                } finally { fx { restored.dispose(); reopened.close() } }
+            }
+        } finally { fx { AppSettingsManager.save(previous) } }
+    }
+
     private fun assertReachable(root: Parent, node: Node) {
+        root.applyCss()
+        root.layout()
         val scrolls = generateSequence(node.parent) { it.parent }.filterIsInstance<ScrollPane>().toList()
         for (scroll in scrolls) {
-            val bounds = scroll.content.sceneToLocal(node.localToScene(node.boundsInLocal))
+            val bounds = scroll.content.sceneToLocal(node.localToScene(node.layoutBounds))
             val content = scroll.content.layoutBounds
             val viewport = scroll.viewportBounds
             if (content.width > viewport.width) scroll.hvalue = ((bounds.minX + bounds.width / 2 - viewport.width / 2) / (content.width - viewport.width)).coerceIn(0.0, 1.0)
             if (content.height > viewport.height) scroll.vvalue = ((bounds.minY + bounds.height / 2 - viewport.height / 2) / (content.height - viewport.height)).coerceIn(0.0, 1.0)
             root.layout()
         }
-        val bounds = node.localToScene(node.boundsInLocal)
+        val bounds = node.localToScene(node.layoutBounds)
         val x = bounds.minX + bounds.width / 2
         val y = bounds.minY + bounds.height / 2
         assertTrue(x in -1.0..(root.scene.width + 1) && y in -1.0..(root.scene.height + 1), "表示へ到達できません: $bounds")
         for (scroll in scrolls) {
             val viewport = scroll.lookup(".viewport")
-            val visible = viewport.localToScene(viewport.boundsInLocal)
+            val visible = viewport.localToScene(viewport.layoutBounds)
             assertTrue(x in (visible.minX - 1)..(visible.maxX + 1) && y in (visible.minY - 1)..(visible.maxY + 1), "表示中心が隠れています: $bounds / $visible")
             assertTrue(bounds.minX >= visible.minX - 1 && bounds.maxX <= visible.maxX + 1, "横方向に隠れています: $bounds / $visible")
             if (node is ButtonBase) assertTrue(bounds.minY >= visible.minY - 1 && bounds.maxY <= visible.maxY + 1, "ボタン全体が隠れています: $bounds / $visible")
