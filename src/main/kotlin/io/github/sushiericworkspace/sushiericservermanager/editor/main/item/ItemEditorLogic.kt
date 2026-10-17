@@ -1,5 +1,6 @@
 package io.github.sushiericworkspace.sushiericservermanager.editor.main.item
 
+import io.github.sushiericworkspace.sushiericservermanager.app.WindowSizing
 import io.github.sushiericworkspace.sushiericdatamodel.stats.player.StatsPart
 import io.github.sushiericworkspace.sushiericservermanager.editor.session.EditorSession
 import io.github.sushiericworkspace.sushiericservermanager.feature.simulator.SimulatorImportedItem
@@ -714,6 +715,7 @@ class ItemEditorLogic(
             maxIndex: Int
         ): Int? {
             val dialog = Dialog<Int>().apply {
+                WindowSizing.install(this)
                 this.title = title
                 this.headerText = header
             }

@@ -1,5 +1,6 @@
 package io.github.sushiericworkspace.sushiericservermanager.editor.upload
 
+import io.github.sushiericworkspace.sushiericservermanager.app.WindowSizing
 import io.github.sushiericworkspace.sushiericdatamodel.data.core.identity.PublicId
 import io.github.sushiericworkspace.sushiericservermanager.app.AppScreen
 import javafx.geometry.Insets
@@ -91,6 +92,7 @@ object OfflineUploadDialog {
         }
 
         val dialog = Dialog<OfflineUploadSelection>().apply {
+            WindowSizing.install(this)
             title = if (forEditing) "ローカルデータを読み込む" else "ローカルデータをアップロード"
             headerText = if (forEditing) {
                 "読み込み先: $profileName（${category.displayName}）。サーバーへの反映は保存時に行います"
@@ -102,7 +104,7 @@ object OfflineUploadDialog {
             dialogPane.stylesheets.add(
                 OfflineUploadDialog::class.java.getResource(AppScreen.WIDGETS_ONLY.css)!!.toExternalForm()
             )
-            dialogPane.content = VBox(10.0).apply {
+            dialogPane.content = ScrollPane(VBox(10.0).apply {
                 padding = Insets(8.0)
                 prefWidth = 620.0
                 children.addAll(
@@ -132,6 +134,9 @@ object OfflineUploadDialog {
                         prefHeight = 360.0
                     }
                 )
+            }).apply {
+                isFitToWidth = true
+                isFitToHeight = true
             }
             setResultConverter { button ->
                 if (button == uploadType) {

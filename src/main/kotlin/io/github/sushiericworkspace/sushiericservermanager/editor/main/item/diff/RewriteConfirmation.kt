@@ -1,5 +1,6 @@
 package io.github.sushiericworkspace.sushiericservermanager.editor.main.item.diff
 
+import io.github.sushiericworkspace.sushiericservermanager.app.WindowSizing
 import io.github.sushiericworkspace.sushiericdatamodel.data.item.model.mutable.MutableItemBaseData
 import io.github.sushiericworkspace.sushiericservermanager.app.AppScreen
 import io.github.sushiericworkspace.sushiericservermanager.util.Utility.applyCommonStyle
@@ -153,6 +154,7 @@ class RewriteConfirmation(
 
                 // 4. JavaFXの確認ダイアログを表示
                 val alert = Alert(Alert.AlertType.CONFIRMATION).apply {
+                    WindowSizing.install(this)
                     title = "最終確認"
                     headerText = "本当に変更を適用して保存しますか？"
                     dialogPane.content = scrollPane

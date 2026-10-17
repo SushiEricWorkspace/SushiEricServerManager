@@ -1,5 +1,6 @@
 package io.github.sushiericworkspace.sushiericservermanager.editor.component
 
+import io.github.sushiericworkspace.sushiericservermanager.app.WindowSizing
 import io.github.sushiericworkspace.sushiericdatamodel.data.core.validation.SushiEricValidationError
 import io.github.sushiericworkspace.sushiericdatamodel.data.drop.model.DropItemDataView
 import io.github.sushiericworkspace.sushiericdatamodel.data.drop.model.mutable.MutableDropItemData
@@ -18,7 +19,6 @@ import javafx.scene.control.Tooltip
 import javafx.scene.layout.HBox
 import javafx.scene.layout.Priority
 import javafx.scene.layout.Region
-import javafx.scene.layout.StackPane
 import javafx.scene.layout.VBox
 import javafx.scene.paint.Color
 import javafx.stage.Modality
@@ -199,7 +199,9 @@ internal object DropItemEditorDialog {
 
         rebuildList()
         stage.scene = Scene(
-            StackPane(contentRoot).apply {
+            ScrollPane(contentRoot).apply {
+                isFitToWidth = true
+                isFitToHeight = true
                 styleClass.add("drop-item-scene-root")
                 padding = Insets(0.0)
             },
@@ -213,6 +215,7 @@ internal object DropItemEditorDialog {
                     .toExternalForm()
             )
         }
+        WindowSizing.install(stage)
         stage.showAndWait()
     }
 

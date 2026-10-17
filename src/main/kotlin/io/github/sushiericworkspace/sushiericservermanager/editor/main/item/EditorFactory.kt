@@ -1,5 +1,6 @@
 package io.github.sushiericworkspace.sushiericservermanager.editor.main.item
 
+import io.github.sushiericworkspace.sushiericservermanager.app.WindowSizing
 import io.github.sushiericworkspace.sushiericdatamodel.data.core.identity.VanillaItemId
 import io.github.sushiericworkspace.sushiericdatamodel.value.SushiEricHexColor
 import io.github.sushiericworkspace.sushiericdatamodel.data.item.model.SushiEricRarity
@@ -1586,6 +1587,7 @@ class ItemEditorFactory(
                             }
 
                             val dialog = Dialog<Pair<StatsType, Double>>().apply {
+                                WindowSizing.install(this)
                                 title = "ステータスを追加"
                                 dialogPane.content = content
                                 dialogPane.buttonTypes.addAll(ButtonType.OK, ButtonType.CANCEL)

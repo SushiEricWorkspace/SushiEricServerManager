@@ -1,5 +1,6 @@
 package io.github.sushiericworkspace.sushiericservermanager.editor.component
 
+import io.github.sushiericworkspace.sushiericservermanager.app.WindowSizing
 import io.github.sushiericworkspace.sushiericdatamodel.value.SushiEricHexColor
 import io.github.sushiericworkspace.sushiericservermanager.app.AppScreen
 import io.github.sushiericworkspace.sushiericservermanager.util.toCssHex
@@ -21,6 +22,7 @@ object ColorPickerDialog {
         }
 
         val dialog = Dialog<Color>().apply {
+            WindowSizing.install(this)
             title = "色を選択"
             dialogPane.content = picker
             dialogPane.buttonTypes.addAll(ButtonType.OK, ButtonType.CANCEL)

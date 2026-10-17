@@ -20,7 +20,8 @@ import javafx.scene.control.ToggleButton
 import javafx.scene.control.ListCell
 import io.github.sushiericworkspace.sushiericservermanager.editor.component.SearchableComboBox
 import io.github.sushiericworkspace.sushiericservermanager.config.AppSettingsManager
-import javafx.scene.layout.HBox
+import javafx.scene.control.ScrollPane
+import javafx.scene.layout.FlowPane
 import javafx.scene.layout.Priority
 import javafx.scene.layout.VBox
 import org.slf4j.LoggerFactory
@@ -63,7 +64,7 @@ internal class ShopHistoryView(private val store: EditorDataStore, private val c
 
     init {
         styleClass.add("money-history-content")
-        fun row(vararg nodes: javafx.scene.Node) = HBox(8.0, *nodes).apply { alignment = Pos.CENTER_LEFT }
+        fun row(vararg nodes: javafx.scene.Node) = FlowPane(8.0, 8.0, *nodes).apply { alignment = Pos.CENTER_LEFT }
         fun label(text: String) = Label(text).apply { minWidth = 95.0; styleClass.add("history-filter-label") }
         val modeMenu = MenuButton("すべて").apply {
             minWidth = 140.0
@@ -79,13 +80,12 @@ internal class ShopHistoryView(private val store: EditorDataStore, private val c
             Button("今日").apply { setOnAction { date.value = LocalDate.now() } },
             Button("リセット").apply { setOnAction { changeFilters { date.value = null; time.clear() } } }
         )
-        children.addAll(
-            row(label("プレイヤー"), playerPane, playerToggle, loadButton).apply { HBox.setHgrow(playerPane, Priority.ALWAYS) },
+        val content = VBox(10.0)
+        content.children.addAll(
+            row(label("プレイヤー"), playerPane, playerToggle, loadButton),
             dateRow("開始", from, fromTime),
             dateRow("終了", to, toTime),
-            row(label("商品ID"), product).apply {
-                HBox.setHgrow(product, Priority.ALWAYS)
-            },
+            row(label("商品ID"), product),
             row(label("種別"), modeMenu, Button("条件をリセット").apply { setOnAction { changeFilters {
                 product.clear(); selectedPlayerUuid = null; playerSelector?.searchField?.clear()
                 playerSelector?.comboBox?.value = ShopHistoryPlayer(null, "すべて")
@@ -94,7 +94,13 @@ internal class ShopHistoryView(private val store: EditorDataStore, private val c
                 fromTime.clear(); toTime.clear()
             } } }), status, table
         )
+        table.minHeight = 180.0
         VBox.setVgrow(table, Priority.ALWAYS)
+        children.add(ScrollPane(content).apply {
+            isFitToWidth = true
+            isFitToHeight = true
+            VBox.setVgrow(this, Priority.ALWAYS)
+        })
         table.selectionModel = null
         HistoryTableSupport.install(table)
         table.isEditable = false

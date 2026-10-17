@@ -1,5 +1,6 @@
 package io.github.sushiericworkspace.sushiericservermanager.ui.dialog
 
+import io.github.sushiericworkspace.sushiericservermanager.app.WindowSizing
 import io.github.sushiericworkspace.sushiericservermanager.communication.HostKeyPrompt
 import io.github.sushiericworkspace.sushiericservermanager.communication.SshFailure
 import io.github.sushiericworkspace.sushiericservermanager.config.RemoteOperatingSystem
@@ -42,6 +43,7 @@ object SshPasswordDialog {
 
         val okButtonType = ButtonType("公開鍵を登録", ButtonBar.ButtonData.OK_DONE)
         val dialog = Dialog<CharArray>().apply {
+            WindowSizing.install(this)
             title = "初回SSHパスワード認証"
             headerText = "初回公開鍵登録にだけ${remoteOperatingSystem.displayName}のパスワードを使用します"
             if (owner != null) initOwner(owner)

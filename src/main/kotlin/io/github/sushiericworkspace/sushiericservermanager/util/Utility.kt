@@ -2,6 +2,8 @@ package io.github.sushiericworkspace.sushiericservermanager.util
 
 import io.github.sushiericworkspace.sushiericdatamodel.path.SushiEricDataDirectory
 import io.github.sushiericworkspace.sushiericdatamodel.path.SushiEricPath
+import io.github.sushiericworkspace.sushiericservermanager.app.WindowSizePersistence
+import io.github.sushiericworkspace.sushiericservermanager.app.WindowSizing
 import io.github.sushiericworkspace.sushiericservermanager.app.AppScreen
 import io.github.sushiericworkspace.sushiericservermanager.app.ApplicationFlow
 import io.github.sushiericworkspace.sushiericservermanager.app.appWindowTitle
@@ -92,6 +94,7 @@ object Utility {
      * @param width ウインドウの幅 `null` 又は指定しない場合指定したFXMLの推奨値が適用
      * @param height ウインドウの高さ `null` 又は指定しない場合指定したFXMLの推奨値が適用
      * @param customRoot FXMLを持たない画面を生成する際に渡すルートノード
+     * @param windowKey サイズ保存キー。画面種別が既定値で、補助画面はnull、Editorは既存の種別キーを指定します。
      * @return CSSが適用済みの [Scene] インスタンス
      * @throws IllegalArgumentException FXMLファイルが見つからない、またはFXMLなし画面で customRoot が未指定の場合
      */
@@ -99,7 +102,8 @@ object Utility {
         screen: AppScreen,
         width: Double? = null,
         height: Double? = null,
-        customRoot: Parent? = null
+        customRoot: Parent? = null,
+        windowKey: String? = screen.takeUnless { it == AppScreen.BASE || it == AppScreen.WIDGETS_ONLY }?.name
     ): Scene {
         // customRoot が渡された場合は最優先で使う
         val root: Parent = if (customRoot != null) {
@@ -145,6 +149,8 @@ object Utility {
             logger.error("Scene: スタイルシートの適用中にエラーが発生しました ($cssPath)", e)
         }
 
+        WindowSizing.install(scene)
+        windowKey?.let { WindowSizePersistence.install(scene, it) }
         return scene
     }
 
@@ -153,6 +159,7 @@ object Utility {
      * アプリ内のデザイン統一のため、すべてのAlertでこれを呼び出してください。
      */
     fun Alert.applyCommonStyle() {
+        WindowSizing.install(this)
         val cssPath = AppScreen.WIDGETS_ONLY.css
         val cssUrl = CSSResourceContext::class.java.getResource(cssPath)?.toExternalForm()
 

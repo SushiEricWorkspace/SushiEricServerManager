@@ -27,11 +27,12 @@ import kotlin.test.assertTrue
 class EditorSidebarViewTest {
     @Test
     fun `実FXMLで一万件のセルが限定され末尾のIDと状態を再利用して表示する`() = onFxThread {
-        val root = FXMLLoader(javaClass.getResource(AppScreen.BASE.fxml!!)).load<Parent>()
+        val loader = FXMLLoader(javaClass.getResource(AppScreen.BASE.fxml!!))
+        val root = loader.load<Parent>()
         val selected = mutableListOf<String>()
         val states = mutableMapOf<String, SidebarDataState>()
         val sidebar = sidebar(states, selected)
-        val container = root.lookup("#sidebarContainer") as VBox
+        val container = loader.namespace["sidebarContainer"] as VBox
         container.children.setAll(sidebar)
         VBox.setVgrow(sidebar, Priority.ALWAYS)
         val scene = Scene(root, 1560.0, 720.0)

@@ -7,7 +7,7 @@
 <?import javafx.scene.control.TextArea?>
 <?import javafx.scene.layout.BorderPane?>
 <?import javafx.scene.layout.HBox?>
-<?import javafx.scene.layout.Region?>
+<?import javafx.scene.layout.FlowPane?>
 <?import javafx.scene.layout.VBox?>
 
 <BorderPane fx:id="rootPane" prefHeight="560.0" prefWidth="900.0"
@@ -17,16 +17,15 @@
         <VBox styleClass="console-header">
             <children>
                 <Label styleClass="console-title" text="Minecraft Server Console" />
-                <HBox alignment="CENTER_LEFT" spacing="12.0">
+                <FlowPane alignment="CENTER_LEFT" hgap="12.0" vgap="8.0">
                     <children>
                         <Label fx:id="connectionLabel" styleClass="console-connection-label" />
                         <Button fx:id="reconnectButton" onAction="#handleReconnect"
                                 styleClass="button, btn-secondary" text="再接続" />
-                        <Region HBox.hgrow="ALWAYS" />
                         <Label fx:id="logLevelLabel" styleClass="console-connection-label" />
                         <Slider fx:id="logLevelSlider" prefWidth="180.0" showTickMarks="true" />
                     </children>
-                </HBox>
+                </FlowPane>
             </children>
         </VBox>
     </top>

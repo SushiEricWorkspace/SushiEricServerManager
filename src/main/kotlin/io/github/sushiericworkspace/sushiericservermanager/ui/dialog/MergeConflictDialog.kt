@@ -1,5 +1,6 @@
 package io.github.sushiericworkspace.sushiericservermanager.ui.dialog
 
+import io.github.sushiericworkspace.sushiericservermanager.app.WindowSizing
 import io.github.sushiericworkspace.sushiericservermanager.app.AppScreen
 import io.github.sushiericworkspace.sushiericservermanager.editor.merge.ConflictValueFormatter
 import io.github.sushiericworkspace.sushiericservermanager.editor.merge.DataConflict
@@ -40,6 +41,7 @@ object MergeConflictDialog {
             })
         }
         return Dialog<Set<DataFieldPath>>().apply {
+            WindowSizing.install(this)
             title = "保存競合の解決"
             dialogPane.header = HBox(4.0, createPublicIdDisplay(dataId), Label("で競合したフィールドだけを表示しています")).apply {
                 alignment = Pos.CENTER_LEFT
@@ -49,7 +51,7 @@ object MergeConflictDialog {
             dialogPane.stylesheets.add(
                 MergeConflictDialog::class.java.getResource(AppScreen.WIDGETS_ONLY.css)!!.toExternalForm()
             )
-            dialogPane.content = VBox(10.0).apply {
+            dialogPane.content = ScrollPane(VBox(10.0).apply {
                 padding = Insets(8.0)
                 prefWidth = 860.0
                 children.addAll(
@@ -77,6 +79,9 @@ object MergeConflictDialog {
                         VBox.setVgrow(this, Priority.ALWAYS)
                     }
                 )
+            }).apply {
+                isFitToWidth = true
+                isFitToHeight = true
             }
             setResultConverter { button ->
                 if (button == applyType) {

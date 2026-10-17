@@ -287,6 +287,7 @@ internal class OreEditorLogic(
             }
         }
 
+        val miningPreview = OreMiningPreview(hardnessField, requiredTierSpinner.editor)
         val inputGrid = GridPane().apply {
             styleClass.add("ore-editor-grid")
             hgap = 12.0
@@ -300,12 +301,13 @@ internal class OreEditorLogic(
             add(hardnessField, 1, 2)
             add(Label("要求Tier:"), 0, 3)
             add(requiredTierSpinner, 1, 3)
-            add(Label("ドロップアイテム:"), 0, 4)
-            add(dropItemButton, 1, 4)
-            add(Label("スキル経験値:"), 0, 5)
-            add(skillExperienceGrid, 1, 5)
-            add(Label("魔力量:"), 0, 6)
-            add(magicPowerAmountField, 1, 6)
+            add(miningPreview, 0, 4, 2, 1)
+            add(Label("ドロップアイテム:"), 0, 5)
+            add(dropItemButton, 1, 5)
+            add(Label("スキル経験値:"), 0, 6)
+            add(skillExperienceGrid, 1, 6)
+            add(Label("魔力量:"), 0, 7)
+            add(magicPowerAmountField, 1, 7)
         }
 
         val content = VBox(16.0, inputGrid, refreshItems, validationBox).apply {

@@ -1,11 +1,13 @@
 package io.github.sushiericworkspace.sushiericservermanager.ui.dialog
 
+import io.github.sushiericworkspace.sushiericservermanager.app.WindowSizing
 import io.github.sushiericworkspace.sushiericdatamodel.data.item.model.ItemBaseDataView
 import io.github.sushiericworkspace.sushiericdatamodel.data.item.model.ItemInternalId
 import io.github.sushiericworkspace.sushiericservermanager.app.AppScreen
 import io.github.sushiericworkspace.sushiericservermanager.editor.view.SidebarTreeNode
 import io.github.sushiericworkspace.sushiericservermanager.editor.view.buildSidebarTree
 import io.github.sushiericworkspace.sushiericservermanager.ui.AppTooltip
+import javafx.scene.control.ScrollPane
 import javafx.scene.control.ButtonBar
 import javafx.scene.control.ButtonType
 import javafx.scene.control.Dialog
@@ -32,6 +34,7 @@ internal object ItemTreeSelectionDialog {
         val select = ButtonType("選択", ButtonBar.ButtonData.OK_DONE)
         val clear = ButtonType("選択を解除", ButtonBar.ButtonData.OTHER)
         val dialog = Dialog<ItemTreeSelection>().apply {
+            WindowSizing.install(this)
             title = "アイテムを選択"
             owner?.let(::initOwner)
             dialogPane.buttonTypes.setAll(select, clear, ButtonType.CANCEL)
@@ -96,7 +99,10 @@ internal object ItemTreeSelectionDialog {
                 dialog.close()
             }
         }
-        dialog.dialogPane.content = VBox(10.0, search, tree, emptyLabel, selectedLabel).apply { prefWidth = 520.0 }
+        dialog.dialogPane.content = ScrollPane(VBox(10.0, search, tree, emptyLabel, selectedLabel).apply { prefWidth = 520.0 }).apply {
+            isFitToWidth = true
+            isFitToHeight = true
+        }
         dialog.setResultConverter { button ->
             when (button) {
                 select -> selectedId()?.let(ItemTreeSelection::Selected)
