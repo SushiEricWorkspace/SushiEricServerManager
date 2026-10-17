@@ -3,6 +3,7 @@ package io.github.sushiericworkspace.sushiericservermanager.ui.dialog
 import io.github.sushiericworkspace.sushiericservermanager.app.AppScreen
 import io.github.sushiericworkspace.sushiericservermanager.editor.result.ValidationResult
 import io.github.sushiericworkspace.sushiericservermanager.util.Utility
+import javafx.scene.control.ScrollPane
 import javafx.scene.control.Button
 import javafx.scene.control.Label
 import javafx.scene.control.TextField
@@ -103,7 +104,7 @@ object ValidatedInputDialog {
             }
         }
 
-        stage.scene = Utility.createScene(AppScreen.WIDGETS_ONLY, customRoot = root)
+        stage.scene = Utility.createScene(AppScreen.WIDGETS_ONLY, customRoot = ScrollPane(root).apply { isFitToWidth = true; isFitToHeight = true })
         stage.showAndWait()
         return result
     }

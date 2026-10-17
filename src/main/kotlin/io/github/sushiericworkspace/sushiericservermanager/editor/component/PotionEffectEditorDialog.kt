@@ -25,7 +25,6 @@ import javafx.scene.control.Spinner
 import javafx.scene.layout.GridPane
 import javafx.scene.layout.HBox
 import javafx.scene.layout.Region
-import javafx.scene.layout.StackPane
 import javafx.scene.layout.VBox
 import javafx.scene.paint.Color
 import javafx.stage.Modality
@@ -224,7 +223,9 @@ object PotionEffectEditorDialog {
         rebuildEffectList()
         refreshEffectTypeItems()
         stage.scene = Scene(
-            StackPane(contentRoot).apply {
+            ScrollPane(contentRoot).apply {
+                isFitToWidth = true
+                isFitToHeight = true
                 styleClass.add("potion-effect-scene-root")
                 padding = Insets(0.0)
             },

@@ -104,7 +104,7 @@ object OfflineUploadDialog {
             dialogPane.stylesheets.add(
                 OfflineUploadDialog::class.java.getResource(AppScreen.WIDGETS_ONLY.css)!!.toExternalForm()
             )
-            dialogPane.content = VBox(10.0).apply {
+            dialogPane.content = ScrollPane(VBox(10.0).apply {
                 padding = Insets(8.0)
                 prefWidth = 620.0
                 children.addAll(
@@ -134,6 +134,9 @@ object OfflineUploadDialog {
                         prefHeight = 360.0
                     }
                 )
+            }).apply {
+                isFitToWidth = true
+                isFitToHeight = true
             }
             setResultConverter { button ->
                 if (button == uploadType) {

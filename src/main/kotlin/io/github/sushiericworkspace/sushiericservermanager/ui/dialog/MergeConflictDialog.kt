@@ -51,7 +51,7 @@ object MergeConflictDialog {
             dialogPane.stylesheets.add(
                 MergeConflictDialog::class.java.getResource(AppScreen.WIDGETS_ONLY.css)!!.toExternalForm()
             )
-            dialogPane.content = VBox(10.0).apply {
+            dialogPane.content = ScrollPane(VBox(10.0).apply {
                 padding = Insets(8.0)
                 prefWidth = 860.0
                 children.addAll(
@@ -79,6 +79,9 @@ object MergeConflictDialog {
                         VBox.setVgrow(this, Priority.ALWAYS)
                     }
                 )
+            }).apply {
+                isFitToWidth = true
+                isFitToHeight = true
             }
             setResultConverter { button ->
                 if (button == applyType) {

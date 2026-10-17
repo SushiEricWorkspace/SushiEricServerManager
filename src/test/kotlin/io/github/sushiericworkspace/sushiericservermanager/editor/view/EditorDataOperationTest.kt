@@ -306,7 +306,7 @@ class EditorDataOperationTest {
                 Platform.runLater {
                     Window.getWindows().toList().filter { it !== f.stage }.forEach { window ->
                         val root = window.scene?.root ?: return@forEach
-                        if ("validated-input-dialog" in root.styleClass) {
+                        if (root.lookup(".validated-input-dialog") != null) {
                             val input = root.lookupAll(".text-field").filterIsInstance<TextField>().single()
                             val answer = f.answers.poll()
                             if (f.cancelInput) root.lookupAll(".button").filterIsInstance<Button>().single { it.text == "キャンセル" }.fire()
