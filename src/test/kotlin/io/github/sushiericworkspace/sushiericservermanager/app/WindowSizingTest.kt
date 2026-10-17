@@ -1,6 +1,8 @@
 package io.github.sushiericworkspace.sushiericservermanager.app
 
 import io.github.sushiericworkspace.sushiericservermanager.util.Utility
+import io.github.sushiericworkspace.sushiericservermanager.config.AppSettingsManager
+import io.github.sushiericworkspace.sushiericservermanager.config.WindowSize
 import javafx.application.Platform
 import javafx.beans.InvalidationListener
 import javafx.geometry.Rectangle2D
@@ -230,6 +232,83 @@ class WindowSizingTest {
         } finally {
             onFx { stage.close() }
         }
+    }
+
+    @Test
+    @EnabledOnOs(OS.WINDOWS, OS.MAC)
+    fun `未確定外寸に制約を書かず選択FXMLの初回自動配置を維持する`() {
+        val settings = AppSettingsManager.load()
+        try {
+            for (screen in listOf(AppScreen.MODE_SELECT, AppScreen.SERVER_SELECT)) {
+                for (saved in listOf(false, true)) {
+                    lateinit var stage: Stage
+                    onFx {
+                        AppSettingsManager.save(settings.copy(windowSizes = if (saved)
+                            mapOf(screen.name to WindowSize(720.0, 510.0)) else emptyMap()))
+                        stage = Stage().apply {
+                            scene = Utility.createScene(screen)
+                            addEventHandler(WindowEvent.WINDOW_SHOWING) {
+                                assertTrue(x.isNaN() && y.isNaN())
+                                if (!saved) {
+                                    assertTrue(width.isNaN() && height.isNaN())
+                                    assertEquals(Double.MAX_VALUE, maxWidth)
+                                    assertEquals(Double.MAX_VALUE, maxHeight)
+                                }
+                            }
+                            show()
+                        }
+                    }
+                    try {
+                        settle()
+                        onFx {
+                            val bounds = Screen.getPrimary().visualBounds
+                            assertEquals(bounds.minX + (bounds.width - stage.width) / 2, stage.x, 3.0)
+                            assertEquals(bounds.minY + (bounds.height - stage.height) / 3, stage.y, 3.0)
+                            assertTrue(bounds.contains(stage.x, stage.y, stage.width, stage.height))
+                            if (saved) {
+                                assertEquals(720.0, stage.width, 2.0)
+                                assertEquals(510.0, stage.height, 2.0)
+                            }
+                            println("初回配置 screen=$screen saved=$saved bounds=$bounds actual=(${stage.x},${stage.y},${stage.width},${stage.height})")
+                        }
+                    } finally { onFx { stage.close() } }
+                }
+            }
+        } finally { onFx { AppSettingsManager.save(settings) } }
+    }
+
+    @Test
+    @EnabledOnOs(OS.WINDOWS, OS.MAC)
+    fun `明示した初回座標と移動後の再表示座標を維持する`() {
+        lateinit var stage: Stage
+        lateinit var bounds: Rectangle2D
+        onFx { bounds = Screen.getPrimary().visualBounds }
+        val x = bounds.minX + 70.0
+        val y = bounds.minY + 80.0
+        onFx {
+            stage = Stage().apply {
+                scene = Utility.createScene(AppScreen.WIDGETS_ONLY, 420.0, 280.0, StackPane())
+                this.x = x
+                this.y = y
+                show()
+            }
+        }
+        try {
+            settle()
+            onFx {
+                assertEquals(x, stage.x, 2.0)
+                assertEquals(y, stage.y, 2.0)
+                stage.x += 40.0
+                stage.y += 30.0
+                stage.hide()
+                stage.show()
+            }
+            settle()
+            onFx {
+                assertEquals(x + 40.0, stage.x, 2.0)
+                assertEquals(y + 30.0, stage.y, 2.0)
+            }
+        } finally { onFx { stage.close() } }
     }
 
     private fun awaitContained(stage: Stage, bounds: Rectangle2D) {

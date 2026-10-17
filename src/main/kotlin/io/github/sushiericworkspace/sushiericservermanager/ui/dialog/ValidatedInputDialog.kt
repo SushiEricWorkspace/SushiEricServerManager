@@ -1,8 +1,10 @@
 package io.github.sushiericworkspace.sushiericservermanager.ui.dialog
 
 import io.github.sushiericworkspace.sushiericservermanager.app.AppScreen
+import io.github.sushiericworkspace.sushiericservermanager.app.selectWindowScreen
 import io.github.sushiericworkspace.sushiericservermanager.editor.result.ValidationResult
 import io.github.sushiericworkspace.sushiericservermanager.util.Utility
+import javafx.geometry.Rectangle2D
 import javafx.scene.control.ScrollPane
 import javafx.scene.control.Button
 import javafx.scene.control.Label
@@ -11,17 +13,22 @@ import javafx.scene.layout.HBox
 import javafx.scene.layout.VBox
 import javafx.stage.Modality
 import javafx.stage.Stage
+import javafx.stage.Screen
+import kotlin.math.max
 
 object ValidatedInputDialog {
     private const val DIALOG_WIDTH = 350.0
 
+    /** ownerがあれば初回だけその中心へ表示します。キャンセル時はnullを返します。 */
     fun show(
         title: String,
+        owner: Stage? = null,
         validator: (String) -> ValidationResult
     ): String? {
         var result: String? = null
 
         val stage = Stage().apply {
+            owner?.let(::initOwner)
             initModality(Modality.APPLICATION_MODAL)
             this.title = title
         }
@@ -105,6 +112,16 @@ object ValidatedInputDialog {
         }
 
         stage.scene = Utility.createScene(AppScreen.WIDGETS_ONLY, customRoot = ScrollPane(root).apply { isFitToWidth = true; isFitToHeight = true })
+        if (owner != null) {
+            stage.setOnShown {
+                val bounds = selectWindowScreen(Rectangle2D(owner.x, owner.y, owner.width, owner.height),
+                    Screen.getScreens().map { it.visualBounds })
+                stage.x = (owner.x + (owner.width - stage.width) / 2).coerceIn(
+                    bounds.minX, max(bounds.minX, bounds.maxX - stage.width))
+                stage.y = (owner.y + (owner.height - stage.height) / 2).coerceIn(
+                    bounds.minY, max(bounds.minY, bounds.maxY - stage.height))
+            }
+        }
         stage.showAndWait()
         return result
     }
