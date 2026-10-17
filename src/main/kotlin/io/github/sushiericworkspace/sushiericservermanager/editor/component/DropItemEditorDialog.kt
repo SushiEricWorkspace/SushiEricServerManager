@@ -19,7 +19,6 @@ import javafx.scene.control.Tooltip
 import javafx.scene.layout.HBox
 import javafx.scene.layout.Priority
 import javafx.scene.layout.Region
-import javafx.scene.layout.StackPane
 import javafx.scene.layout.VBox
 import javafx.scene.paint.Color
 import javafx.stage.Modality
@@ -200,7 +199,9 @@ internal object DropItemEditorDialog {
 
         rebuildList()
         stage.scene = Scene(
-            StackPane(contentRoot).apply {
+            ScrollPane(contentRoot).apply {
+                isFitToWidth = true
+                isFitToHeight = true
                 styleClass.add("drop-item-scene-root")
                 padding = Insets(0.0)
             },

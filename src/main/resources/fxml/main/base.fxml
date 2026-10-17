@@ -10,10 +10,12 @@
 <?import javafx.scene.layout.Region?>
 <?import javafx.scene.layout.VBox?>
 
-<BorderPane fx:id="rootPane" prefHeight="720.0" prefWidth="1560.0" xmlns="http://javafx.com/javafx/21.0.1" xmlns:fx="http://javafx.com/fxml/1" fx:controller="io.github.sushiericworkspace.sushiericservermanager.editor.controller.MainController">
+<ScrollPane xmlns:fx="http://javafx.com/fxml/1" fitToWidth="true" fitToHeight="true" prefHeight="720.0" prefWidth="1560.0" fx:controller="io.github.sushiericworkspace.sushiericservermanager.editor.controller.MainController">
+<content>
+<BorderPane fx:id="rootPane" prefHeight="720.0" prefWidth="1560.0" xmlns="http://javafx.com/javafx/21.0.1" xmlns:fx="http://javafx.com/fxml/1">
 
    <top>
-      <HBox fx:id="topBar" alignment="CENTER_LEFT" minHeight="24.0" prefHeight="24.0" spacing="12.0">
+      <HBox fx:id="topBar" alignment="CENTER_LEFT" spacing="12.0">
          <HBox fx:id="actionButtonContainer" alignment="CENTER_LEFT" spacing="0.0" />
          <Region HBox.hgrow="ALWAYS" />
          <ProgressIndicator fx:id="importProgress" prefWidth="18.0" prefHeight="18.0" visible="false" managed="false" />
@@ -40,7 +42,7 @@
    </bottom>
 
    <center>
-      <ScrollPane fx:id="mainScroll" fitToHeight="true" fitToWidth="true">
+      <ScrollPane fx:id="mainScroll" minWidth="360.0" fitToHeight="true" fitToWidth="true">
          <content>
             <HBox fx:id="mainContentContainer" alignment="TOP_LEFT" spacing="16.0">
                <padding>
@@ -52,3 +54,5 @@
    </center>
 
 </BorderPane>
+</content>
+</ScrollPane>

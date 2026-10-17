@@ -28,7 +28,8 @@
 }
 
 .mod-config-actions {
-    -fx-spacing: 10px;
+    -fx-hgap: 10px;
+    -fx-vgap: 8px;
     -fx-padding: 4px 0 0 0;
     -fx-alignment: center-left;
 }

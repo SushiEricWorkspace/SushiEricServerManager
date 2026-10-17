@@ -7,6 +7,7 @@ import io.github.sushiericworkspace.sushiericservermanager.app.AppScreen
 import io.github.sushiericworkspace.sushiericservermanager.editor.view.SidebarTreeNode
 import io.github.sushiericworkspace.sushiericservermanager.editor.view.buildSidebarTree
 import io.github.sushiericworkspace.sushiericservermanager.ui.AppTooltip
+import javafx.scene.control.ScrollPane
 import javafx.scene.control.ButtonBar
 import javafx.scene.control.ButtonType
 import javafx.scene.control.Dialog
@@ -98,7 +99,10 @@ internal object ItemTreeSelectionDialog {
                 dialog.close()
             }
         }
-        dialog.dialogPane.content = VBox(10.0, search, tree, emptyLabel, selectedLabel).apply { prefWidth = 520.0 }
+        dialog.dialogPane.content = ScrollPane(VBox(10.0, search, tree, emptyLabel, selectedLabel).apply { prefWidth = 520.0 }).apply {
+            isFitToWidth = true
+            isFitToHeight = true
+        }
         dialog.setResultConverter { button ->
             when (button) {
                 select -> selectedId()?.let(ItemTreeSelection::Selected)
