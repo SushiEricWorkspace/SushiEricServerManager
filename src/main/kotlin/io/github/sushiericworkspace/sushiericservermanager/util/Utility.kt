@@ -2,6 +2,7 @@ package io.github.sushiericworkspace.sushiericservermanager.util
 
 import io.github.sushiericworkspace.sushiericdatamodel.path.SushiEricDataDirectory
 import io.github.sushiericworkspace.sushiericdatamodel.path.SushiEricPath
+import io.github.sushiericworkspace.sushiericservermanager.app.WindowSizing
 import io.github.sushiericworkspace.sushiericservermanager.app.AppScreen
 import io.github.sushiericworkspace.sushiericservermanager.app.ApplicationFlow
 import io.github.sushiericworkspace.sushiericservermanager.app.appWindowTitle
@@ -145,6 +146,7 @@ object Utility {
             logger.error("Scene: スタイルシートの適用中にエラーが発生しました ($cssPath)", e)
         }
 
+        WindowSizing.install(scene)
         return scene
     }
 
@@ -153,6 +155,7 @@ object Utility {
      * アプリ内のデザイン統一のため、すべてのAlertでこれを呼び出してください。
      */
     fun Alert.applyCommonStyle() {
+        WindowSizing.install(this)
         val cssPath = AppScreen.WIDGETS_ONLY.css
         val cssUrl = CSSResourceContext::class.java.getResource(cssPath)?.toExternalForm()
 
