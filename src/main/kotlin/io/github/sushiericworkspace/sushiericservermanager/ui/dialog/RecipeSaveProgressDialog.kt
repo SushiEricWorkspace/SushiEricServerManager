@@ -1,5 +1,6 @@
 package io.github.sushiericworkspace.sushiericservermanager.ui.dialog
 
+import io.github.sushiericworkspace.sushiericservermanager.app.WindowSizing
 import io.github.sushiericworkspace.sushiericservermanager.app.AppScreen
 import io.github.sushiericworkspace.sushiericservermanager.editor.store.StoreError
 import io.github.sushiericworkspace.sushiericservermanager.editor.store.StoreErrorCode
@@ -37,6 +38,7 @@ internal object RecipeSaveProgressDialog {
             stage.hide()
         }
         stage.setOnShown { execute(task) }
+        WindowSizing.install(stage)
         stage.showAndWait()
         return result
     }

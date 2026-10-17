@@ -1,5 +1,6 @@
 package io.github.sushiericworkspace.sushiericservermanager.ui.dialog
 
+import io.github.sushiericworkspace.sushiericservermanager.app.WindowSizing
 import io.github.sushiericworkspace.sushiericdatamodel.data.item.model.ItemBaseDataView
 import io.github.sushiericworkspace.sushiericdatamodel.data.item.model.ItemInternalId
 import io.github.sushiericworkspace.sushiericservermanager.app.AppScreen
@@ -32,6 +33,7 @@ internal object ItemTreeSelectionDialog {
         val select = ButtonType("選択", ButtonBar.ButtonData.OK_DONE)
         val clear = ButtonType("選択を解除", ButtonBar.ButtonData.OTHER)
         val dialog = Dialog<ItemTreeSelection>().apply {
+            WindowSizing.install(this)
             title = "アイテムを選択"
             owner?.let(::initOwner)
             dialogPane.buttonTypes.setAll(select, clear, ButtonType.CANCEL)

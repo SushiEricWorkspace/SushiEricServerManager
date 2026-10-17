@@ -1,5 +1,6 @@
 package io.github.sushiericworkspace.sushiericservermanager.editor.component
 
+import io.github.sushiericworkspace.sushiericservermanager.app.WindowSizing
 import io.github.sushiericworkspace.sushiericdatamodel.data.core.validation.SushiEricValidationError
 import io.github.sushiericworkspace.sushiericdatamodel.data.drop.model.DropItemDataView
 import io.github.sushiericworkspace.sushiericdatamodel.data.drop.model.mutable.MutableDropItemData
@@ -213,6 +214,7 @@ internal object DropItemEditorDialog {
                     .toExternalForm()
             )
         }
+        WindowSizing.install(stage)
         stage.showAndWait()
     }
 

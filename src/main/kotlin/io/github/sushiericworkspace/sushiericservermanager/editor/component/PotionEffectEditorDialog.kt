@@ -1,5 +1,6 @@
 package io.github.sushiericworkspace.sushiericservermanager.editor.component
 
+import io.github.sushiericworkspace.sushiericservermanager.app.WindowSizing
 import io.github.sushiericworkspace.sushiericdatamodel.data.effect.model.EffectLevelSupport
 import io.github.sushiericworkspace.sushiericdatamodel.data.effect.model.EffectTimeSupport
 import io.github.sushiericworkspace.sushiericdatamodel.data.effect.model.MutableLevelLessInstantEffectData
@@ -237,6 +238,7 @@ object PotionEffectEditorDialog {
                     .toExternalForm()
             )
         }
+        WindowSizing.install(stage)
         stage.showAndWait()
     }
 

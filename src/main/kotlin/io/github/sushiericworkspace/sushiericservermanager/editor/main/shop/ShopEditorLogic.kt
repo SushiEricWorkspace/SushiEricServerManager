@@ -1,5 +1,6 @@
 package io.github.sushiericworkspace.sushiericservermanager.editor.main.shop
 
+import io.github.sushiericworkspace.sushiericservermanager.app.WindowSizing
 import io.github.sushiericworkspace.sushiericdatamodel.data.core.validation.SushiEricValidationError
 import io.github.sushiericworkspace.sushiericdatamodel.data.item.model.ItemInternalId
 import io.github.sushiericworkspace.sushiericdatamodel.data.shop.model.mutable.MutableShopProductData
@@ -91,6 +92,7 @@ internal class ShopEditorLogic(main: MainController, dataService: EditorDataServ
                     val selector = SearchableComboBox(choices, selectData.itemInternalId, "公開IDで検索",
                         ::itemDisplayText, onSelected = {})
                     val selected = Dialog<ItemInternalId>().apply {
+                        WindowSizing.install(this)
                         title = "対象アイテムを選択"
                         initOwner(main.currentStage)
                         dialogPane.buttonTypes.addAll(ButtonType.OK, ButtonType.CANCEL)
