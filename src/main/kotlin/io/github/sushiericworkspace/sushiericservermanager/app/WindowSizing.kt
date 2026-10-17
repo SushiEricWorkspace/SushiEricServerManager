@@ -2,7 +2,7 @@ package io.github.sushiericworkspace.sushiericservermanager.app
 
 import javafx.animation.PauseTransition
 import javafx.application.Platform
-import javafx.beans.InvalidationListener
+import javafx.beans.value.ChangeListener
 import javafx.collections.ListChangeListener
 import javafx.geometry.Rectangle2D
 import javafx.scene.Scene
@@ -25,6 +25,14 @@ object WindowSizing {
     fun install(stage: Stage) {
         if (stage.properties.containsKey(key)) return
         stage.properties[key] = Sizing(stage)
+    }
+
+    /**
+     * 表示開始時または表示中の登録済みStageで、最大化の反映前に復元した通常外寸を補正します。
+     * 未登録なら何もせず、最大化・最小化中は通常寸法を変更しません。
+     */
+    internal fun fit(stage: Stage) {
+        (stage.properties[key] as? Sizing)?.fit(!stage.isShowing)
     }
 
     /** SceneをStageへ割り当てた時点で登録します。Sceneを差し替えても重複登録しません。 */
@@ -51,7 +59,7 @@ object WindowSizing {
         private val screensChanged = ListChangeListener<Screen> { schedule() }
 
         init {
-            val changed = InvalidationListener { schedule() }
+            val changed = ChangeListener<Any?> { _, _, _ -> schedule() }
             listOf(stage.xProperty(), stage.yProperty(), stage.widthProperty(), stage.heightProperty(),
                 stage.maximizedProperty(), stage.iconifiedProperty(), stage.sceneProperty()).forEach {
                 it.addListener(changed)
@@ -87,7 +95,7 @@ object WindowSizing {
             if (!adjusting && stage.isShowing) delay.playFromStart()
         }
 
-        private fun fit(initial: Boolean) {
+        fun fit(initial: Boolean) {
             if (adjusting || stage.isMaximized || stage.isIconified) return
             adjusting = true
             try {

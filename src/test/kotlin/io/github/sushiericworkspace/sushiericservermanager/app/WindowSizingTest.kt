@@ -2,6 +2,7 @@ package io.github.sushiericworkspace.sushiericservermanager.app
 
 import io.github.sushiericworkspace.sushiericservermanager.util.Utility
 import javafx.application.Platform
+import javafx.beans.InvalidationListener
 import javafx.geometry.Rectangle2D
 import javafx.scene.Scene
 import javafx.scene.layout.StackPane
@@ -223,26 +224,69 @@ class WindowSizingTest {
                 onFx { stage.isMaximized = true }
                 settle()
                 onFx { stage.isMaximized = false }
-                settle()
-                onFx {
-                    assertTrue(bounds.contains(stage.x, stage.y, stage.width, stage.height))
-                    println("移動・再show・最大化解除 成功: $bounds")
-                }
+                awaitContained(stage, bounds)
+                onFx { println("移動・再show・最大化解除 成功: $bounds") }
             }
         } finally {
             onFx { stage.close() }
         }
     }
 
+    private fun awaitContained(stage: Stage, bounds: Rectangle2D) {
+        var lastEvent: Long? = null
+        val changed = InvalidationListener { lastEvent = System.nanoTime() }
+        onFx {
+            listOf(stage.xProperty(), stage.yProperty(), stage.widthProperty(), stage.heightProperty(),
+                stage.maximizedProperty(), stage.iconifiedProperty()).forEach { it.addListener(changed) }
+        }
+        val started = System.nanoTime()
+        val deadline = started + TimeUnit.SECONDS.toNanos(3)
+        var stableSince: Long? = null
+        var details = "Stageを採取していません"
+        try {
+            while (System.nanoTime() < deadline) {
+                var inside = false
+                var sampledAt = 0L
+                var lastChangedAt = 0L
+                val remaining = TimeUnit.NANOSECONDS.toMillis(deadline - System.nanoTime()).coerceAtLeast(1)
+                onFx(remaining) {
+                    sampledAt = System.nanoTime()
+                    lastChangedAt = lastEvent ?: started
+                    inside = !stage.isMaximized && !stage.isIconified &&
+                        bounds.contains(stage.x, stage.y, stage.width, stage.height)
+                    val elapsed = lastEvent?.let { TimeUnit.NANOSECONDS.toMillis(sampledAt - it) }
+                    details = "expected=$bounds actual=(${stage.x},${stage.y},${stage.width},${stage.height}) " +
+                        "scene=(${stage.scene.width},${stage.scene.height}) maximized=${stage.isMaximized} " +
+                        "iconified=${stage.isIconified} min=(${stage.minWidth},${stage.minHeight}) " +
+                        "max=(${stage.maxWidth},${stage.maxHeight}) lastEventMs=${elapsed ?: "観測なし"}"
+                }
+                if (inside) {
+                    val stable = stableSince ?: sampledAt
+                    stableSince = stable
+                    if (sampledAt - stable.coerceAtLeast(lastChangedAt) >= TimeUnit.MILLISECONDS.toNanos(200)) return
+                } else stableSince = null
+                Thread.sleep(20)
+            }
+            throw AssertionError("3秒以内に200ms連続で作業領域へ収まりませんでした: $details")
+        } catch (error: java.util.concurrent.TimeoutException) {
+            throw AssertionError("作業領域のFX読取が期限を超えました: $details", error)
+        } finally {
+            onFx {
+                listOf(stage.xProperty(), stage.yProperty(), stage.widthProperty(), stage.heightProperty(),
+                    stage.maximizedProperty(), stage.iconifiedProperty()).forEach { it.removeListener(changed) }
+            }
+        }
+    }
+
     private fun settle() { Thread.sleep(350); onFx {} }
 
-    private fun onFx(action: () -> Unit) {
+    private fun onFx(timeoutMillis: Long = 30000, action: () -> Unit) {
         val started = CountDownLatch(1)
         try { Platform.startup { Platform.setImplicitExit(false); started.countDown() } }
         catch (_: IllegalStateException) { started.countDown() }
         assertTrue(started.await(20, TimeUnit.SECONDS))
         val task = FutureTask(action)
         Platform.runLater(task)
-        task.get(30, TimeUnit.SECONDS)
+        task.get(timeoutMillis, TimeUnit.MILLISECONDS)
     }
 }

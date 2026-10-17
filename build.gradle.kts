@@ -1,3 +1,4 @@
+import org.gradle.api.tasks.testing.Test
 import java.util.Properties
 import java.io.File
 import java.nio.file.Path
@@ -227,8 +228,16 @@ application {
     mainClass.set("io.github.sushiericworkspace.sushiericservermanager.app.Launcher")
 }
 
-tasks.test {
+tasks.withType<Test>().configureEach {
     useJUnitPlatform()
+    val config = layout.buildDirectory.dir("test-config/$name").get().asFile
+    environment("LOCALAPPDATA", config.resolve("localappdata").absolutePath)
+    environment("APPDATA", config.resolve("appdata").absolutePath)
+    environment("XDG_CONFIG_HOME", config.resolve("xdg").absolutePath)
+    systemProperty("user.home", config.resolve("home").absolutePath)
+    doFirst {
+        listOf("localappdata", "appdata", "home", "xdg").forEach { config.resolve(it).mkdirs() }
+    }
 }
 
 val appName = "SushiEricServerManager"
