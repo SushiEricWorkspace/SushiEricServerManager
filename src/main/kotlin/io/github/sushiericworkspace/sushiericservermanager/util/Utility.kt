@@ -2,6 +2,7 @@ package io.github.sushiericworkspace.sushiericservermanager.util
 
 import io.github.sushiericworkspace.sushiericdatamodel.path.SushiEricDataDirectory
 import io.github.sushiericworkspace.sushiericdatamodel.path.SushiEricPath
+import io.github.sushiericworkspace.sushiericservermanager.app.AppFrame
 import io.github.sushiericworkspace.sushiericservermanager.app.AppScreen
 import io.github.sushiericworkspace.sushiericservermanager.app.ApplicationFlow
 import io.github.sushiericworkspace.sushiericservermanager.app.appWindowTitle
@@ -44,7 +45,6 @@ object Utility {
             Stage().apply {
                 title = appWindowTitle("サーバー選択")
                 scene = createScene(AppScreen.SERVER_SELECT, 600.0, 400.0)
-                isResizable = false
                 show()
             }
         }
@@ -115,13 +115,14 @@ object Utility {
             FXMLLoader.load<Parent>(fxmlUrl)
         }
 
-        val w = width ?: root.prefWidth(-1.0)
-        val h = height ?: root.prefHeight(-1.0)
+        val framedRoot = if (AppFrame.includes(screen)) AppFrame(screen, root) else root
+        val w = maxOf(width ?: framedRoot.prefWidth(-1.0), framedRoot.minWidth(-1.0))
+        val h = height ?: framedRoot.prefHeight(-1.0)
 
         val scene = if (width != null || height != null) {
-            Scene(root, w, h)
+            Scene(framedRoot, w, h)
         } else {
-            Scene(root)
+            Scene(framedRoot)
         }
 
         val cssPath = if (screen.css.endsWith(".css")) {
@@ -145,6 +146,9 @@ object Utility {
             logger.error("Scene: スタイルシートの適用中にエラーが発生しました ($cssPath)", e)
         }
 
+        if (AppFrame.includes(screen)) {
+            scene.stylesheets.add(requireNotNull(CSSResourceContext::class.java.getResource("/css/common/app-frame.css")).toExternalForm())
+        }
         return scene
     }
 

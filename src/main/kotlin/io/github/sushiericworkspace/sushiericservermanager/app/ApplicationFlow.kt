@@ -49,7 +49,6 @@ object ApplicationFlow {
 
         stage.title = appWindowTitle("動作モード選択")
         stage.scene = Utility.createScene(AppScreen.MODE_SELECT, customRoot = root)
-        stage.isResizable = false
         stage.show()
     }
 
@@ -190,7 +189,7 @@ object ApplicationFlow {
 
     fun showPreparing(stage: Stage, message: String) {
         stage.scene = Utility.createScene(
-            AppScreen.WIDGETS_ONLY,
+            AppScreen.STARTUP_PREPARING,
             width = 420.0,
             height = 140.0,
             customRoot = VBox(Label(message)).apply {

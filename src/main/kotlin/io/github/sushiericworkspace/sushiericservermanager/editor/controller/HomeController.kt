@@ -242,7 +242,11 @@ class HomeController internal constructor(
         homeSections.columnConstraints[1].percentWidth = if (online) 50.0 else 0.0
         modeSelectButton.isManaged = online
         modeSelectButton.isVisible = online
-        backButton.text = if (mode == AppMode.ONLINE) "サーバー選択へ戻る" else "モード選択へ戻る"
+        backButton.text = when {
+            EditorSession.connection != null -> "切断して動作モード選択へ"
+            online -> "切断してサーバー選択へ"
+            else -> "動作モード選択へ戻る"
+        }
 
         // Platform.runLater を使って Stage が確実に生成された後に処理
         javafx.application.Platform.runLater {

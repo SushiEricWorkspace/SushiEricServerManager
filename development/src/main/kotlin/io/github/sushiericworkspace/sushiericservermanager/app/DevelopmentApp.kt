@@ -20,7 +20,6 @@ class DevelopmentApp : MainApp() {
             }
             stage.title = "SushiEricServerManager 開発用"
             stage.scene = Utility.createScene(AppScreen.MODE_SELECT, customRoot = root)
-            stage.isResizable = false
             stage.show()
         }
     }
