@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""JDK 21製Windowsインストーラーを実行せず、検査用にアプリ領域を展開する。"""
+"""JDK 25製Windowsインストーラーを実行せず、検査用にアプリ領域を展開する。"""
 from __future__ import annotations
 
 import argparse
@@ -65,7 +65,7 @@ def extract(installer: Path, output: Path, seven_zip: Path, dark: Path) -> Path:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--installer", required=True, type=Path, help="JDK 21のjpackageが生成したexe")
+    parser.add_argument("--installer", required=True, type=Path, help="JDK 25のjpackageが生成したexe")
     parser.add_argument("--output", required=True, type=Path, help="まだ存在しない検査用ディレクトリ")
     parser.add_argument("--seven-zip", required=True, type=Path, help="既存7z.exeのパス")
     parser.add_argument("--dark", required=True, type=Path, help="WiX 3のdark.exeのパス")

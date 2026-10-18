@@ -172,7 +172,7 @@ snapshot/restore/recoverや非協調的な登録外writerの証明はこの接�
 
 ## 自動検証と実機の分離
 
-JDK 21、完全なEditor SushiEricDataModel座標とrepositoryで実行します。
+JDK 25、完全なEditor SushiEricDataModel座標とrepositoryで実行します。
 
 ```text
 gradlew build verifyReleaseDistribution -PdataModelDevelopmentCoordinate=io.github.sushiericworkspace:sushieric-datamodel-editor-dev:<固定dev版> -PdataModelDevelopmentRepository=<Maven絶対パス>
@@ -219,7 +219,7 @@ gradlew verifyPackagedApplication -PpackagedApplicationDirectory=<展開済み�
 JAR検査や合成監督テストの成功をOS包装・GUI・実機の成功として扱いません。
 
 
-WindowsのJDK 21製exeは、インストールせずに内包MSIを取り出して検査できます。
+WindowsのJDK 25製exeは、インストールせずに内包MSIを取り出して検査できます。
 Pythonと既存の7-Zip・WiX 3を使い、まだ存在しない出力先を指定します。
 出力先へMSI、WiX定義、展開ログ、ハッシュ、`application/`を保全します。
 

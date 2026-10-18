@@ -4,7 +4,13 @@ plugins {
     application
 }
 
-kotlin { jvmToolchain(21) }
+kotlin { jvmToolchain(25) }
+
+java { toolchain.languageVersion.set(JavaLanguageVersion.of(25)) }
+tasks.withType<org.jetbrains.kotlin.gradle.tasks.KotlinCompile>().configureEach {
+    compilerOptions.freeCompilerArgs.add("-Xjdk-release=25")
+}
+
 javafx {
     version = libs.versions.javafx.get()
     modules("javafx.controls", "javafx.fxml")
