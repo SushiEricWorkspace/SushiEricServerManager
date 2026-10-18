@@ -3,10 +3,10 @@ package io.github.sushiericworkspace.sushiericservermanager.app
 import io.github.sushiericworkspace.sushiericservermanager.communication.management.ServerManagementState
 import io.github.sushiericworkspace.sushiericservermanager.editor.session.EditorSession
 import io.github.sushiericworkspace.sushiericservermanager.ui.AppTooltip
+import io.github.sushiericworkspace.sushiericservermanager.ui.dialog.AppearanceDialog
 import io.github.sushiericworkspace.sushiericservermanager.ui.dialog.CustomDialog
 import io.github.sushiericworkspace.sushiericservermanager.update.AppVersion
 import io.github.sushiericworkspace.sushiericservermanager.util.Utility
-import javafx.application.ColorScheme
 import javafx.beans.value.ChangeListener
 import javafx.stage.Window
 import javafx.animation.KeyFrame
@@ -55,7 +55,7 @@ internal class AppFrame(private val screen: AppScreen, content: Parent) : Border
         HeaderBar.setDragType(menuBar, HeaderDragType.NONE)
         val settings = MenuButton("設定").apply {
             id = "applicationSettings"
-            items.addAll(MenuItem("外観").apply { isDisable = true }, MenuItem("キーボードショートカット").apply { isDisable = true })
+            items.addAll(MenuItem("外観").apply { setOnAction { AppearanceDialog.show(stage) } }, MenuItem("キーボードショートカット").apply { isDisable = true })
         }
         HeaderBar.setDragType(settings, HeaderDragType.NONE)
         header.left = if (isMac) null else menuBar
@@ -95,7 +95,6 @@ internal class AppFrame(private val screen: AppScreen, content: Parent) : Border
         observedStage = owner
         if (owner == null) return
         if (!owner.isShowing) owner.initStyle(StageStyle.EXTENDED)
-        HeaderBar.setSystemColorScheme(owner, ColorScheme.DARK)
         owner.minWidth = maxOf(owner.minWidth, 500.0)
         owner.showingProperty().addListener(showingListener)
         updateRefresh()

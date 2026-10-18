@@ -34,7 +34,7 @@
 .editor-tree-view .tree-cell:filled:selected,
 .editor-tree-view .tree-cell:filled:focused,
 .editor-tree-view .tree-cell:filled:selected:focused {
-    -fx-background-color: transparent !important;
+    -fx-background-color: -fx-selected-color !important;
     -fx-text-fill: -fx-text-color !important;
 }
 
@@ -120,7 +120,7 @@
 .custom-tree-cell:selected,
 .custom-tree-cell:focused,
 .custom-tree-cell:selected:focused {
-    -fx-background-color: transparent !important;
+    -fx-background-color: -fx-selected-color !important;
     -fx-text-fill: -fx-text-color !important;
 }
 

@@ -135,6 +135,14 @@ application {
 
 tasks.test {
     useJUnitPlatform()
+    val testHome = temporaryDir.resolve("home")
+    val testAppData = temporaryDir.resolve("appdata")
+    systemProperty("user.home", testHome.absolutePath)
+    systemProperty("sushieric.test.configRoot", temporaryDir.absolutePath)
+    environment("LOCALAPPDATA", testAppData.absolutePath)
+    environment("APPDATA", testAppData.absolutePath)
+    environment("XDG_CONFIG_HOME", testAppData.absolutePath)
+    doFirst { testHome.mkdirs(); testAppData.mkdirs() }
 }
 
 val appName = "SushiEricServerManager"

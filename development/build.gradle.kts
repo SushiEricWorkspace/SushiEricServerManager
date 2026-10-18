@@ -27,7 +27,17 @@ application {
     mainClass.set("io.github.sushiericworkspace.sushiericservermanager.app.DevelopmentLauncher")
 }
 
-tasks.test { useJUnitPlatform() }
+tasks.test {
+    useJUnitPlatform()
+    val testHome = temporaryDir.resolve("home")
+    val testAppData = temporaryDir.resolve("appdata")
+    systemProperty("user.home", testHome.absolutePath)
+    systemProperty("sushieric.test.configRoot", temporaryDir.absolutePath)
+    environment("LOCALAPPDATA", testAppData.absolutePath)
+    environment("APPDATA", testAppData.absolutePath)
+    environment("XDG_CONFIG_HOME", testAppData.absolutePath)
+    doFirst { testHome.mkdirs(); testAppData.mkdirs() }
+}
 
 // 製品APIの公開範囲を広げず、管理ストア統合テストだけで通常mainのinternal APIを参照します。
 tasks.named<org.jetbrains.kotlin.gradle.tasks.KotlinCompile>("compileTestKotlin") {
