@@ -8,6 +8,7 @@ import io.github.sushiericworkspace.sushiericservermanager.ui.dialog.ShortcutSet
 import io.github.sushiericworkspace.sushiericservermanager.ui.dialog.CustomDialog
 import io.github.sushiericworkspace.sushiericservermanager.update.AppVersion
 import io.github.sushiericworkspace.sushiericservermanager.util.Utility
+import io.github.sushiericworkspace.sushiericservermanager.app.workspace.WorkspaceManager
 import javafx.beans.value.ChangeListener
 import javafx.stage.Window
 import javafx.animation.KeyFrame
@@ -41,6 +42,9 @@ internal class AppFrame(private val screen: AppScreen, content: Parent) : Border
     private var observedStage: Stage? = null
     private val showingListener = ChangeListener<Boolean> { _, _, _ -> updateRefresh() }
     private val windowListener = ChangeListener<Window> { _, _, window -> observeStage(window as? Stage) }
+    private val editorMenusKey = Any()
+    private data class EditorMenus(val file: List<MenuItem>, val edit: List<MenuItem>)
+    private var windowActions: List<MenuItem> = emptyList()
     private val stage: Stage? get() = scene?.window as? Stage
     private val preparing: Boolean get() = screen == AppScreen.STARTUP_PREPARING
 
@@ -116,12 +120,13 @@ internal class AppFrame(private val screen: AppScreen, content: Parent) : Border
                 item("このウィンドウを閉じる") { closeWindow() },
                 item("アプリケーションを終了") { Utility.closeConnection { javafx.application.Platform.exit() } })
         }
+        windowActions = file.items.toList()
         val edit = Menu("編集").apply { isDisable = true }
         val view = Menu("表示").apply {
             items.addAll(item("ホームへ戻る") { goBack() }, item("全画面表示を切り替え") {
                 stage?.let { it.isFullScreen = !it.isFullScreen }
             })
-            setOnShowing { items[0].isDisable = screen !in homeChildren }
+            setOnShowing { items[0].isDisable = screen !in homeChildren && WorkspaceManager.current?.frame !== this@AppFrame }
         }
         val server = Menu("サーバー").apply {
             items.addAll(item("接続の詳細") { showDetails() }, item("切断") { disconnect() },
@@ -135,7 +140,9 @@ internal class AppFrame(private val screen: AppScreen, content: Parent) : Border
         }
         val windows = Menu("ウィンドウ").apply {
             setOnShowing {
-                items.setAll(Stage.getWindows().filterIsInstance<Stage>().filter { it.isShowing }.map { window ->
+                val workspace = WorkspaceManager.current?.takeIf { it.frame === this@AppFrame }
+                val featureItems = workspace?.titles().orEmpty().map { feature -> item(feature.title) { workspace?.focus(feature) } }
+                items.setAll(featureItems + Stage.getWindows().filterIsInstance<Stage>().filter { it.isShowing }.map { window ->
                     item(window.title) { window.isIconified = false; window.toFront(); window.requestFocus() }
                 })
             }
@@ -149,23 +156,42 @@ internal class AppFrame(private val screen: AppScreen, content: Parent) : Border
         menuBar.menus.addAll(file, edit, view, server, windows, help)
     }
 
-    /** EditorViewの既存MenuItemを移し、操作条件と全項目を共通メニューへ引き継ぎます。 */
+    /** 同じMenuItemを保持し、選択中の機能の操作と実行条件へ切り替えます。 */
     fun useEditorMenus(container: HBox, refreshActions: () -> Unit) {
-        val buttons = container.children.filterIsInstance<MenuButton>()
-        require(buttons.size == 2) { "Editorのファイル・編集メニューが必要です。" }
+        val menus = container.properties[editorMenusKey] as? EditorMenus ?: run {
+            val buttons = container.children.filterIsInstance<MenuButton>()
+            require(buttons.size == 2) { "Editorのファイル・編集メニューが必要です。" }
+            val cached = EditorMenus(buttons[0].items.toList(), buttons[1].items.toList())
+            buttons.forEach { it.items.clear() }
+            container.children.removeAll(buttons)
+            container.properties[editorMenusKey] = cached
+            cached
+        }
         val file = menuBar.menus[0]
         val edit = menuBar.menus[1]
-        val windowActions = file.items.takeLast(2)
-        val fileItems = buttons[0].items.toList()
-        val editItems = buttons[1].items.toList()
-        buttons.forEach { it.items.clear() }
-        file.items.setAll(fileItems + SeparatorMenuItem() + windowActions)
-        edit.items.setAll(editItems)
+        file.disableProperty().unbind()
+        edit.disableProperty().unbind()
+        file.items.setAll(menus.file + SeparatorMenuItem() + windowActions)
+        edit.items.setAll(menus.edit)
         file.setOnShowing { refreshActions() }
         edit.setOnShowing { refreshActions() }
         file.disableProperty().bind(container.disableProperty())
         edit.disableProperty().bind(container.disableProperty())
-        container.children.removeAll(buttons)
+    }
+
+    internal fun useWorkspaceActions() { windowActions.first().text = "この機能を閉じる" }
+
+    internal fun useDefaultMenus() {
+        val file = menuBar.menus[0]
+        val edit = menuBar.menus[1]
+        file.disableProperty().unbind()
+        edit.disableProperty().unbind()
+        file.isDisable = false
+        edit.isDisable = true
+        file.setOnShowing(null)
+        edit.setOnShowing(null)
+        file.items.setAll(windowActions)
+        edit.items.clear()
     }
 
     private fun hasSession() = EditorSession.dataService != null || EditorSession.connection != null || EditorSession.sshManager.isConnected
@@ -205,6 +231,10 @@ internal class AppFrame(private val screen: AppScreen, content: Parent) : Border
     }
 
     private fun goBack() {
+        WorkspaceManager.current?.takeIf { it.frame === this }?.let {
+            it.openHome()
+            return
+        }
         if (screen == AppScreen.SERVER_SELECT) { Utility.navigateToModeSelect(); return }
         if (screen !in homeChildren) return
         val home = Stage.getWindows().filterIsInstance<Stage>().firstOrNull {
@@ -216,6 +246,7 @@ internal class AppFrame(private val screen: AppScreen, content: Parent) : Border
     }
 
     private fun closeWindow() {
+        WorkspaceManager.current?.takeIf { it.frame === this }?.let { it.closeActive(); return }
         stage?.let {
             val request = WindowEvent(it, WindowEvent.WINDOW_CLOSE_REQUEST)
             it.fireEvent(request)

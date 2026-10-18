@@ -9,6 +9,8 @@ import io.github.sushiericworkspace.sushiericservermanager.ui.dialog.CustomDialo
 import io.github.sushiericworkspace.sushiericservermanager.util.Utility
 import io.github.sushiericworkspace.sushiericservermanager.ui.dialog.ErrorType
 import io.github.sushiericworkspace.sushiericservermanager.config.ServerProfile
+import io.github.sushiericworkspace.sushiericservermanager.config.WorkspaceFeature
+import io.github.sushiericworkspace.sushiericservermanager.app.workspace.WorkspaceManager
 import io.github.sushiericworkspace.sushiericservermanager.editor.main.item.ItemEditorLogic
 import io.github.sushiericworkspace.sushiericservermanager.editor.main.ore.OreEditorLogic
 import io.github.sushiericworkspace.sushiericservermanager.editor.service.EditorDataService
@@ -207,15 +209,11 @@ class HomeController internal constructor(
          * 接続は非同期で進むため、状態が変わるたびに表示を更新する。
          * 通知はUIスレッド以外から届くのでrunLaterで移す。
          */
-        EditorSession.managementClient.addStateListener { state ->
-            Platform.runLater { applyManagementState(state) }
-        }
+        setWorkspaceVisible(true)
 
         applyMonitorSnapshot(EditorSession.serverMonitor.snapshot)
 
-        EditorSession.serverMonitor.addListener { snapshot ->
-            Platform.runLater { applyMonitorSnapshot(snapshot) }
-        }
+
 
         val online = mode == AppMode.ONLINE
         val compatibility = EditorSession.connection?.compatibility ?: sshManager.compatibility
@@ -248,14 +246,7 @@ class HomeController internal constructor(
             else -> "動作モード選択へ戻る"
         }
 
-        // Platform.runLater を使って Stage が確実に生成された後に処理
-        javafx.application.Platform.runLater {
-            val stage = rootPane.scene?.window as? javafx.stage.Stage
-            stage?.setOnCloseRequest {
-                it.consume()
-                Utility.closeConnection { Platform.exit() }
-            }
-        }
+
     }
 
     /**
@@ -384,7 +375,7 @@ class HomeController internal constructor(
     @Suppress("unused")
     fun onOpenItemEditor() {
         openManagedDataEditor(
-            key = "ITEM_EDITOR",
+            key = WorkspaceFeature.ITEM_EDITOR,
             title = "アイテムエディタ",
             logicFactory = { mainController, service ->
                 ItemEditorLogic(
@@ -399,7 +390,7 @@ class HomeController internal constructor(
     @FXML @Suppress("unused")
     fun onOpenShopEditor() {
         openManagedDataEditor(
-            key = "SHOP_EDITOR",
+            key = WorkspaceFeature.SHOP_EDITOR,
             title = "ショップエディター",
             logicFactory = { controller, service -> ShopEditorLogic(controller, service) }
         )
@@ -409,7 +400,7 @@ class HomeController internal constructor(
     @FXML @Suppress("unused")
     fun onOpenRecipeEditor() {
         openManagedDataEditor(
-            key = "RECIPE_EDITOR",
+            key = WorkspaceFeature.RECIPE_EDITOR,
             title = "レシピエディター",
             logicFactory = { controller, service -> RecipeEditorLogic(controller, service) }
         )
@@ -420,7 +411,7 @@ class HomeController internal constructor(
     @Suppress("unused")
     fun onOpenConsole() {
         if (EditorSession.mode != AppMode.ONLINE) return
-        ConsoleWindowManager.open(rootPane.scene?.window)
+        ConsoleWindowManager.open()
     }
 
     /** サーバー状態のDashboardを開きます。 */
@@ -428,7 +419,7 @@ class HomeController internal constructor(
     @Suppress("unused")
     fun onOpenDashboard() {
         if (EditorSession.mode != AppMode.ONLINE) return
-        DashboardWindowManager.open(rootPane.scene?.window)
+        DashboardWindowManager.open()
     }
 
     /** サーバープロセスを操作するServer Controlを開きます。 */
@@ -436,7 +427,7 @@ class HomeController internal constructor(
     @Suppress("unused")
     fun onOpenServerControl() {
         if (EditorSession.mode != AppMode.ONLINE) return
-        ServerControlWindowManager.open(rootPane.scene?.window)
+        ServerControlWindowManager.open()
     }
 
     /** Mod共通設定（config.yml）の編集画面を開きます。 */
@@ -457,7 +448,7 @@ class HomeController internal constructor(
             return
         }
 
-        ModConfigWindowManager.open(rootPane.scene?.window, service)
+        ModConfigWindowManager.open(service)
     }
 
     /** 入出金と実績の履歴閲覧ビューを開きます。 */
@@ -466,11 +457,11 @@ class HomeController internal constructor(
     fun onOpenMoneyHistory() {
         if (EditorSession.mode != AppMode.ONLINE) return
         val service = EditorSession.dataService ?: return
-        MoneyHistoryWindowManager.open(rootPane.scene?.window, service.store)
+        MoneyHistoryWindowManager.open(service.store)
     }
 
     private fun openManagedDataEditor(
-        key: String,
+        key: WorkspaceFeature,
         title: String,
         logicFactory: (MainController, EditorDataService) -> EditorView<*>
     ) {
@@ -501,7 +492,7 @@ class HomeController internal constructor(
     @Suppress("unused")
     fun onOpenOreEditor() {
         openManagedDataEditor(
-            key = "ORE_EDITOR",
+            key = WorkspaceFeature.ORE_EDITOR,
             title = "鉱石エディタ",
             logicFactory = { mainController, service ->
                 OreEditorLogic(
@@ -510,6 +501,48 @@ class HomeController internal constructor(
                 )
             }
         )
+    }
+
+    private var workspaceListening = false
+    private val workspaceStateListener: (ServerManagementState) -> Unit = { state -> Platform.runLater { applyManagementState(state) } }
+    private val workspaceMonitorListener: (ServerMonitorSnapshot) -> Unit = { snapshot -> Platform.runLater { applyMonitorSnapshot(snapshot) } }
+
+    internal fun setWorkspaceVisible(visible: Boolean) {
+        if (workspaceListening == visible) return
+        workspaceListening = visible
+        if (visible) {
+            EditorSession.managementClient.addStateListener(workspaceStateListener)
+            EditorSession.serverMonitor.addListener(workspaceMonitorListener)
+            applyManagementState(EditorSession.managementClient.state)
+            applyMonitorSnapshot(EditorSession.serverMonitor.snapshot)
+        } else {
+            EditorSession.managementClient.removeStateListener(workspaceStateListener)
+            EditorSession.serverMonitor.removeListener(workspaceMonitorListener)
+            requiredUpdateTask?.cancel()
+        }
+    }
+
+    internal fun workspaceFeatureAvailable(feature: WorkspaceFeature): Boolean = when {
+        feature == WorkspaceFeature.HOME -> true
+        feature.editor -> EditorSession.dataService?.store?.isAvailable == true
+        feature == WorkspaceFeature.SERVER_CONTROL -> EditorSession.mode == AppMode.ONLINE && EditorSession.connection == null
+        else -> EditorSession.mode == AppMode.ONLINE
+    }
+
+    internal fun openWorkspaceFeature(feature: WorkspaceFeature) {
+        if (!workspaceFeatureAvailable(feature)) return
+        when (feature) {
+            WorkspaceFeature.HOME -> WorkspaceManager.focus(feature)
+            WorkspaceFeature.ITEM_EDITOR -> onOpenItemEditor()
+            WorkspaceFeature.ORE_EDITOR -> onOpenOreEditor()
+            WorkspaceFeature.SHOP_EDITOR -> onOpenShopEditor()
+            WorkspaceFeature.RECIPE_EDITOR -> onOpenRecipeEditor()
+            WorkspaceFeature.DASHBOARD -> onOpenDashboard()
+            WorkspaceFeature.CONSOLE -> onOpenConsole()
+            WorkspaceFeature.SERVER_CONTROL -> onOpenServerControl()
+            WorkspaceFeature.MOD_CONFIG -> onOpenModConfig()
+            WorkspaceFeature.MONEY_HISTORY -> onOpenMoneyHistory()
+        }
     }
 
     private companion object {

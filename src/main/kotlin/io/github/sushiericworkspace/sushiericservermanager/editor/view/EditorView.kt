@@ -44,6 +44,11 @@ import javafx.animation.Timeline
 import io.github.sushiericworkspace.sushiericservermanager.editor.service.LocalBackupSnapshot
 import javafx.application.Platform
 import javafx.event.EventHandler
+import javafx.scene.Scene
+import javafx.scene.Node
+import io.github.sushiericworkspace.sushiericservermanager.config.IdTabsState
+import io.github.sushiericworkspace.sushiericservermanager.app.workspace.IdTabStrip
+import io.github.sushiericworkspace.sushiericservermanager.app.workspace.WorkspaceManager
 import javafx.concurrent.Task
 import javafx.beans.value.ChangeListener
 import javafx.scene.control.Button
@@ -157,8 +162,25 @@ abstract class EditorView<T : ManagedData<T, *>>(
     private val pendingStoreOperations = mutableMapOf<String, PendingStoreOperation>()
     private val editHistory = EditorDataHistory<T>(copy = { it.deepCopy() })
 
-    /** 入力中のテキストを履歴へ確定するフィルターを登録済みかどうかです。 */
-    private var historyCommitFilterInstalled = false
+    private var historyScene: Scene? = null
+    private val historySceneListener = ChangeListener<Scene> { _, _, _ -> installHistoryCommitFilter() }
+    private val historyMouseHandler = EventHandler<MouseEvent> { event ->
+        val owner = historyScene?.focusOwner
+        if (historyScene?.let(ShortcutManager::isComposing) != true && owns(owner) &&
+            shouldCommitHistoryOnMousePress(owner is TextInputControl, event.target === owner)) commitPendingTextEdit()
+    }
+    private val historyKeyHandler = EventHandler<KeyEvent> { event ->
+        val owner = historyScene?.focusOwner
+        if (historyScene?.let(ShortcutManager::isComposing) != true && owns(owner) &&
+            shouldCommitHistoryOnKeyPress(owner is TextInputControl, event.code, event.isShortcutDown)) commitPendingTextEdit()
+    }
+    private var documentState = IdTabsState()
+    private var documentsRestored = false
+    private val idTabs = IdTabStrip(
+        onSelect = { if (currentSelectedDataId != it) selectTab(it) },
+        onClose = ::closeDocument,
+        onMove = { id, index -> documentState = documentState.move(id, index); updateDocumentTabs() }
+    )
     private val syncService = EditorSyncService(dataAccess)
     private var saveMenuItem: MenuItem? = null
     private var saveAllMenuItem: MenuItem? = null
@@ -186,6 +208,7 @@ abstract class EditorView<T : ManagedData<T, *>>(
 
     init {
         dataService.activeSavesProperty.addListener(saveListener)
+        main.shortcutRoot.sceneProperty().addListener(historySceneListener)
         main.actionButtonContainer.isDisable = storeOperationBlocked
         main.sidebarContainer.isDisable = storeOperationBlocked
     }
@@ -372,6 +395,9 @@ abstract class EditorView<T : ManagedData<T, *>>(
         renameEditingCache(originalDataMap, oldId, newId)
         mergeConflicts.remove(oldId)?.let { mergeConflicts[newId] = it }
         editHistory.rename(oldId, newId)
+        documentState = documentState.copy(ids = documentState.ids.map { if (it == oldId) newId else it },
+            selected = if (documentState.selected == oldId) newId else documentState.selected)
+        updateDocumentTabs()
         operation?.let { pendingStoreOperations[newId] = it }
         removeLocalBackup(oldId)
         persistPendingStoreState()
@@ -498,6 +524,7 @@ abstract class EditorView<T : ManagedData<T, *>>(
      * @param container アクションボタンを水平に並べるためのトップレイアウトコンテナ
      */
     open fun setupActions(container: HBox) {
+        main.idTabContainer.children.setAll(idTabs)
         saveMenuItem = actionMenuItem(EditorShortcut.SAVE.displayName, EditorShortcut.SAVE) { onSave() }
         saveAllMenuItem = actionMenuItem(EditorShortcut.SAVE_ALL.displayName, EditorShortcut.SAVE_ALL) { onSaveAll() }
 
@@ -738,6 +765,9 @@ abstract class EditorView<T : ManagedData<T, *>>(
         if (closed || closing || repairBusy || (dataService.activeSaves > 0 && sidebarRefresh == null)) return
         if (isPendingStoreDeletion(targetId)) return
         commitPendingTextEdit()
+        documentState = documentState.open(targetId)
+        updateDocumentTabs()
+        idTabs.revealSelected()
         val previousId = currentSelectedDataId
         currentSelectedDataId = targetId
         val generation = ++loadGeneration
@@ -1463,6 +1493,9 @@ abstract class EditorView<T : ManagedData<T, *>>(
         main.finishOperation()
         closing = false
         dataService.activeSavesProperty.removeListener(saveListener)
+        main.shortcutRoot.sceneProperty().removeListener(historySceneListener)
+        detachHistoryFilters()
+        idTabs.dispose()
         main.clearTopLabelTimer()
         main.clearShortcuts()
 
@@ -1518,6 +1551,7 @@ abstract class EditorView<T : ManagedData<T, *>>(
                 recordHistorySnapshot(id)
             }
         }
+        if (id in documentState.ids) updateDocumentTabs()
         if (id !in registeredSidebarIds) return
         val data = editingDataMap[id]
         val pendingDeletion = isPendingStoreDeletion(id)
@@ -1546,46 +1580,64 @@ abstract class EditorView<T : ManagedData<T, *>>(
         }
     }
 
-    /**
-     * 入力中のテキストを履歴へ確定するイベントフィルターを、1度だけSceneへ登録します。
-     *
-     * ボタンやメニューは`isFocusTraversable = false`のものが多く、操作してもテキスト入力の
-     * フォーカスが外れません。そのままでは入力中の変更が確定しないまま次の操作の変更と
-     * 1件へまとまるため、イベントが処理される前に確定します。
-     */
     private fun installHistoryCommitFilter() {
-        if (historyCommitFilterInstalled) return
+        val next = main.shortcutRoot.scene
+        if (historyScene === next) return
+        detachHistoryFilters()
+        historyScene = next
+        next?.addEventFilter(MouseEvent.MOUSE_PRESSED, historyMouseHandler)
+        next?.addEventFilter(KeyEvent.KEY_PRESSED, historyKeyHandler)
+    }
 
-        val scene = main.mainContentContainer.scene ?: return
+    private fun detachHistoryFilters() {
+        historyScene?.removeEventFilter(MouseEvent.MOUSE_PRESSED, historyMouseHandler)
+        historyScene?.removeEventFilter(KeyEvent.KEY_PRESSED, historyKeyHandler)
+        historyScene = null
+    }
 
-        scene.addEventFilter(MouseEvent.MOUSE_PRESSED) { event ->
-            if (ShortcutManager.isComposing(scene)) return@addEventFilter
-            val focusOwner = scene.focusOwner
+    private fun owns(node: Node?): Boolean {
+        var current = node
+        while (current != null) { if (current === main.shortcutRoot) return true; current = current.parent }
+        return false
+    }
 
-            if (
-                shouldCommitHistoryOnMousePress(
-                    focusOwnerIsTextInput = focusOwner is TextInputControl,
-                    targetIsFocusOwner = event.target === focusOwner
-                )
-            ) {
-                commitPendingTextEdit()
+    /** 一覧取得後だけ、存在するIDと復元済み編集キャッシュへタブを接続します。 */
+    protected fun restoreDocumentTabs(ids: List<String>, preferred: String?): String? {
+        val saved = if (!documentsRestored) WorkspaceManager.current?.tabs(main.shortcutRoot) else documentState
+        documentsRestored = true
+        val requested = preferred?.removeSuffix(".yml")?.takeIf { it in ids }
+        val retained = saved?.ids.orEmpty().filter { it in ids }
+        val selected = requested ?: saved?.selected?.takeIf { it in retained } ?: retained.firstOrNull()
+            ?: ids.firstOrNull().takeIf { saved == null }
+        documentState = IdTabsState(retained, selected).let { if (selected == null) it else it.open(selected) }
+        updateDocumentTabs()
+        return selected
+    }
+
+    private fun updateDocumentTabs() {
+        idTabs.show(documentState) { id -> editingDataMap[id] != originalDataMap[id] || hasPendingStoreOperation(id) }
+        WorkspaceManager.current?.tabs(main.shortcutRoot, documentState)
+    }
+
+    private fun closeDocument(id: String) {
+        if (id !in documentState.ids || closeBusy || storeOperationBlocked) return
+        main.mainContentContainer.requestFocus()
+        commitPendingTextEdit()
+        requestBackup { success ->
+            if (!success) {
+                CustomDialog.error().owner(main.currentStage).header("退避に失敗しました。IDタブと編集内容を保持しています。").show()
+                return@requestBackup
             }
-        }
-
-        scene.addEventFilter(KeyEvent.KEY_PRESSED) { event ->
-            if (ShortcutManager.isComposing(scene)) return@addEventFilter
-            if (
-                shouldCommitHistoryOnKeyPress(
-                    focusOwnerIsTextInput = scene.focusOwner is TextInputControl,
-                    code = event.code,
-                    shortcutDown = event.isShortcutDown
-                )
-            ) {
-                commitPendingTextEdit()
+            documentState = documentState.close(id)
+            if (currentSelectedDataId == id) {
+                val next = documentState.selected
+                if (next != null) selectTab(next)
+                else { currentSelectedDataId = null; main.mainContentContainer.children.clear() }
             }
+            updateDocumentTabs()
+            refreshSidebarState(id)
+            refreshSyncButtonState()
         }
-
-        historyCommitFilterInstalled = true
     }
 
     /** 選択中データの入力中の変更を、1件の履歴として確定します。 */

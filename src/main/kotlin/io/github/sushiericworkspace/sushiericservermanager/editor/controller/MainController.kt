@@ -1,6 +1,7 @@
 package io.github.sushiericworkspace.sushiericservermanager.editor.controller
 
 import io.github.sushiericworkspace.sushiericservermanager.app.AppFrame
+import io.github.sushiericworkspace.sushiericservermanager.app.workspace.WorkspaceManager
 import io.github.sushiericworkspace.sushiericservermanager.editor.result.ValidationResult
 import io.github.sushiericworkspace.sushiericservermanager.editor.view.EditorView
 import io.github.sushiericworkspace.sushiericservermanager.ui.dialog.ValidatedInputDialog
@@ -23,6 +24,7 @@ class MainController {
     @FXML lateinit var actionButtonContainer: HBox
     @FXML lateinit var sidebarContainer: VBox
     @FXML lateinit var mainContentContainer: HBox
+    @FXML lateinit var idTabContainer: VBox
     @FXML private lateinit var topInfoLabel: Label
     @FXML private lateinit var operationProgress: ProgressIndicator
     @FXML private lateinit var importProgress: ProgressIndicator
@@ -127,7 +129,11 @@ class MainController {
         setTopLabel("")
 
         logic.setupActions(actionButtonContainer)
-        (actionButtonContainer.scene?.root as? AppFrame)?.useEditorMenus(actionButtonContainer, logic::refreshActionMenuState)
+        (actionButtonContainer.scene?.root as? AppFrame)?.let { frame ->
+            val workspace = WorkspaceManager.current?.takeIf { it.contains(rootPane) }
+            if (workspace != null) workspace.editorMenus(rootPane) { frame.useEditorMenus(actionButtonContainer, logic::refreshActionMenuState) }
+            else frame.useEditorMenus(actionButtonContainer, logic::refreshActionMenuState)
+        }
         logic.start()
     }
 
