@@ -6,7 +6,10 @@ import javafx.scene.Scene
 import javafx.scene.control.ButtonBase
 import javafx.scene.control.Button
 import javafx.scene.control.Label
+import javafx.scene.control.MenuButton
+import javafx.scene.control.MenuItem
 import javafx.scene.control.MenuBar
+import javafx.scene.layout.HBox
 import javafx.scene.layout.VBox
 import javafx.stage.Stage
 import javafx.scene.layout.HeaderBar
@@ -17,6 +20,8 @@ import java.util.concurrent.TimeUnit
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
+import kotlin.test.assertSame
+import kotlin.test.assertFalse
 
 class AppFrameLifecycleTest {
     @Test
@@ -95,6 +100,37 @@ class AppFrameLifecycleTest {
                 listOf("SSH:", "API:", "MC:", "TPS:").forEach { assertTrue(status.text.contains(it)) }
             }
         } finally { fx { stage.close() } }
+    }
+
+    @Test
+    fun sourceMenuSurvivesEditorMenuExtractionAndRebuild() {
+        startFx()
+        fx {
+            val frame = AppFrame(AppScreen.HOME, VBox())
+            val source = MenuButton("ローカル")
+            val container = HBox()
+            val menuBar = frame.lookup("#applicationMenu") as MenuBar
+            fun install(label: String): MenuItem {
+                val action = MenuItem(label)
+                val file = MenuButton("ファイル").apply {
+                    styleClass.add("editor-menu-button")
+                    items.add(action)
+                }
+                val edit = MenuButton("編集").apply { styleClass.add("editor-menu-button") }
+                container.children.setAll(file, edit, source)
+                frame.useEditorMenus(container) {}
+                assertEquals(listOf(source), container.children.toList())
+                assertSame(action, menuBar.menus[0].items.first())
+                return action
+            }
+            val local = install("ローカル保存")
+            frame.useEditorMenus(container) {}
+            assertSame(local, menuBar.menus[0].items.first())
+            source.text = "サーバーの作業コピー"
+            val server = install("別保存元のローカル保存")
+            assertSame(server, menuBar.menus[0].items.first())
+            assertFalse(local in menuBar.menus[0].items)
+        }
     }
 
     private fun startFx() {

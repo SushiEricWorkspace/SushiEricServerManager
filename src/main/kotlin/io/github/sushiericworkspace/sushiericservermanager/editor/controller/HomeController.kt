@@ -380,7 +380,7 @@ class HomeController internal constructor(
             logicFactory = { mainController, service ->
                 ItemEditorLogic(
                     main = mainController,
-                    dataService = service
+                    service = service
                 )
             }
         )
@@ -497,7 +497,7 @@ class HomeController internal constructor(
             logicFactory = { mainController, service ->
                 OreEditorLogic(
                     main = mainController,
-                    dataService = service
+                    service = service
                 )
             }
         )

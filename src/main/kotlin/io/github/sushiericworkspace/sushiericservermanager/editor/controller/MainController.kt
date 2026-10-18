@@ -129,12 +129,15 @@ class MainController {
         setTopLabel("")
 
         logic.setupActions(actionButtonContainer)
+        logic.start()
+    }
+
+    internal fun refreshEditorMenus(logic: EditorView<*>) {
         (actionButtonContainer.scene?.root as? AppFrame)?.let { frame ->
             val workspace = WorkspaceManager.current?.takeIf { it.contains(rootPane) }
             if (workspace != null) workspace.editorMenus(rootPane) { frame.useEditorMenus(actionButtonContainer, logic::refreshActionMenuState) }
             else frame.useEditorMenus(actionButtonContainer, logic::refreshActionMenuState)
         }
-        logic.start()
     }
 
     fun setTopLabel(text: String, textColor: Color = Color.WHITE) {

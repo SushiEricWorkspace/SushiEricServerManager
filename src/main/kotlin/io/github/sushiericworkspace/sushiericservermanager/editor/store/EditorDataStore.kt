@@ -1,11 +1,18 @@
 package io.github.sushiericworkspace.sushiericservermanager.editor.store
 
 import io.github.sushiericworkspace.sushiericdatamodel.data.core.ManagedData
+import io.github.sushiericworkspace.sushiericservermanager.editor.service.EditorDocumentSource
 
 interface EditorDataStore {
     val kind: EditorDataStoreKind
     val identity: String
-    /** ローカル取り込み元の隔離領域。nullの場合はアプリ共通のオフライン領域を使います。 */
+    /** 文書保存元の固定識別。通信接続の可用性やrun識別とは独立します。 */
+    val documentSource: EditorDocumentSource
+        get() = when (kind) {
+            EditorDataStoreKind.REMOTE -> error("リモートStoreには安定した論理保存元が必要です。")
+            else -> EditorDocumentSource.Local
+        }
+    /** 既存ローカル原本のrootです。LOCAL Storeは取込元を明示します。 */
     val offlineDirectory: java.io.File? get() = null
     val isAvailable: Boolean
 

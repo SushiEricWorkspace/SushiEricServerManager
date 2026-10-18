@@ -34,6 +34,30 @@ class OfflineWorkspaceMigrator(
 ) {
     private val logger = LoggerFactory.getLogger(javaClass)
 
+    /** 原本に触れず、呼出元が所有する新規コピー内で既知の形式を変換します。 */
+    fun copyToCurrent(copyRoot: File): StoreResult<LocalEditorDataStore> {
+        return try {
+            check(!copyRoot.exists()) { "取込用コピーが既に存在します。" }
+            check(copyRoot.mkdirs()) { "取込用コピーを作成できません。" }
+            val paths = EditorDataDescriptors.all.map { it.relativeDirectory } + ".editor/manifest.json"
+            paths.forEach { relative ->
+                val original = workspaceRoot.resolve(relative)
+                val target = copyRoot.resolve(relative)
+                if (original.isDirectory) check(original.copyRecursively(target)) { "取込元をコピーできません。" }
+                else if (original.isFile) {
+                    target.parentFile.mkdirs()
+                    original.copyTo(target)
+                }
+            }
+            when (val result = OfflineWorkspaceMigrator(copyRoot, migrations).migrateToCurrent()) {
+                is WorkspaceMigrationResult.Success -> StoreResult.Success(LocalEditorDataStore(copyRoot))
+                is WorkspaceMigrationResult.Failure -> StoreResult.Failure(result.error)
+            }
+        } catch (e: Exception) {
+            StoreResult.Failure(StoreError(StoreErrorCode.IO_ERROR, cause = e))
+        }
+    }
+
     fun migrateToCurrent(): WorkspaceMigrationResult {
         val sourceStore = LocalEditorDataStore(workspaceRoot)
         when (val prepared = sourceStore.ensureDirectories()) {
@@ -82,6 +106,7 @@ class OfflineWorkspaceMigrator(
             normalizeDescriptor(normalizationSource, stagingStore, EditorDataDescriptors.item, normalizedEntries)
             normalizeDescriptor(normalizationSource, stagingStore, EditorDataDescriptors.ore, normalizedEntries)
             normalizeDescriptor(normalizationSource, stagingStore, EditorDataDescriptors.recipe, normalizedEntries)
+            normalizeDescriptor(normalizationSource, stagingStore, EditorDataDescriptors.shop, normalizedEntries)
 
             val manifest = OfflineWorkspaceManifest(
                 appVersion = AppVersion.CURRENT,
@@ -149,10 +174,10 @@ class OfflineWorkspaceMigrator(
                 is StoreResult.Success -> loaded.value
                 is StoreResult.Failure -> throw MigrationFailure(loaded.error)
             }
-            when (val saved = target.save(descriptor, resource.id, data)) {
-                is StoreResult.Success -> Unit
-                is StoreResult.Failure -> throw MigrationFailure(saved.error)
-            }
+            val output = target.root().resolve(descriptor.dataType.pathOf(resource.id).getRawPath())
+            output.parentFile.mkdirs()
+            descriptor.saveBackup(output, data.deepCopy())
+            checkNotNull(descriptor.loadBackup(output, output.parentFile)) { "取込用データを再読込できません: " + resource.id }
             entries += OfflineManifestFile(
                 relativePath = descriptor.dataType.pathOf(resource.id).getRawPath(),
                 dataFormatVersion = OfflineFormatVersion.CURRENT_DATA_FORMAT_VERSION

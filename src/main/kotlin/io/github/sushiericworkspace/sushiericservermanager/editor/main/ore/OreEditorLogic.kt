@@ -147,11 +147,11 @@ internal fun createOreValidationRepairRegistry(): ValidationRepairRegistry<Mutab
 /** 共通エディタ基盤上で鉱石固有の入力項目を提供します。 */
 internal class OreEditorLogic(
     main: MainController,
-    dataService: EditorDataService
+    service: EditorDataService
 ) : ManagedDataEditorView<MutableOreBaseData>(
     main = main,
-    dataService = dataService,
-    dataAccess = dataService.ores
+    service = service,
+    dataAccess = service.ores
 ) {
     override val validationRepairRegistry = createOreValidationRepairRegistry()
 
@@ -165,7 +165,9 @@ internal class OreEditorLogic(
     private val validationFocusTargets = mutableMapOf<String, Node>()
     private val skillExperienceFields = mutableMapOf<SkillType, TextField>()
 
-    private val itemBinding = ItemReferenceBinding(dataService.itemReferences, {
+    private var itemBinding = createItemBinding()
+
+    private fun createItemBinding() = ItemReferenceBinding(dataService.itemReferences, {
         registeredSidebarIds.forEach(::refreshSidebarState)
         refreshCurrentValidation?.invoke()
     }, { error ->
@@ -175,6 +177,12 @@ internal class OreEditorLogic(
             .content("アイテム一覧を読み込めませんでした。接続状態とデータを確認してください。")
             .owner(main.currentStage).show()
     })
+
+    override fun onSourceChanged() {
+        itemBinding.close()
+        itemBinding = createItemBinding()
+        refreshCurrentValidation = null
+    }
 
     override fun loadEditorReferences() {
         itemBinding.load()
@@ -389,7 +397,7 @@ internal class OreEditorLogic(
         ore: MutableOreBaseData,
         onChanged: () -> Unit
     ): TextField {
-        return TextField(ore.hardness.toString()).apply {
+        return retainInputDraft(ore.id, "hardness", TextField(ore.hardness.toString()), { parseHardnessInput(it) != null }).apply {
             prefWidth = 180.0
             maxWidth = 180.0
             textFormatter = TextFormatter<String> { change ->
@@ -398,10 +406,7 @@ internal class OreEditorLogic(
 
             fun commitValue() {
                 val parsed = parseHardnessInput(text)
-                if (parsed == null) {
-                    text = ore.hardness.toString()
-                    return
-                }
+                if (parsed == null) return
                 ore.hardness = parsed
                 text = parsed.toString()
                 onChanged()
@@ -422,7 +427,7 @@ internal class OreEditorLogic(
     private fun createMagicPowerAmountField(
         ore: MutableOreBaseData,
         onChanged: () -> Unit
-    ): TextField = TextField(ore.magicPowerAmount.toString()).apply {
+    ): TextField = retainInputDraft(ore.id, "magicPowerAmount", TextField(ore.magicPowerAmount.toString()), { parseMagicPowerAmountInput(it) != null }).apply {
         prefWidth = 180.0
         maxWidth = 180.0
         textFormatter = TextFormatter<String> { change ->
@@ -431,10 +436,7 @@ internal class OreEditorLogic(
 
         fun commitValue() {
             val parsed = parseMagicPowerAmountInput(text)
-            if (parsed == null) {
-                text = ore.magicPowerAmount.toString()
-                return
-            }
+            if (parsed == null) return
             ore.magicPowerAmount = parsed
             text = parsed.toString()
             onChanged()
@@ -455,7 +457,8 @@ internal class OreEditorLogic(
         ore: MutableOreBaseData,
         skill: SkillType,
         onChanged: () -> Unit
-    ): TextField = TextField(ore.skillExperienceMap[skill]?.toString().orEmpty()).apply {
+    ): TextField = retainInputDraft(ore.id, "skillExperienceMap." + skill.name,
+        TextField(ore.skillExperienceMap[skill]?.toString().orEmpty()), { updatedSkillExperienceMap(ore.skillExperienceMap, skill, it) != null }).apply {
         promptText = "未設定"
         prefWidth = 180.0
         maxWidth = 180.0
@@ -464,9 +467,7 @@ internal class OreEditorLogic(
         }
 
         fun restoreInvalidInput() {
-            if (text.isNotBlank() && updatedSkillExperienceMap(ore.skillExperienceMap, skill, text) == null) {
-                text = ore.skillExperienceMap[skill]?.toString().orEmpty()
-            }
+            if (text.isNotBlank() && updatedSkillExperienceMap(ore.skillExperienceMap, skill, text) == null) return
         }
 
         textProperty().addListener { _, _, value ->

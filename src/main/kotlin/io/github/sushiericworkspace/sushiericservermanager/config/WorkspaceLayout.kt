@@ -80,7 +80,9 @@ data class IdTabsState(val ids: List<String> = emptyList(), val selected: String
 data class WorkspaceLayout(
     val root: WorkspaceNode? = null,
     val active: WorkspaceFeature? = null,
-    val documents: Map<WorkspaceFeature, IdTabsState> = emptyMap()
+    val documents: Map<WorkspaceFeature, IdTabsState> = emptyMap(),
+    val sourceDocuments: Map<String, IdTabsState> = emptyMap(),
+    val documentSources: Map<WorkspaceFeature, String> = emptyMap()
 ) {
     internal fun open(feature: WorkspaceFeature, target: WorkspaceFeature? = active, side: DockSide = DockSide.RIGHT): WorkspaceLayout {
         val next = when {

@@ -51,46 +51,23 @@ class EditorLoadingViewTest {
     }
 
     @Test
-    fun `背景取得の失敗を行と件数に表示し人間の再取得だけで回復する`() {
+    fun failedInitialImportDoesNotPublishHalfACategoryAndCanBeRetried() {
         fixture(EditorDataDescriptors.ore) { f ->
-            val entered = CountDownLatch(1)
-            val release = CountDownLatch(1)
-            f.store.beforeLoad = { id -> if (id == "b") { entered.countDown(); assertTrue(release.await(10, TimeUnit.SECONDS)) } }
             f.store.failedId = "b"
-            try {
-                fx { f.main.switchView(f.view) }
-                assertTrue(entered.await(10, TimeUnit.SECONDS))
-                fx {
-                    assertEquals(SidebarValidationStatus.CHECKING, f.view.sidebarState("b").validationStatus)
-                    assertTrue((f.root.lookup("#sidebarStatus") as Label).text.contains("0 / 1"))
-                    assertFalse(f.main.loadingRunning)
-                    assertFalse(f.main.sidebarContainer.isDisabled)
-                    f.main.showOperation("保存の工程")
-                    assertEquals("保存の工程", (f.root.lookup("#topInfoLabel") as Label).text)
-                    f.main.finishOperation()
-                }
-                release.countDown()
-                awaitFx { f.view.sidebarState("b").validationStatus == SidebarValidationStatus.FAILED }
-                fx {
-                    assertNull(f.view.cached("b"))
-                    assertTrue((f.root.lookup("#sidebarStatus") as Label).text.contains("取得失敗 1 件"))
-                    f.view.preload()
-                    assertEquals(SidebarValidationStatus.FAILED, f.view.sidebarState("b").validationStatus)
-                    f.store.failedId = null
-                    (f.root.lookup("#sidebarRetry") as Button).fire()
-                }
-                awaitFx { f.view.cached("b") != null }
-                fx {
-                    assertEquals(SidebarValidationStatus.CHECKED, f.view.sidebarState("b").validationStatus)
-                    assertTrue((f.root.lookup("#sidebarStatus") as Label).text.contains("1 / 1"))
-                    assertFalse((f.root.lookup("#sidebarRetry") as Button).isVisible)
-                }
-            } finally { release.countDown() }
+            fx { f.main.switchView(f.view) }
+            awaitFx { (f.root.lookup("#topInfoLabel") as Label).text.contains("失敗") }
+            assertTrue((f.service.documents.read() as StoreResult.Success).value.documents.isEmpty())
+            fx { assertNull(f.view.cached("a")); assertNull(f.view.cached("b")) }
+            f.store.failedId = null
+            fx { f.view.start() }
+            awaitFx { !f.main.loadingRunning && f.view.cached("b") != null }
+            val records = (f.service.documents.read() as StoreResult.Success).value.documents
+            assertEquals(setOf("a", "b"), records.map { it.key.id }.toSet())
         }
     }
 
     @Test
-    fun `背景取得中に編集キャッシュが追加されても結果で上書きしない`() {
+    fun initialWorkingCopyIsPublishedBeforeItBecomesEditable() {
         fixture(EditorDataDescriptors.ore) { f ->
             val entered = CountDownLatch(1)
             val release = CountDownLatch(1)
@@ -98,13 +75,16 @@ class EditorLoadingViewTest {
             try {
                 fx { f.main.switchView(f.view) }
                 assertTrue(entered.await(10, TimeUnit.SECONDS))
-                val original = f.service.ores.createDefault("b")
-                val edited = original.deepCopy().apply { completed = !original.completed }
-                fx { f.view.seed(original, edited) }
-                release.countDown()
-                awaitFx { (f.root.lookup("#sidebarStatus") as Label).text.contains("完了") }
-                fx { assertEquals(edited, f.view.cached("b")); assertEquals(original, f.view.original("b")) }
+                fx {
+                    assertTrue(f.main.loadingRunning)
+                    assertTrue(f.main.mainContentContainer.isDisabled)
+                    assertNull(f.view.cached("a"))
+                    assertNull(f.view.cached("b"))
+                }
+                assertTrue((f.service.documents.read() as StoreResult.Success).value.documents.isEmpty())
             } finally { release.countDown() }
+            awaitFx { !f.main.loadingRunning && f.view.cached("b") != null }
+            fx { assertNotNull(f.view.cached("a")); assertFalse(f.main.mainContentContainer.isDisabled) }
         }
     }
 
@@ -146,7 +126,7 @@ class EditorLoadingViewTest {
                     f.view.cancelClose()
                     assertFalse(f.main.operationRunning)
                 }
-                awaitFx { f.view.cached("b") != null }
+                awaitFx { !f.main.loadingRunning && f.view.cached("b") != null }
                 fx { assertEquals(SidebarValidationStatus.CHECKED, f.view.sidebarState("b").validationStatus) }
             } finally { release.countDown() }
         }
@@ -164,7 +144,7 @@ class EditorLoadingViewTest {
                     assertTrue(f.stage.isShowing)
                     assertTrue(f.main.loadingRunning)
                     assertTrue(f.main.mainContentContainer.isDisabled)
-                    assertTrue((f.root.lookup("#topInfoLabel") as Label).text.contains("一覧"))
+                    assertTrue((f.root.lookup("#topInfoLabel") as Label).text.contains("復元"))
                 }
                 release.countDown()
                 awaitFx { f.view.shown.isNotEmpty() }
@@ -209,8 +189,9 @@ class EditorLoadingViewTest {
                 assertTrue(entered.await(10, TimeUnit.SECONDS))
                 val closed = CompletableFuture<Boolean>()
                 fx { f.view.onClose { success -> f.stage.close(); closed.complete(success) } }
-                assertTrue(closed.get(10, TimeUnit.SECONDS))
+                assertFalse(closed.isDone)
                 release.countDown()
+                assertTrue(closed.get(10, TimeUnit.SECONDS))
                 f.service.submitIo {}.get(10, TimeUnit.SECONDS)
                 fx { assertTrue(f.view.shown.isEmpty()); assertNull(f.view.cached("a")) }
             } finally { release.countDown() }
@@ -264,24 +245,19 @@ class EditorLoadingViewTest {
     }
 
     @Test
-    fun `接続終了後の選択取得を適用しない`() {
+    fun localWorkingCopyRemainsReadableAfterTheConnectionBecomesUnavailable() {
         fixture(EditorDataDescriptors.ore) { f ->
-            val entered = CountDownLatch(1)
-            val release = CountDownLatch(1)
-            f.store.beforeLoad = { entered.countDown(); assertTrue(release.await(10, TimeUnit.SECONDS)) }
-            try {
-                fx { f.view.selectTab("a") }
-                assertTrue(entered.await(10, TimeUnit.SECONDS))
-                f.store.available = false
-                release.countDown()
-                f.service.submitIo {}.get(10, TimeUnit.SECONDS)
-                fx { assertTrue(f.view.shown.isEmpty()); assertNull(f.view.cached("a")) }
-            } finally { release.countDown() }
+            assertTrue(f.service.ores.listStoreResources() is StoreResult.Success)
+            f.store.available = false
+            f.store.loadFailure = true
+            fx { f.view.selectTab("a") }
+            awaitFx { f.view.shown.isNotEmpty() }
+            fx { assertNotNull(f.view.cached("a")); assertFalse(f.main.loadingRunning) }
         }
     }
 
     @Test
-    fun `空一覧と一覧失敗を読み込み中から区別する`() {
+    fun emptyInitialListAndFailedInitialListAreDifferentStates() {
         fixture(EditorDataDescriptors.ore) { f ->
             f.store.emptyList = true
             fx { f.main.switchView(f.view) }
@@ -291,49 +267,36 @@ class EditorLoadingViewTest {
                 assertTrue((sidebar.placeholder as Label).text.contains("ありません"))
                 assertTrue(f.view.shown.isEmpty())
             }
+        }
+        fixture(EditorDataDescriptors.ore) { f ->
             f.store.listFailure = true
-            fx { f.view.setupSidebar(f.main.sidebarContainer) }
+            fx { f.main.switchView(f.view) }
             awaitFx { (f.root.lookup("#topInfoLabel") as Label).text.contains("失敗") }
-            fx {
-                val sidebar = f.main.sidebarContainer.children.filterIsInstance<EditorSidebar>().single()
-                assertTrue((sidebar.placeholder as Label).text.contains("失敗"))
-                assertFalse(f.main.loadingRunning)
-            }
+            fx { assertTrue(f.view.shown.isEmpty()); assertFalse(f.main.loadingRunning) }
+            assertTrue((f.service.documents.read() as StoreResult.Success).value.documents.isEmpty())
         }
     }
 
     @Test
-    fun `リモートの最新値を三者間マージし取得失敗でも未保存データを維持する`() {
+    fun selectingACachedDocumentDoesNotFetchOrMergeItsSource() {
         fixture(EditorDataDescriptors.ore) { f ->
-            f.store.kind = EditorDataStoreKind.REMOTE
             val base = f.service.ores.createDefault("a")
             val local = base.deepCopy().apply { hardness = 17.0 }
-            val remote = base.deepCopy().apply { magicPowerAmount = 5.0 }
-            f.store.memory.save(EditorDataDescriptors.ore, "a", remote)
+            val source = base.deepCopy().apply { magicPowerAmount = 5.0 }
+            f.store.memory.save(EditorDataDescriptors.ore, "a", source)
+            f.store.beforeLoad = { error("選択時に接続元を取得してはいけません") }
             fx { f.view.seed(base, local); f.view.selectTab("a") }
-            awaitFx { f.view.shown.isNotEmpty() }
             fx {
                 assertEquals(17.0, f.view.cached("a")!!.hardness)
-                assertEquals(5.0, f.view.cached("a")!!.magicPowerAmount)
-                assertEquals(remote, f.view.original("a"))
-            }
-            val failedLoad = CountDownLatch(1)
-            f.store.beforeLoad = { failedLoad.countDown() }
-            f.store.loadFailure = true
-            fx { f.view.selectTab("a") }
-            assertTrue(failedLoad.await(10, TimeUnit.SECONDS))
-            awaitFx { !f.main.loadingRunning }
-            fx {
-                assertEquals(17.0, f.view.cached("a")!!.hardness)
-                assertEquals(5.0, f.view.cached("a")!!.magicPowerAmount)
-                assertEquals(remote, f.view.original("a"))
+                assertEquals(base.magicPowerAmount, f.view.cached("a")!!.magicPowerAmount)
+                assertEquals(base, f.view.original("a"))
             }
         }
     }
 
     @Test
     fun `実際の4種別エディターを一覧待ちより先に開いて初期データを表示する`() {
-        for (kind in listOf(EditorDataStoreKind.IN_MEMORY, EditorDataStoreKind.REMOTE)) {
+        for (kind in listOf(EditorDataStoreKind.IN_MEMORY)) {
             checkRealEditor(EditorDataDescriptors.item, kind) { main, service -> ItemEditorLogic(main, service) }
             checkRealEditor(EditorDataDescriptors.ore, kind) { main, service -> OreEditorLogic(main, service) }
             checkRealEditor(EditorDataDescriptors.shop, kind) { main, service -> ShopEditorLogic(main, service) }

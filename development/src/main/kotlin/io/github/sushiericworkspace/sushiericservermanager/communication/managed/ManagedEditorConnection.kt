@@ -1,6 +1,8 @@
 package io.github.sushiericworkspace.sushiericservermanager.communication.managed
 
 import io.github.sushiericworkspace.sushiericdatamodel.path.SushiEricDataDirectory
+import java.io.File
+import java.nio.file.Files
 import io.github.sushiericworkspace.sushiericservermanager.config.FilePath
 import io.github.sushiericworkspace.sushiericservermanager.editor.session.EditorConnection
 import io.github.sushiericworkspace.sushiericservermanager.editor.session.EditorSession
@@ -33,7 +35,11 @@ class ManagedEditorConnection(private val profile: ManagedProfile, private val l
         check(EditorSession.managementClient.connect(ManagedManagementTransport(active))) {
             "管理監視接続を確立できません。writer登録は保全されています。"
         }
-        return EditorDataService(store, active.autoSaveDirectory)
+        val legacyRoots = legacyManagedBackupRoots(FilePath.dataDirectory())
+        return EditorDataService(store, active.autoSaveDirectory,
+            documentDirectory = FilePath.AUTOSAVE_DIR.toFile().resolve("documents"),
+            localDirectory = FilePath.OFFLINE_DIR.toFile(),
+            legacyAutoSaveRoots = legacyRoots)
     }
 
     override fun close() {
@@ -42,4 +48,22 @@ class ManagedEditorConnection(private val profile: ManagedProfile, private val l
     }
 
     override fun abort() { session?.holdUnknown(); lease?.abort() }
+}
+
+
+/** 既知apphome直下の管理退避だけを候補元にし、別rootへのリンクはたどりません。 */
+internal fun legacyManagedBackupRoots(appHome: File): List<File> {
+    val common = appHome.resolve("autosave")
+    val commonRoots = listOf(common).filter {
+        !it.exists() || (!Files.isSymbolicLink(it.toPath()) && it.toPath().toRealPath().parent == appHome.toPath().toRealPath())
+    }
+    val managed = appHome.resolve("managed")
+    if (Files.isSymbolicLink(managed.toPath()) || !managed.isDirectory) return commonRoots
+    val homePath = appHome.toPath().toRealPath()
+    val managedPath = managed.toPath().toRealPath()
+    if (managedPath.parent != homePath) return commonRoots
+    return managed.listFiles { file -> !Files.isSymbolicLink(file.toPath()) && file.isDirectory }.orEmpty()
+        .filter { it.toPath().toRealPath().parent == managedPath }
+        .map { it.resolve("autosave") }
+        .filter { !it.exists() || (!Files.isSymbolicLink(it.toPath()) && it.toPath().toRealPath().parent == it.parentFile.toPath().toRealPath()) } + commonRoots
 }

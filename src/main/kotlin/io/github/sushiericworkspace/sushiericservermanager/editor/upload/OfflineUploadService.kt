@@ -6,15 +6,14 @@ import io.github.sushiericworkspace.sushiericservermanager.editor.offline.Manife
 import io.github.sushiericworkspace.sushiericservermanager.editor.offline.OfflineFormatVersion
 import io.github.sushiericworkspace.sushiericservermanager.editor.offline.OfflineManifestRepository
 import io.github.sushiericworkspace.sushiericservermanager.editor.offline.OfflineWorkspaceMigrator
-import io.github.sushiericworkspace.sushiericservermanager.editor.offline.WorkspaceMigrationResult
 import io.github.sushiericworkspace.sushiericservermanager.editor.store.EditorDataDescriptor
 import io.github.sushiericworkspace.sushiericservermanager.editor.store.EditorDataDescriptors
 import io.github.sushiericworkspace.sushiericservermanager.editor.store.EditorDataStore
-import io.github.sushiericworkspace.sushiericservermanager.editor.store.LocalEditorDataStore
 import io.github.sushiericworkspace.sushiericservermanager.editor.store.StoreError
 import io.github.sushiericworkspace.sushiericservermanager.editor.store.StoreErrorCode
 import io.github.sushiericworkspace.sushiericservermanager.editor.store.StoreResult
 import java.io.File
+import java.util.UUID
 
 /** アップロードできるデータの種別です。エディターが扱う[SushiEricDataType]と対応します。 */
 enum class UploadDataCategory(val displayName: String, val dataType: SushiEricDataType<*>) {
@@ -101,13 +100,27 @@ data class OfflineUploadResult(
 class OfflineUploadService(
     private val workspaceRoot: File,
     private val remoteStore: EditorDataStore,
-    private val migrator: OfflineWorkspaceMigrator = OfflineWorkspaceMigrator(workspaceRoot)
+    private val migrator: OfflineWorkspaceMigrator = OfflineWorkspaceMigrator(workspaceRoot),
+    private val workingStore: EditorDataStore? = null
 ) {
-    private val localStore = LocalEditorDataStore(workspaceRoot)
+    private var localStore: EditorDataStore? = workingStore
+
+    private fun prepareLocalStore(): StoreResult<Unit> {
+        if (localStore != null) return StoreResult.Success(Unit)
+        return when (val result = migrator.copyToCurrent(
+            workspaceRoot.parentFile.resolve("document-imports").resolve(UUID.randomUUID().toString())
+        )) {
+            is StoreResult.Success -> {
+                localStore = result.value
+                StoreResult.Success(Unit)
+            }
+            is StoreResult.Failure -> result
+        }
+    }
 
     /** [category]のローカルデータとサーバー上のIDを調べます。宛先ごとの状態は[planUpload]で決めます。 */
     fun scan(category: UploadDataCategory): UploadScanResult {
-        val requiresUpdate = when (val manifest = OfflineManifestRepository(workspaceRoot).read()) {
+        val requiresUpdate = if (workingStore != null) false else when (val manifest = OfflineManifestRepository(workspaceRoot).read()) {
             ManifestReadResult.Missing -> true
             is ManifestReadResult.Success ->
                 manifest.manifest.dataFormatVersion < OfflineFormatVersion.CURRENT_DATA_FORMAT_VERSION
@@ -126,9 +139,9 @@ class OfflineUploadService(
             }
         }
 
-        when (val migrated = migrator.migrateToCurrent()) {
-            is WorkspaceMigrationResult.Failure -> return UploadScanResult.Failure(migrated.error)
-            is WorkspaceMigrationResult.Success -> Unit
+        when (val migrated = prepareLocalStore()) {
+            is StoreResult.Failure -> return UploadScanResult.Failure(migrated.error)
+            is StoreResult.Success -> Unit
         }
 
         return when (category) {
@@ -154,14 +167,14 @@ class OfflineUploadService(
             val error = StoreError(StoreErrorCode.INVALID_ID, destination, "宛先ディレクトリの指定が不正です。")
             return OfflineUploadResult(emptyList(), selected.map { UploadItemFailure(it, error) })
         }
-        when (val migrated = migrator.migrateToCurrent()) {
-            is WorkspaceMigrationResult.Failure -> {
+        when (val migrated = prepareLocalStore()) {
+            is StoreResult.Failure -> {
                 return OfflineUploadResult(
                     succeeded = emptyList(),
                     failed = selected.map { UploadItemFailure(it, migrated.error) }
                 )
             }
-            is WorkspaceMigrationResult.Success -> Unit
+            is StoreResult.Success -> Unit
         }
 
         val succeeded = mutableListOf<UploadKey>()
@@ -203,6 +216,7 @@ class OfflineUploadService(
         selected: Set<UploadKey>,
         overwriteApproved: Set<UploadKey>,
         destination: String,
+        sourceDocuments: Map<String, Pair<T, Map<String, String>>>? = null,
         onProgress: (Int, Int, String?) -> Unit = { _, _, _ -> }
     ): LocalEditImportResult<T> {
         onProgress(0, selected.size, null)
@@ -211,12 +225,12 @@ class OfflineUploadService(
             onProgress(selected.size, selected.size, null)
             return LocalEditImportResult(emptyList(), selected.map { UploadItemFailure(it, error) })
         }
-        when (val migrated = migrator.migrateToCurrent()) {
-            is WorkspaceMigrationResult.Failure -> {
+        when (val migrated = prepareLocalStore()) {
+            is StoreResult.Failure -> {
                 onProgress(selected.size, selected.size, null)
                 return LocalEditImportResult(emptyList(), selected.map { UploadItemFailure(it, migrated.error) })
             }
-            is WorkspaceMigrationResult.Success -> Unit
+            is StoreResult.Success -> Unit
         }
         val entries = mutableListOf<LocalEditImport<T>>()
         val failed = mutableListOf<UploadItemFailure>()
@@ -252,7 +266,10 @@ class OfflineUploadService(
                         null
                     }
                 }
-                val local = when (val loaded = localStore.load(descriptor, key.id)) {
+                val loaded = if (sourceDocuments == null) checkNotNull(localStore).load(descriptor, key.id)
+                    else sourceDocuments[key.id]?.let { StoreResult.Success(it.first) }
+                        ?: StoreResult.Failure(StoreError(StoreErrorCode.FILE_NOT_FOUND, key.id))
+                val local = when (loaded) {
                     is StoreResult.Success -> loaded.value
                     is StoreResult.Failure -> {
                         failed += UploadItemFailure(key, loaded.error)
@@ -262,7 +279,8 @@ class OfflineUploadService(
                 entries += LocalEditImport(
                     key,
                     descriptor.deepCopy(local).apply { id = targetId },
-                    original
+                    original,
+                    sourceDocuments?.get(key.id)?.second.orEmpty()
                 )
             } finally {
                 onProgress(index + 1, selected.size, key.id)
@@ -276,7 +294,7 @@ class OfflineUploadService(
         descriptor: EditorDataDescriptor<T>,
         requiresUpdate: Boolean
     ): UploadScanResult {
-        val localResources = when (val listed = localStore.list(descriptor)) {
+        val localResources = when (val listed = checkNotNull(localStore).list(descriptor)) {
             is StoreResult.Success -> listed.value
             is StoreResult.Failure -> emptyList()
         }
@@ -289,7 +307,7 @@ class OfflineUploadService(
             LocalUploadEntry(
                 key = UploadKey(category, resource.id),
                 requiresFormatUpdate = requiresUpdate,
-                loadError = (localStore.load(descriptor, resource.id) as? StoreResult.Failure)?.error
+                loadError = (checkNotNull(localStore).load(descriptor, resource.id) as? StoreResult.Failure)?.error
             )
         }
         return UploadScanResult.Success(
@@ -325,7 +343,7 @@ class OfflineUploadService(
             return
         }
 
-        val localData = when (val loaded = localStore.load(descriptor, key.id)) {
+        val localData = when (val loaded = checkNotNull(localStore).load(descriptor, key.id)) {
             is StoreResult.Success -> loaded.value
             is StoreResult.Failure -> {
                 failed += UploadItemFailure(key, loaded.error)

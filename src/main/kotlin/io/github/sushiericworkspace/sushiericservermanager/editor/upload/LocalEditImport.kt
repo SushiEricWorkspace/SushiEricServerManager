@@ -6,7 +6,8 @@ import io.github.sushiericworkspace.sushiericdatamodel.data.core.ManagedData
 data class LocalEditImport<T : ManagedData<T, *>>(
     val key: UploadKey,
     val data: T,
-    val original: T?
+    val original: T?,
+    val raw: Map<String, String> = emptyMap()
 )
 
 /** サーバーへ書き込まず、選択したローカルデータを読み込んだ結果です。 */

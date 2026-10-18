@@ -6,6 +6,8 @@ import io.github.sushiericworkspace.sushiericdatamodel.data.item.model.mutable.M
 import io.github.sushiericworkspace.sushiericservermanager.editor.result.dataservice.DeleteResult
 import io.github.sushiericworkspace.sushiericservermanager.editor.result.dataservice.RenameResult
 import io.github.sushiericworkspace.sushiericservermanager.editor.store.*
+import java.nio.channels.FileChannel
+import java.nio.file.StandardOpenOption
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicInteger
@@ -34,6 +36,13 @@ class ItemReferenceCacheTest {
         assertEquals(1, store.loads.get())
         store.memory.save(EditorDataDescriptors.item, "second", item("second"))
         assertEquals(listOf("first"), service.itemReferences.snapshot.items.map { it.id })
+        service.itemReferences.load(force = true).get(5, TimeUnit.SECONDS)
+        assertEquals(listOf("first"), service.itemReferences.snapshot.items.map { it.id })
+        assertEquals(1, store.lists.get())
+        val before = assertIs<StoreResult.Success<LocalDocumentSnapshot>>(service.documents.read()).value
+        val resources = assertIs<StoreResult.Success<List<StoreResource>>>(service.items.listSourceResources()).value
+        val fetched = resources.associate { it.id to assertIs<StoreResult.Success<MutableItemBaseData>>(service.items.fetchSource(it.id)).value }
+        assertIs<StoreResult.Success<*>>(service.items.acceptFetched(before, fetched, fetched, fetched.keys))
         service.itemReferences.load(force = true).get(5, TimeUnit.SECONDS)
         assertEquals(setOf("first", "second"), service.itemReferences.snapshot.items.map { it.id }.toSet())
         assertEquals(2, store.lists.get())
@@ -120,11 +129,15 @@ class ItemReferenceCacheTest {
         val data = item("saved")
         store.memory.save(EditorDataDescriptors.item, data.id, data)
         service.itemReferences.load().get(5, TimeUnit.SECONDS)
-        store.failWrites = true
         data.itemDetail.maxStackSize = 2
-        assertIs<StoreResult.Failure>(service.items.saveStore(data.id, data))
-        assertEquals(DeleteResult.FAILED, service.items.delete(data.id))
-        assertEquals(RenameResult.FAILED, service.items.renameTo(data.id, "renamed"))
+        val lockFile = service.autoSaveDirectory.resolve("documents").resolve(service.documentSource.directory).resolve("publisher.lock")
+        FileChannel.open(lockFile.toPath(), StandardOpenOption.WRITE).use { channel ->
+            channel.lock().use {
+                assertIs<StoreResult.Failure>(service.items.saveStore(data.id, data))
+                assertEquals(DeleteResult.FAILED, service.items.delete(data.id))
+                assertEquals(RenameResult.FAILED, service.items.renameTo(data.id, "renamed"))
+            }
+        }
         assertEquals("saved", service.itemReferences.snapshot.items.single().id)
         assertNotEquals(2, service.itemReferences.snapshot.items.single().itemDetail.maxStackSize)
     }
@@ -144,27 +157,33 @@ class ItemReferenceCacheTest {
         service.submitIo {}.get(5, TimeUnit.SECONDS)
         assertEquals(ItemReferenceStatus.EMPTY, service.itemReferences.snapshot.status)
         assertTrue(service.itemReferences.snapshot.items.isEmpty())
-        val next = EditorDataService(InMemoryEditorDataStore(store.identity))
+        val nextDirectory = createTempDirectory("item-reference-next").toFile()
+        val next = EditorDataService(InMemoryEditorDataStore(store.identity), nextDirectory)
         try {
             next.itemReferences.load().get(5, TimeUnit.SECONDS)
             assertTrue(next.itemReferences.snapshot.items.isEmpty())
-        } finally { next.itemReferences.close(); next.closeIo() }
+        } finally { next.itemReferences.close(); next.closeIo(); nextDirectory.deleteRecursively() }
     }
 
     @Test
     fun `取得件数は成功したデータごとに進み失敗後の手動更新でリセットされる`() = withService { service, store ->
         store.memory.save(EditorDataDescriptors.item, "first", item("first"))
         store.memory.save(EditorDataDescriptors.item, "second", item("second"))
+        assertIs<StoreResult.Success<*>>(service.items.listStoreResources())
+        val before = assertIs<StoreResult.Success<LocalDocumentSnapshot>>(service.documents.read()).value
+        val second = before.documents.single { it.key.id == "second" }
+        val corrupted = assertIs<StoreResult.Success<LocalDocumentSnapshot>>(service.documents.publish(
+            mapOf(second.key to second.revision), listOf(second.copy(saved = ": ["))
+        )).value.documents.single { it.key == second.key }
         val snapshots = java.util.concurrent.CopyOnWriteArrayList<ItemReferenceSnapshot>()
         service.itemReferences.addListener { snapshots += it }
-        store.failedId = "second"
         assertIs<StoreResult.Failure>(service.itemReferences.load().get(5, TimeUnit.SECONDS))
         assertTrue(snapshots.any { it.status == ItemReferenceStatus.LOADING && it.loadedCount == 0 && it.totalCount == 2 })
         assertEquals(1, service.itemReferences.snapshot.loadedCount)
         assertEquals(2, service.itemReferences.snapshot.totalCount)
         assertTrue(service.itemReferences.snapshot.items.isEmpty())
         snapshots.clear()
-        store.failedId = null
+        assertIs<StoreResult.Success<*>>(service.documents.publish(mapOf(second.key to corrupted.revision), listOf(second)))
         service.itemReferences.load(force = true).get(5, TimeUnit.SECONDS)
         assertEquals(0, snapshots.first().loadedCount)
         assertEquals(2, service.itemReferences.snapshot.loadedCount)
@@ -186,7 +205,6 @@ class ItemReferenceCacheTest {
         var afterLoad: (() -> Unit)? = null
         var afterList: (() -> Unit)? = null
         var failedId: String? = null
-        var failWrites = false
         override fun <T : ManagedData<T, *>> list(descriptor: EditorDataDescriptor<T>): StoreResult<List<StoreResource>> {
             val result = memory.list(descriptor)
             if (descriptor == EditorDataDescriptors.item) { lists.incrementAndGet(); afterList?.invoke() }
@@ -199,11 +217,6 @@ class ItemReferenceCacheTest {
             afterLoad?.invoke()
             return result
         }
-        override fun <T : ManagedData<T, *>> save(descriptor: EditorDataDescriptor<T>, id: String, data: T): StoreResult<Unit> =
-            if (failWrites) StoreResult.Failure(StoreError(StoreErrorCode.IO_ERROR, id)) else memory.save(descriptor, id, data)
-        override fun <T : ManagedData<T, *>> delete(descriptor: EditorDataDescriptor<T>, id: String): StoreResult<Unit> =
-            if (failWrites) StoreResult.Failure(StoreError(StoreErrorCode.IO_ERROR, id)) else memory.delete(descriptor, id)
-        override fun <T : ManagedData<T, *>> rename(descriptor: EditorDataDescriptor<T>, oldId: String, newName: String): StoreResult<Unit> =
-            if (failWrites) StoreResult.Failure(StoreError(StoreErrorCode.IO_ERROR, oldId)) else memory.rename(descriptor, oldId, newName)
+
     }
 }
