@@ -109,5 +109,5 @@
 
 .sidebar-validation-status {
     -fx-font-size: 11px;
-    -fx-text-fill: #c8b778;
+    -fx-text-fill: -fx-warning-color;
 }

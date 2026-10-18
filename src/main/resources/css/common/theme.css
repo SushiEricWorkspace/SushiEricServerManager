@@ -1,0 +1,51 @@
+@import "widgets.css";
+
+.root.theme-light {
+    -fx-text-color: #25282c;
+    -fx-text-muted-color: #5b6066;
+    -fx-text-disabled-color: #797e85;
+    -fx-line-color: #c5c8cc;
+    -fx-line-emphasis-color: #90979f;
+    -fx-bg-deep: #f7f7f7;
+    -fx-bg-shallow: #eeeef0;
+    -fx-bg-elevated: #ffffff;
+    -fx-hover-color: #e0e5eb;
+    -fx-selected-color: #d8e6f4;
+    -fx-accent-color: #1762a2;
+    -fx-success-color: #26734a;
+    -fx-danger-color: #a52d2d;
+    -fx-warning-color: #866018;
+}
+
+.root {
+    -fx-background-color: -fx-bg-deep;
+    -fx-base: -fx-bg-shallow;
+    -fx-background: -fx-bg-deep;
+    -fx-control-inner-background: -fx-bg-deep;
+    -fx-text-base-color: -fx-text-color;
+    -fx-text-inner-color: -fx-text-color;
+    -fx-accent: -fx-accent-color;
+    -fx-mark-color: -fx-text-color;
+    -fx-focus-color: -fx-accent-color;
+    -fx-faint-focus-color: transparent;
+    -fx-selection-bar: -fx-selected-color;
+    -fx-selection-bar-text: -fx-text-color;
+}
+
+.button, .menu-button, .toggle-button, .text-input, .text-area .content,
+.combo-box-base, .spinner, .titled-pane > .title, .list-view, .tree-view,
+.table-view, .tree-table-view, .split-pane, .tool-bar, .context-menu,
+.tooltip, .dialog-pane, .toggle-switch .thumb, .toggle-switch .thumb-area, .tab-pane > .tab-header-area > .headers-region > .tab {
+    -fx-background-radius: 0;
+    -fx-border-radius: 0;
+}
+
+.text-input:focused, .combo-box-base:focused, .spinner:focused,
+.list-view:focused, .tree-view:focused, .table-view:focused, .tree-table-view:focused {
+    -fx-border-color: -fx-accent-color;
+    -fx-border-width: 1px;
+}
+
+.appearance-settings {
+    -fx-padding: 16px;
+}

@@ -8,6 +8,7 @@ import io.github.sushiericworkspace.sushiericservermanager.app.ApplicationFlow
 import io.github.sushiericworkspace.sushiericservermanager.app.appWindowTitle
 import io.github.sushiericworkspace.sushiericservermanager.editor.session.EditorSession
 import io.github.sushiericworkspace.sushiericservermanager.config.ServerProfile
+import io.github.sushiericworkspace.sushiericservermanager.ui.theme.ThemeManager
 import javafx.fxml.FXMLLoader
 import javafx.scene.Parent
 import javafx.scene.Scene
@@ -149,6 +150,7 @@ object Utility {
         if (AppFrame.includes(screen)) {
             scene.stylesheets.add(requireNotNull(CSSResourceContext::class.java.getResource("/css/common/app-frame.css")).toExternalForm())
         }
+        ThemeManager.apply(scene)
         return scene
     }
 
@@ -163,5 +165,6 @@ object Utility {
         if (cssUrl != null) {
             this.dialogPane.stylesheets.add(cssUrl)
         }
+        dialogPane.scene?.let(ThemeManager::apply)
     }
 }

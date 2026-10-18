@@ -6,6 +6,7 @@ import io.github.sushiericworkspace.sushiericservermanager.editor.view.EditorVie
 import io.github.sushiericworkspace.sushiericservermanager.ui.dialog.ValidatedInputDialog
 import io.github.sushiericworkspace.sushiericservermanager.ui.shortcut.EditorShortcut
 import io.github.sushiericworkspace.sushiericservermanager.ui.shortcut.ShortcutManager
+import io.github.sushiericworkspace.sushiericservermanager.util.toCssHex
 import javafx.animation.PauseTransition
 import javafx.fxml.FXML
 import javafx.scene.control.ProgressIndicator
@@ -140,7 +141,15 @@ class MainController {
 
     fun setTopLabel(text: String, textColor: Color = Color.WHITE) {
         topInfoLabel.text = text
-        topInfoLabel.textFill = textColor
+        val color = when (textColor) {
+            Color.WHITE -> "-fx-text-color"
+            Color.GREENYELLOW -> "-fx-success-color"
+            Color.RED, Color.ORANGERED -> "-fx-danger-color"
+            Color.ORANGE -> "-fx-warning-color"
+            Color.DODGERBLUE -> "-fx-accent-color"
+            else -> textColor.toCssHex()
+        }
+        topInfoLabel.style = "-fx-text-fill: $color;"
     }
 
     /**

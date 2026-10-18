@@ -1,10 +1,10 @@
-.application-frame { -fx-background-color: #202329; }
-#applicationHeader { -fx-background-color: #292d34; }
-#applicationName { -fx-text-fill: #eeeeee; -fx-font-weight: bold; -fx-padding: 0 6 0 6; }
+.application-frame { -fx-background-color: -fx-bg-deep; }
+#applicationHeader { -fx-background-color: -fx-bg-shallow; }
+#applicationName { -fx-text-fill: -fx-text-color; -fx-font-weight: bold; -fx-padding: 0 6 0 6; }
 #applicationMenu { -fx-background-color: transparent; -fx-padding: 0; }
 #applicationMenu .menu-button { -fx-padding: 4; }
-#applicationMenu .label { -fx-text-fill: #eeeeee; }
+#applicationMenu .label { -fx-text-fill: -fx-text-color; }
 #applicationMenu .context-menu .label { -fx-text-fill: -fx-text-base-color; }
-.connection-status-row { -fx-padding: 6 10 6 10; -fx-background-color: #252930; }
-#connectionStatus { -fx-text-fill: #eeeeee; }
+.connection-status-row { -fx-padding: 6 10 6 10; -fx-background-color: -fx-bg-elevated; }
+#connectionStatus { -fx-text-fill: -fx-text-color; }
 .application-navigation { -fx-padding: 0 10 6 10; }

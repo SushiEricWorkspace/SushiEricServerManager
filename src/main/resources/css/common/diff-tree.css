@@ -32,3 +32,10 @@
 .diff-detail-flow {
     -fx-padding: 0;
 }
+.diff-tree-view .tree-cell:filled:selected,
+.diff-tree-view .tree-cell:filled:focused,
+.check-box-tree-cell:filled:selected,
+.check-box-tree-cell:filled:focused {
+    -fx-background-color: -fx-selected-color;
+    -fx-text-fill: -fx-text-color;
+}

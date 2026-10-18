@@ -1,38 +1,16 @@
-/*
- * scroll-bar.css
- * 役割: 通常のScrollPane/ListView/TreeViewなどで使われるスクロールバーの共通色を定義する。
- */
-
+/* 値・イベント・VirtualFlowは維持し、スクロールバーの表示と占有幅だけを消します。 */
 .scroll-bar {
-    -fx-background-color: transparent;
+    -fx-opacity: 0;
+    -fx-padding: 0;
 }
-
-.scroll-bar .track {
-    -fx-background-color: -fx-bg-deep;
-    -fx-background-radius: 0;
+.scroll-bar:vertical {
+    -fx-min-width: 0;
+    -fx-pref-width: 0;
+    -fx-max-width: 0;
 }
-
-.scroll-bar .thumb {
-    -fx-background-color: -fx-line-color;
-    -fx-background-radius: 0;
+.scroll-bar:horizontal {
+    -fx-min-height: 0;
+    -fx-pref-height: 0;
+    -fx-max-height: 0;
 }
-
-.scroll-bar .thumb:hover {
-    -fx-background-color: derive(-fx-line-color, 20%);
-}
-
-.scroll-bar .increment-button,
-.scroll-bar .decrement-button {
-    -fx-background-color: transparent;
-    -fx-background-radius: 0;
-    -fx-padding: 3px;
-}
-
-.scroll-bar .increment-arrow,
-.scroll-bar .decrement-arrow {
-    -fx-background-color: -fx-text-color;
-}
-
-.corner {
-    -fx-background-color: transparent;
-}
+.corner { -fx-background-color: transparent; }
