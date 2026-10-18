@@ -68,14 +68,16 @@ dependencies {
     implementation("org.bouncycastle:bcprov-jdk18on:1.78")
 
     testImplementation(kotlin("test"))
-    testImplementation("org.mockito:mockito-core:5.14.2")
+    testImplementation("org.mockito:mockito-core:5.18.0")
 }
 
 configurations.configureEach {
     resolutionStrategy.cacheDynamicVersionsFor(0, "seconds")
 }
 
-kotlin { jvmToolchain(21) }
+kotlin { jvmToolchain(25) }
+
+java { toolchain.languageVersion.set(JavaLanguageVersion.of(25)) }
 
 tasks.withType<JavaCompile> {
     options.encoding = "UTF-8"
@@ -83,7 +85,7 @@ tasks.withType<JavaCompile> {
 
 tasks.withType<org.jetbrains.kotlin.gradle.tasks.KotlinCompile> {
     compilerOptions {
-        freeCompilerArgs.add("-Xjdk-release=21")
+        freeCompilerArgs.add("-Xjdk-release=25")
     }
 }
 
@@ -300,7 +302,7 @@ tasks.register<Exec>("packageWindowsAppImage") {
     workingDir = projectDir
 
     commandLine(
-        "jpackage",
+        File(System.getProperty("java.home"), "bin/jpackage.exe").absolutePath,
         "--type", "app-image",
         "--name", appName,
         "--app-version", packageVersion,
@@ -330,7 +332,7 @@ tasks.register<Exec>("packageWindowsAppImage") {
  */
 val windowsInstallerResources = layout.buildDirectory.dir("windows-installer-resources")
 
-// JDK 21のjpackageはネストしたper-user配置の親へRemoveFolderを生成せず、WiX ICE64で失敗する。
+// jpackageはネストしたper-user配置の親へRemoveFolderを生成せず、WiX ICE64で失敗する。
 // JDK自身のテンプレートを使用し、空の親だけを削除する定義を補う。データや親の再帰削除は行わない。
 tasks.register("prepareWindowsInstallerResources") {
     doLast {
@@ -343,7 +345,7 @@ tasks.register("prepareWindowsInstallerResources") {
             URI.create("jrt:/jdk.jpackage/jdk/jpackage/internal/resources/main.wxs")
         ))
         val adjusted = if (parent == null) template else {
-            // DirectoryのIDはJDK 21のWixAppImageFragmentBuilderと同じ規則で導出する。
+            // DirectoryのIDはJDKのWixAppImageFragmentBuilderと同じ規則で導出する。
             val key = "Folder@" + "TARGETDIR\\LocalAppDataFolder\\$parent".lowercase(Locale.ROOT)
             val directoryId = "dir" + UUID.nameUUIDFromBytes(key.toByteArray(Charsets.UTF_8)).toString().replace("-", "")
             val component = """
@@ -445,7 +447,7 @@ tasks.register<Exec>("packageMacAppImage") {
     workingDir = projectDir
 
     commandLine(
-        "jpackage",
+        File(System.getProperty("java.home"), "bin/jpackage").absolutePath,
         "--type", "app-image",
         "--name", appName,
         "--app-version", packageVersion,
@@ -475,7 +477,7 @@ tasks.register<Exec>("packageMacDmg") {
     workingDir = projectDir
 
     commandLine(
-        "jpackage",
+        File(System.getProperty("java.home"), "bin/jpackage").absolutePath,
         "--type", "dmg",
         "--name", appName,
         "--app-version", packageVersion,
@@ -589,7 +591,7 @@ val verifyReleaseContents = tasks.register("verifyReleaseContents") {
     val runtime = configurations.runtimeClasspath
     inputs.files(tasks.jar.flatMap { it.archiveFile }, runtime)
     doLast {
-        check(runtime.get().allDependencies.none { it is ProjectDependency && it.dependencyProject.path == ":development" }) {
+        check(runtime.get().allDependencies.none { it is ProjectDependency && it.path == ":development" }) {
             "通常runtimeがdevelopmentモジュールへ依存しています。"
         }
         verifyDistributionFiles(runtime.get().files + tasks.jar.get().archiveFile.get().asFile)
