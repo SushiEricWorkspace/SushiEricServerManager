@@ -264,15 +264,11 @@ class ItemEditorLogic(
             registerSidebar(ids, sidebarResults)
             renderSidebarResults()
 
-            val selectableIds = ids.filterNot(::isPendingStoreDeletion)
-            if (selectableIds.isEmpty()) {
+            val selected = restoreDocumentTabs(ids.filterNot(::isPendingStoreDeletion), selectId)
+            if (selected == null) {
                 currentSelectedDataId = null
                 main.mainContentContainer.children.clear()
-            } else {
-                val requestedId = selectId?.removeSuffix(".yml")
-                val targetId = requestedId?.takeIf { it in selectableIds } ?: selectableIds.first()
-                selectTab(targetId)
-            }
+            } else selectTab(selected)
 
             ids.forEach(::refreshSidebarState)
             preloadSidebarDataForVisualStates(ids)

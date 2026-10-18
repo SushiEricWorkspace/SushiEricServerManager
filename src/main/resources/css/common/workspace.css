@@ -1,0 +1,26 @@
+.workspace-navigation {
+    -fx-background-color: -fx-bg-shallow;
+    -fx-padding: 4px;
+    -fx-border-color: transparent -fx-line-color transparent transparent;
+    -fx-border-width: 0 1px 0 0;
+}
+.workspace-navigation .button { -fx-alignment: center-left; }
+.workspace-feature { -fx-background-color: -fx-bg-deep; }
+.workspace-feature-heading {
+    -fx-background-color: -fx-bg-shallow;
+    -fx-padding: 3px 6px;
+    -fx-alignment: center-left;
+    -fx-border-color: transparent transparent -fx-line-color transparent;
+    -fx-border-width: 0 0 1px 0;
+}
+.workspace-feature:active > .workspace-feature-heading { -fx-border-color: transparent transparent -fx-accent-color transparent; }
+.workspace-feature:drop-target { -fx-border-color: -fx-accent-color; -fx-border-width: 2px; }
+.workspace .split-pane { -fx-padding: 0; -fx-background-color: -fx-bg-deep; }
+.workspace .split-pane-divider { -fx-background-color: -fx-line-color; -fx-padding: 0 2px; }
+.workspace-id-tabs { -fx-background-color: -fx-bg-shallow; -fx-padding: 0; }
+.workspace-id-tabs > .viewport { -fx-background-color: -fx-bg-shallow; }
+.workspace-id-tab { -fx-alignment: center-left; -fx-padding: 2px 6px; -fx-background-color: -fx-bg-shallow; }
+.workspace-id-tab:hover { -fx-background-color: -fx-hover-color; }
+.workspace-id-tab:selected { -fx-background-color: -fx-selected-color; }
+.workspace-id-tab:focused { -fx-border-color: -fx-accent-color; -fx-border-width: 1px; }
+.workspace-id-close { -fx-padding: 0 4px; }

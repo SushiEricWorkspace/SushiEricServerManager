@@ -3,6 +3,8 @@ package io.github.sushiericworkspace.sushiericservermanager.util
 import io.github.sushiericworkspace.sushiericdatamodel.path.SushiEricDataDirectory
 import io.github.sushiericworkspace.sushiericdatamodel.path.SushiEricPath
 import io.github.sushiericworkspace.sushiericservermanager.app.AppFrame
+import io.github.sushiericworkspace.sushiericservermanager.app.workspace.WorkspaceManager
+import io.github.sushiericworkspace.sushiericservermanager.editor.controller.HomeController
 import io.github.sushiericworkspace.sushiericservermanager.app.AppScreen
 import io.github.sushiericworkspace.sushiericservermanager.app.ApplicationFlow
 import io.github.sushiericworkspace.sushiericservermanager.app.appWindowTitle
@@ -103,6 +105,7 @@ object Utility {
         customRoot: Parent? = null
     ): Scene {
         // customRoot が渡された場合は最優先で使う
+        var homeController: HomeController? = null
         val root: Parent = if (customRoot != null) {
             customRoot
         } else {
@@ -113,10 +116,15 @@ object Utility {
             val fxmlUrl = AppScreen::class.java.getResource(fxmlPath)
                 ?: throw IllegalArgumentException("FXMLファイルが見つかりません: $fxmlPath")
 
-            FXMLLoader.load<Parent>(fxmlUrl)
+            val loader = FXMLLoader(fxmlUrl)
+            loader.load<Parent>().also { if (screen == AppScreen.HOME) homeController = loader.getController() }
         }
 
         val framedRoot = if (AppFrame.includes(screen)) AppFrame(screen, root) else root
+        homeController?.let { controller ->
+            val frame = framedRoot as AppFrame
+            frame.center = WorkspaceManager.install(frame, root, controller)
+        }
         val w = maxOf(width ?: framedRoot.prefWidth(-1.0), framedRoot.minWidth(-1.0))
         val h = height ?: framedRoot.prefHeight(-1.0)
 

@@ -11,6 +11,9 @@ import io.github.sushiericworkspace.sushiericservermanager.editor.session.Editor
 import io.github.sushiericworkspace.sushiericservermanager.editor.store.*
 import io.github.sushiericworkspace.sushiericservermanager.editor.view.EditorView
 import io.github.sushiericworkspace.sushiericservermanager.editor.view.EditorWindowManager
+import io.github.sushiericworkspace.sushiericservermanager.config.*
+import io.github.sushiericworkspace.sushiericservermanager.app.workspace.WorkspaceManager
+import javafx.stage.WindowEvent
 import io.github.sushiericworkspace.sushiericservermanager.update.ManagerCompatibility
 import io.github.sushiericworkspace.sushiericservermanager.util.Utility
 import javafx.application.Platform
@@ -68,6 +71,36 @@ class ConnectionCloseFlowTest {
             fx { assertTrue(f.views.none { it.retained() }); assertFalse(f.home.isShowing); assertNull(EditorSession.dataService) }
             assertEquals(1, f.connection.closed)
         } finally { operation.countDown(); backup.countDown(); close.countDown() }
+    }
+
+    @Test fun `HOMEなし配置復元後もnativecloseは退避を待ち終了失敗で画面と入力を保全する`() = fixture(withoutHome = true) { f ->
+        val backup = CountDownLatch(1)
+        val entered = CountDownLatch(1)
+        f.writeBackup = { entered.countDown(); assertTrue(backup.await(10, TimeUnit.SECONDS)) }
+        f.connection.fail = true
+        try {
+            fx {
+                assertFalse(WorkspaceManager.requireWorkspace().titles().contains(WorkspaceFeature.HOME))
+                assertNotNull(f.home.onCloseRequest)
+                f.home.fireEvent(WindowEvent(f.home, WindowEvent.WINDOW_CLOSE_REQUEST))
+                assertTrue(f.home.isShowing)
+            }
+            assertTrue(entered.await(10, TimeUnit.SECONDS))
+            fx { assertTrue(f.views.all { it.retained() }); assertTrue(f.home.isShowing) }
+            backup.countDown()
+            awaitFx { !ApplicationFlow.closingConnection && status().contains("終了が未確認") }
+            fx {
+                assertTrue(f.views.all { it.retained() })
+                assertTrue(f.home.isShowing)
+                assertNotNull(f.home.onCloseRequest)
+                assertSame(f.service, EditorSession.dataService)
+                val progress = Stage.getWindows().filterIsInstance<Stage>().single { it.scene.lookup("#connectionCloseStatus") != null }
+                val back = progress.scene.root.lookupAll(".button").filterIsInstance<Button>().single { it.text == "戻る" }
+                back.fire()
+                assertTrue(f.home.isShowing)
+            }
+            assertEquals(0, f.connection.closed)
+        } finally { backup.countDown() }
     }
 
     @Test fun `保存確認中の終了要求でも確認ボタンを操作して保存待ちを解消できる`() = fixture { f ->
@@ -240,7 +273,7 @@ class ConnectionCloseFlowTest {
         }
     }
 
-    private fun fixture(action: (Fixture) -> Unit) {
+    private fun fixture(withoutHome: Boolean = false, action: (Fixture) -> Unit) {
         startFx()
         val directory = createTempDirectory("connection-close-").toFile()
         val memory = InMemoryEditorDataStore()
@@ -248,6 +281,8 @@ class ConnectionCloseFlowTest {
         val service = EditorDataService(remote, directory)
         val connection = Connection(service)
         val f = Fixture(service, connection, remote)
+        val settings = AppSettingsManager.load()
+        val layoutKey = "close-without-home-test"
         val descriptor = EditorDataDescriptors.item
         fun access() = service.DataAccess(EditorDataDescriptor(
             descriptor.dataType, descriptor.load, descriptor.save, descriptor.validate, descriptor.merger,
@@ -258,9 +293,12 @@ class ConnectionCloseFlowTest {
         for (id in listOf("first", "second")) memory.save(descriptor, id, descriptor.createDefault(id))
         fx {
             EditorSession.startConnection(connection)
-            f.home = stage()
-            for (id in listOf("first", "second")) {
-                EditorWindowManager.openEditor(id, id, FXMLLoader(javaClass.getResource(AppScreen.BASE.fxml!!))) { main ->
+            if (withoutHome) AppSettingsManager.save(settings.copy(workspaceLayouts = settings.workspaceLayouts +
+                (layoutKey to WorkspaceLayout(root = WorkspaceNode.Feature(WorkspaceFeature.ITEM_EDITOR), active = WorkspaceFeature.ITEM_EDITOR))))
+            f.home = workspaceStage(if (withoutHome) layoutKey else null)
+            for ((index, id) in listOf("first", "second").withIndex()) {
+                val feature = if (index == 0) WorkspaceFeature.ITEM_EDITOR else WorkspaceFeature.ORE_EDITOR
+                EditorWindowManager.openEditor(feature, id, FXMLLoader(javaClass.getResource(AppScreen.BASE.fxml!!))) { main ->
                     View(main, service, access(), id).also { f.views += it }
                 }
             }
@@ -278,6 +316,7 @@ class ConnectionCloseFlowTest {
             assertTrue(closed.get(10, TimeUnit.SECONDS))
             EditorSession.resetMode()
             fx { Stage.getWindows().toList().filterIsInstance<Stage>().forEach { it.close() } }
+            if (withoutHome) AppSettingsManager.save(settings)
             directory.deleteRecursively()
         }
     }

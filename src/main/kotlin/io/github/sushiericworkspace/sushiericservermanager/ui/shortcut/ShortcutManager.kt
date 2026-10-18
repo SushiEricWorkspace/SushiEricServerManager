@@ -73,6 +73,13 @@ object ShortcutManager {
         return (scene.properties[sceneKey] as? SceneState)?.execute(shortcut) == true
     }
 
+    /** 表示領域の切替に共通メニューの宛先を合わせます。操作のない領域では宛先を解除します。 */
+    internal fun activate(root: Node) {
+        val scene = root.scene ?: return
+        val state = scene.properties[sceneKey] as? SceneState ?: return
+        state.active = state.containing(root)
+    }
+
     /** 履歴確定側も同じSceneのIME未確定入力を保護します。FXスレッドから参照します。 */
     internal fun isComposing(scene: Scene): Boolean = (scene.properties[sceneKey] as? SceneState)?.composing != null
 
@@ -93,7 +100,7 @@ object ShortcutManager {
         var composing: Node? = null
         val focusListener = ChangeListener<Node> { _, _, node ->
             composing = null
-            containing(node)?.let { active = it }
+            if (!menuFocus(node)) active = containing(node)
         }
         val inputHandler = EventHandler<InputMethodEvent> { event ->
             composing = if (event.composed.isNotEmpty()) scene.focusOwner else null

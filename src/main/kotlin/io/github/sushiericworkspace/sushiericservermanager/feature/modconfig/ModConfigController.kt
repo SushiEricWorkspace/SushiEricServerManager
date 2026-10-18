@@ -198,6 +198,9 @@ class ModConfigController : Initializable {
         service.executeIo(task)
     }
 
+    internal val canClose: Boolean get() = !busy
+    internal fun dispose() { ShortcutManager.unregister(rootPane) }
+
     private fun setBusy(value: Boolean) {
         busy = value
         Platform.runLater(::refreshControls)

@@ -2,6 +2,8 @@ package io.github.sushiericworkspace.sushiericservermanager.editor.view
 
 import io.github.sushiericworkspace.sushiericdatamodel.data.core.ManagedData
 import io.github.sushiericworkspace.sushiericservermanager.app.AppScreen
+import io.github.sushiericworkspace.sushiericservermanager.app.workspaceStage
+import io.github.sushiericworkspace.sushiericservermanager.config.WorkspaceFeature
 import io.github.sushiericworkspace.sushiericservermanager.config.OS
 import io.github.sushiericworkspace.sushiericservermanager.ui.shortcut.ShortcutManager
 import javafx.event.Event
@@ -436,9 +438,17 @@ class EditorLoadingViewTest {
         store.beforeList = { entered.countDown(); assertTrue(release.await(10, TimeUnit.SECONDS)) }
         val service = EditorDataService(store, directory)
         lateinit var main: MainController
+        lateinit var stage: Stage
         try {
             fx {
-                EditorWindowManager.openEditor("loading-view-test", "読み込み検証", FXMLLoader(javaClass.getResource(AppScreen.BASE.fxml!!))) { controller ->
+                stage = workspaceStage()
+                val feature = when (descriptor) {
+                    EditorDataDescriptors.item -> WorkspaceFeature.ITEM_EDITOR
+                    EditorDataDescriptors.ore -> WorkspaceFeature.ORE_EDITOR
+                    EditorDataDescriptors.shop -> WorkspaceFeature.SHOP_EDITOR
+                    else -> WorkspaceFeature.RECIPE_EDITOR
+                }
+                EditorWindowManager.openEditor(feature, "読み込み検証", FXMLLoader(javaClass.getResource(AppScreen.BASE.fxml!!))) { controller ->
                     main = controller
                     factory(controller, service)
                 }
@@ -454,6 +464,7 @@ class EditorLoadingViewTest {
             val closed = CompletableFuture<Boolean>()
             fx { EditorWindowManager.closeAll { closed.complete(it) } }
             assertTrue(closed.get(10, TimeUnit.SECONDS))
+            fx { stage.close() }
             service.submitIo {}.get(10, TimeUnit.SECONDS)
             service.itemReferences.close()
             service.closeIo()
