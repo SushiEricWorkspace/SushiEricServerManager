@@ -1,5 +1,6 @@
 package io.github.sushiericworkspace.sushiericservermanager.editor.controller
 
+import io.github.sushiericworkspace.sushiericservermanager.app.AppFrame
 import io.github.sushiericworkspace.sushiericservermanager.editor.result.ValidationResult
 import io.github.sushiericworkspace.sushiericservermanager.editor.view.EditorView
 import io.github.sushiericworkspace.sushiericservermanager.ui.dialog.ValidatedInputDialog
@@ -123,6 +124,7 @@ class MainController {
         setTopLabel("")
 
         logic.setupActions(actionButtonContainer)
+        (actionButtonContainer.scene?.root as? AppFrame)?.useEditorMenus(actionButtonContainer)
         logic.start()
 
         if (mainContentContainer.scene != null) {

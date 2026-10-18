@@ -8,6 +8,8 @@ enum class AppScreen(val fxml: String?, val css: String) {
 
     /** オンライン／オフライン選択 */
     MODE_SELECT("/fxml/startup/mode-select.fxml", "/css/startup/mode-select.css"),
+    /** モード切替中の共通枠付き待機画面 */
+    STARTUP_PREPARING(null, "/css/common/widgets.css"),
     /** エディターのメインGUIのベース */
     BASE("/fxml/main/base.fxml", "/css/main/base.css"),
     /** ホーム画面 */

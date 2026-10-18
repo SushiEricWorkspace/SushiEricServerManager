@@ -1,5 +1,6 @@
 package io.github.sushiericworkspace.sushiericservermanager.serverselect.controller
 
+import io.github.sushiericworkspace.sushiericservermanager.app.ServerStatusHistory
 import io.github.sushiericworkspace.sushiericservermanager.app.AppScreen
 import io.github.sushiericworkspace.sushiericservermanager.app.appWindowTitle
 import io.github.sushiericworkspace.sushiericservermanager.communication.HostKeyApprovalHandler
@@ -72,7 +73,7 @@ class ServerSelector : Initializable {
         // ボタンが潰れるほどウィンドウを縮小できないようにする。
         Platform.runLater {
             val stage = serverListContainer.scene?.window as? Stage ?: return@runLater
-            stage.minWidth = 660.0
+            stage.minWidth = 500.0
             stage.minHeight = 420.0
         }
     }
@@ -130,7 +131,11 @@ class ServerSelector : Initializable {
             tooltip = AppTooltip.create(detailText)
         }
 
-        val infoBox = VBox(3.0, nameLabel, detailLabel).apply {
+        val previousStatus = Label(ServerStatusHistory.describe(profile)).apply {
+            styleClass.add("server-detail")
+            isWrapText = true
+        }
+        val infoBox = VBox(3.0, nameLabel, detailLabel, previousStatus).apply {
             styleClass.add("server-info")
             minWidth = 0.0
             maxWidth = Double.MAX_VALUE
@@ -445,6 +450,7 @@ class ServerSelector : Initializable {
             )
             return
         }
+        ServerStatusHistory.forget(profile)
         refreshServerList(updatedList)
         logger.info("サーバープロファイルを削除しました: profile={}", profile.name)
     }
