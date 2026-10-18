@@ -17,6 +17,7 @@ import io.github.sushiericworkspace.sushiericservermanager.editor.service.Editor
 import io.github.sushiericworkspace.sushiericservermanager.editor.store.*
 import javafx.animation.KeyFrame
 import javafx.animation.Timeline
+import io.github.sushiericworkspace.sushiericservermanager.editor.upload.savedUploadFingerprint
 import javafx.application.Platform
 import javafx.event.Event
 import javafx.collections.FXCollections
@@ -25,6 +26,7 @@ import javafx.scene.input.InputMethodTextRun
 import javafx.scene.input.InputMethodHighlight
 import javafx.scene.input.KeyEvent
 import javafx.scene.input.KeyCode
+import io.github.sushiericworkspace.sushiericservermanager.ui.shortcut.EditorShortcut
 import io.github.sushiericworkspace.sushiericservermanager.ui.shortcut.ShortcutManager
 import javafx.fxml.FXMLLoader
 import javafx.scene.Parent
@@ -405,6 +407,298 @@ class EditorSingleSaveTest {
             assertTrue(record.unsaved)
             assertEquals(true, record.unreflected)
             assertEquals(0, fixture.store.writes)
+        }
+
+    @Test
+    fun fetchingAcknowledgedRemoteOnlyFieldsKeepsCleanAndDirtyEditingRelativeToSaved() {
+        for (dirty in listOf(false, true)) withFixture(EditorDataDescriptors.item, remote = true) { fixture ->
+            selectSource(fixture, true)
+            val old = (fixture.service.items.localDocuments() as StoreResult.Success).value.single()
+            val saved = requireNotNull(old.saved)
+            val latest = fixture.service.items.decodeDocument(fixture.id, saved).apply { itemDetail.maxStackSize = 32 }
+            fixture.store.memory.save(EditorDataDescriptors.item, fixture.id, latest)
+            assertTrue(fixture.service.items.updateLocalDocument(fixture.id) {
+                it.copy(editing = saved, baseline = fixture.service.items.encodeDocument(latest), baselineKnown = true,
+                    reflectedSavedHash = savedUploadFingerprint(
+                        it.key, it.saved, it.savedDeleted, it.savedRaw))
+            } is StoreResult.Success)
+            selectSource(fixture, false)
+            selectSource(fixture, true)
+            if (dirty) fx { fixture.logic.current().editorMeta.comment = mutableListOf("未保存だけの変更") }
+            fx { fixture.logic.onSynchronizeSelected() }
+            awaitIdle(fixture)
+            val record = (fixture.service.items.localDocuments() as StoreResult.Success).value.single()
+            val checkpoint = fixture.service.items.decodeDocument(fixture.id, requireNotNull(record.saved))
+            assertEquals(32, checkpoint.itemDetail.maxStackSize)
+            fx {
+                assertEquals(32, fixture.logic.current().itemDetail.maxStackSize)
+                assertEquals(if (dirty) listOf("未保存だけの変更") else emptyList(), fixture.logic.current().editorMeta.comment)
+            }
+            assertEquals(dirty, record.unsaved)
+            assertEquals(false, record.unreflected)
+            assertEquals(0, fixture.store.writes)
+        }
+    }
+
+    @Test
+    fun uploadUsesOnlyTheSavedGenerationAndFreezesOnlyItsDocuments() =
+        withFixture(EditorDataDescriptors.item, remote = true) { fixture ->
+            assertEquals(EditorView.SaveOutcome.SAVED, save(fixture))
+            val expected = fx { fixture.logic.current().deepCopy() }
+            val other = EditorDataDescriptors.item.createDefault("other")
+            fx {
+                fixture.logic.add(other, other.deepCopy())
+                fixture.logic.showDraft = true
+                fixture.logic.selectTab(fixture.id)
+                fixture.logic.current().editorMeta.comment = mutableListOf("送信しない編集中")
+                fixture.logic.draftField.text = "-"
+                fixture.main.mainContentContainer.requestFocus()
+            }
+            fixture.pauseDialogs = true
+            fixture.onDialog = { pane ->
+                val apply = pane.buttonTypes.firstOrNull { it.text == "確認した保存済み内容をアップロード" }
+                if (apply != null) {
+                    pane.lookupAll(".radio-button").filterIsInstance<javafx.scene.control.RadioButton>()
+                        .filter { it.text.startsWith("保存済み:") }.forEach { it.isSelected = true }
+                    pane.lookupAll(".check-box").filterIsInstance<javafx.scene.control.CheckBox>()
+                        .forEach { it.isSelected = true }
+                    Platform.runLater { (pane.lookupButton(apply) as Button).fire() }
+                }
+            }
+            val entered = CountDownLatch(1)
+            val release = CountDownLatch(1)
+            fixture.store.beforeWrite = {
+                entered.countDown()
+                assertTrue(release.await(15, TimeUnit.SECONDS))
+            }
+            fx { assertTrue(ShortcutManager.execute(fixture.main.shortcutRoot,
+                EditorShortcut.UPLOAD)) }
+            try {
+                assertTrue(entered.await(15, TimeUnit.SECONDS), "アップロードの実writeへ到達しません")
+                fx {
+                    assertTrue(fixture.main.mainContentContainer.isDisabled)
+                    assertFalse(fixture.main.sidebarContainer.isDisabled)
+                    fixture.main.showOperation("対象外の処理")
+                    fixture.main.finishOperation()
+                    assertTrue(fixture.main.mainContentContainer.isDisabled)
+                    fixture.main.showLoading("対象外の読込")
+                    fixture.main.finishLoading()
+                    assertTrue(fixture.main.mainContentContainer.isDisabled)
+                    assertFalse(fixture.logic.onUndo())
+                    fixture.logic.onSave { assertEquals(EditorView.SaveOutcome.BUSY, it) }
+                    fixture.logic.onClose { assertFalse(it) }
+                    fixture.logic.selectTab("other")
+                    assertFalse(fixture.main.mainContentContainer.isDisabled)
+                    fixture.logic.current().editorMeta.comment = mutableListOf("対象外は編集可能")
+                    fixture.logic.selectTab(fixture.id)
+                    assertTrue(fixture.main.mainContentContainer.isDisabled)
+                    assertEquals("-", fixture.logic.draftField.text)
+                }
+            } finally {
+                release.countDown()
+                fixture.store.beforeWrite = null
+                fixture.pauseDialogs = false
+            }
+            awaitIdle(fixture)
+            fixture.service.awaitIo()
+            val uploaded = (fixture.store.memory.load(EditorDataDescriptors.item, fixture.id) as StoreResult.Success).value
+            assertEquals(expected.editorMeta.comment, uploaded.editorMeta.comment)
+            assertEquals(1, fixture.store.writes)
+            val local = (fixture.service.localService.items.localDocuments() as StoreResult.Success).value.single { it.key.id == fixture.id }
+            assertEquals("-", local.raw["test-number"])
+            assertTrue(local.savedRaw.isEmpty())
+            assertFalse(local.baselineKnown)
+            fx {
+                assertEquals(listOf("送信しない編集中"), fixture.logic.current().editorMeta.comment)
+                assertEquals("-", fixture.logic.draftField.text)
+                assertFalse(fixture.main.mainContentContainer.isDisabled)
+            }
+            assertTrue((fixture.service.documents.read() as StoreResult.Success).value.uploads.single().complete)
+        }
+
+    @Test
+    fun categoryReadbackFreezesOnlyTheExplicitlySelectedRequestWhileOtherDocumentsCanUndoAndSave() =
+        withFixture(EditorDataDescriptors.item, remote = true) { fixture ->
+            assertEquals(EditorView.SaveOutcome.SAVED, save(fixture))
+            val other = EditorDataDescriptors.item.createDefault("other")
+            fx {
+                fixture.logic.add(other, other.deepCopy().apply { editorMeta.comment = mutableListOf("saved other") })
+            }
+            assertEquals(EditorView.SaveOutcome.SAVED, save(fixture, other.id))
+            fx {
+                fixture.logic.showDraft = true
+                fixture.logic.selectTab(fixture.id)
+            }
+            fixture.pauseDialogs = true
+            fixture.onDialog = { pane ->
+                pane.buttonTypes.firstOrNull { it.text == "確認した保存済み内容をアップロード" }?.let { button ->
+                    pane.lookupAll(".check-box").filterIsInstance<javafx.scene.control.CheckBox>()
+                        .forEach { it.isSelected = true }
+                    pane.lookupAll(".radio-button").filterIsInstance<javafx.scene.control.RadioButton>()
+                        .filter { it.text.startsWith("保存済み:") }.forEach { it.isSelected = true }
+                    Platform.runLater { (pane.lookupButton(button) as Button).fire() }
+                }
+            }
+            fixture.store.beforeWrite = { fixture.store.readFailure = StoreErrorCode.IO_ERROR }
+            fx { fixture.logic.onUploadSaved() }
+            val deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(15)
+            while (fx { fixture.service.uploadingDocuments.isNotEmpty() }) {
+                assertTrue(System.nanoTime() < deadline)
+                Thread.sleep(20)
+            }
+            fixture.store.beforeWrite = null
+            fixture.store.readFailure = null
+            fixture.pauseDialogs = false
+            awaitIdle(fixture)
+            val operation = (fixture.service.documents.read() as StoreResult.Success).value.uploads.single()
+            assertTrue(operation.needsReadback)
+            fixture.pauseDialogs = true
+            fixture.onDialog = null
+            fx { fixture.logic.onUploadSaved(all = true, readback = true) }
+            fun pane(text: String): DialogPane? = Window.getWindows().mapNotNull { it.scene?.root as? DialogPane }
+                .firstOrNull { it.buttonTypes.any { type -> type.text == text } }
+            fun waitPane(text: String) {
+                val until = System.nanoTime() + TimeUnit.SECONDS.toNanos(15)
+                while (!fx { pane(text) != null }) {
+                    assertTrue(System.nanoTime() < until)
+                    Thread.sleep(20)
+                }
+            }
+            waitPane("この要求を確認")
+            fx {
+                assertTrue(fixture.service.uploadingDocuments.isEmpty())
+                val dialog = requireNotNull(pane("この要求を確認"))
+                val button = dialog.buttonTypes.single { it.text == "この要求を確認" }
+                assertTrue(dialog.lookupButton(button).isDisabled)
+                (dialog.content.lookup(".combo-box") as javafx.scene.control.ComboBox<*>).selectionModel.select(0)
+                Platform.runLater { (dialog.lookupButton(button) as Button).fire() }
+            }
+            waitPane("読戻しで確認")
+            val entered = CountDownLatch(1)
+            val release = CountDownLatch(1)
+            fixture.store.beforeLoad = { entered.countDown(); assertTrue(release.await(15, TimeUnit.SECONDS)) }
+            fx {
+                val dialog = requireNotNull(pane("読戻しで確認"))
+                val button = dialog.buttonTypes.single { it.text == "読戻しで確認" }
+                Platform.runLater { (dialog.lookupButton(button) as Button).fire() }
+            }
+            try {
+                assertTrue(entered.await(15, TimeUnit.SECONDS))
+                fx {
+                    assertEquals(setOf(operation.inputs.single().key, operation.targetRevisions.single().key),
+                        fixture.service.uploadingDocuments.toSet())
+                    fixture.logic.selectTab(other.id)
+                    assertFalse(fixture.main.mainContentContainer.isDisabled)
+                    fixture.logic.draftField.text = "-"
+                    fixture.main.mainContentContainer.requestFocus()
+                    assertTrue(fixture.logic.onUndo())
+                    assertEquals("1", fixture.logic.draftField.text)
+                    fixture.logic.current().editorMeta.comment = mutableListOf("other saved during readback")
+                }
+                val dialogState = java.util.concurrent.atomic.AtomicReference<List<String>>(emptyList())
+                fixture.onDialog = { dialog ->
+                    dialogState.set(dialog.buttonTypes.map { type -> type.text })
+                    dialog.buttonTypes.singleOrNull { it.text == "保存" }?.let { button ->
+                        Platform.runLater { (dialog.lookupButton(button) as Button).fire() }
+                    }
+                }
+                val completed = CompletableFuture<EditorView.SaveOutcome>()
+                Platform.runLater {
+                    try { fixture.logic.onSave(other.id) { completed.complete(it) } }
+                    catch (error: Throwable) { completed.completeExceptionally(error) }
+                }
+                val outcome = try { completed.get(5, TimeUnit.SECONDS) } catch (error: Exception) {
+                    val stacks = Thread.getAllStackTraces().filter {
+                        it.key.name == "JavaFX Application Thread" || it.key.name == "editor-store-io"
+                    }.map { it.key.name + "\n" + it.value.joinToString("\n") }
+                    throw AssertionError("読戻し中の別文書保存: Dialog=" + dialogState.get() + "\n" + stacks.joinToString("\n"), error)
+                }
+                assertEquals(EditorView.SaveOutcome.SAVED, outcome)
+                fx {
+                    fixture.logic.selectTab(fixture.id)
+                    assertTrue(fixture.main.mainContentContainer.isDisabled)
+                }
+            } finally {
+                release.countDown()
+                fixture.store.beforeLoad = null
+                fixture.pauseDialogs = false
+            }
+            awaitIdle(fixture)
+            assertEquals(1, fixture.store.writes)
+            assertTrue((fixture.service.documents.read() as StoreResult.Success).value.uploads.single().complete)
+        }
+
+    @Test
+    fun aLaterJournalFailureStillAcceptsItsOwnConfirmedRevisionForDirtyBackupAndClose() =
+        withFixture(EditorDataDescriptors.item, remote = true) { fixture ->
+            val second = EditorDataDescriptors.item.createDefault("second")
+            fixture.store.memory.save(EditorDataDescriptors.item, second.id, second)
+            assertTrue(fixture.service.items.observeStore(second.id) is StoreResult.Success)
+            selectSource(fixture, true)
+            fx { fixture.logic.current().editorMeta.comment = mutableListOf("saved first") }
+            assertEquals(EditorView.SaveOutcome.SAVED, save(fixture))
+            fx { fixture.logic.selectTab(second.id) }
+            awaitIdle(fixture)
+            fixture.service.awaitIo()
+            fx {
+                assertEquals(second.id, fixture.logic.current().id)
+                fixture.logic.current().editorMeta.comment = mutableListOf("saved second")
+            }
+            assertEquals(EditorView.SaveOutcome.SAVED, save(fixture, second.id))
+            fx {
+                fixture.logic.showDraft = true
+                fixture.logic.selectTab(fixture.id)
+                fixture.logic.current().editorMeta.comment = mutableListOf("dirty after saved")
+                fixture.logic.draftField.text = "-"
+                fixture.main.mainContentContainer.requestFocus()
+            }
+            val lock = fixture.service.autoSaveDirectory.resolve("documents")
+                .resolve(fixture.service.documentSource.directory).resolve("publisher.lock")
+            val original = lock.resolveSibling("publisher.lock-original")
+            val fault = CountDownLatch(1)
+            fixture.store.beforeLoad = {
+                val snapshot = (fixture.service.documents.read() as StoreResult.Success).value
+                if (fault.count > 0 && snapshot.uploads.any { op ->
+                        op.steps.any { it.state == io.github.sushiericworkspace.sushiericservermanager.editor.upload.SavedUploadState.CONFIRMED } }) {
+                    java.nio.file.Files.move(lock.toPath(), original.toPath())
+                    assertTrue(lock.mkdir())
+                    fault.countDown()
+                }
+            }
+            fixture.pauseDialogs = true
+            fixture.onDialog = { pane ->
+                pane.buttonTypes.firstOrNull { it.text == "確認した保存済み内容をアップロード" }?.let { button ->
+                    Platform.runLater { (pane.lookupButton(button) as Button).fire() }
+                }
+            }
+            fx { fixture.logic.onUploadSaved(all = true) }
+            try {
+                assertTrue(fault.await(15, TimeUnit.SECONDS))
+                val deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(15)
+                while (fx { fixture.service.uploadingDocuments.isNotEmpty() }) {
+                    assertTrue(System.nanoTime() < deadline)
+                    Thread.sleep(20)
+                }
+            } finally {
+                fixture.store.beforeLoad = null
+                if (original.exists()) {
+                    assertTrue(lock.delete())
+                    java.nio.file.Files.move(original.toPath(), lock.toPath())
+                }
+                fixture.pauseDialogs = false
+            }
+            awaitIdle(fixture)
+            val operation = (fixture.service.documents.read() as StoreResult.Success).value.uploads.single()
+            assertEquals(1, operation.steps.count {
+                it.state == io.github.sushiericworkspace.sushiericservermanager.editor.upload.SavedUploadState.CONFIRMED })
+            assertEquals(1, fixture.store.writes)
+            val backup = fx { fixture.logic.backup() }
+            assertTrue(backup.get(10, TimeUnit.SECONDS), "自己成功revisionへ追随できず未保存退避が拒否されました")
+            fixture.service.awaitIo()
+            val record = (fixture.service.documents.read() as StoreResult.Success).value.documents.single { it.key.id == fixture.id }
+            assertEquals(listOf("dirty after saved"), fx { fixture.logic.current().editorMeta.comment })
+            assertEquals("-", record.raw["test-number"])
+            assertTrue(record.unsaved)
         }
 
     @Test
@@ -898,6 +1192,7 @@ class EditorSingleSaveTest {
             EditorDocumentSource.Server("save-fixture", "declared/root")
             else EditorDocumentSource.Local
         var beforeLoad: (() -> Unit)? = null
+        var beforeWrite: (() -> Unit)? = null
         val renames = mutableListOf<String>()
         var readFailure: StoreErrorCode? = null
         var loads = 0
@@ -913,6 +1208,7 @@ class EditorSingleSaveTest {
 
         override fun <T : ManagedData<T, *>> save(descriptor: EditorDataDescriptor<T>, id: String, data: T): StoreResult<Unit> {
             writes++
+            beforeWrite?.invoke()
             return memory.save(descriptor, id, data)
         }
 

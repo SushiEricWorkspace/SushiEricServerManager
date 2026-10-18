@@ -124,7 +124,8 @@ enum class EditorShortcut(
         )
     ),
     IMPORT_LOCAL("ローカルデータを取り込む", null),
-    UPLOAD("サーバーへアップロード（準備中）", null, available = false)
+    UPLOAD("保存済み内容をサーバーへアップロード…", null,
+        scopes = setOf(ShortcutScope.EDITOR, ShortcutScope.MOD_CONFIG))
 }
 
 /** 同時に操作を受け付ける機能の種類です。文書の識別は登録先Nodeで行います。 */

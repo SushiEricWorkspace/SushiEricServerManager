@@ -31,6 +31,7 @@ class ManagedEditorDataStore(val session: ManagedSession, private val compatibil
     }
     override val offlineDirectory get() = session.offlineDirectory
     override val isAvailable get() = session.state == ManagedSession.State.OPEN
+    override val isWritable get() = isAvailable && compatibility.writable
 
     private fun request(action: String, path: String, extra: Map<String, JsonElement> = emptyMap()): JsonObject =
         session.io(JsonObject(mapOf("action" to JsonPrimitive(action), "path" to JsonPrimitive(path)) + extra))

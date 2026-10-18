@@ -1,6 +1,8 @@
 package io.github.sushiericworkspace.sushiericservermanager.editor.service
 
 import io.github.sushiericworkspace.sushiericservermanager.editor.store.StoreError
+import io.github.sushiericworkspace.sushiericservermanager.editor.upload.SavedUploadOperation
+import io.github.sushiericworkspace.sushiericservermanager.editor.upload.savedUploadFingerprint
 import io.github.sushiericworkspace.sushiericservermanager.editor.store.StoreErrorCode
 import io.github.sushiericworkspace.sushiericservermanager.editor.store.StoreResult
 import kotlinx.serialization.Serializable
@@ -31,14 +33,18 @@ internal data class LocalDocumentRecord(
     val savedPending: PendingStoreOperationRecord? = null,
     val deleted: Boolean = false,
     val savedDeleted: Boolean = false,
-    val movedTo: String? = null
+    val movedTo: String? = null,
+    val reflectedSavedHash: String? = null
 ) {
     val unsaved: Boolean get() =
         editing != saved || raw != savedRaw || pending != savedPending || deleted != savedDeleted
 
     /** 基準未取得を一致と判定せず、宛先のないローカル文書にも基準を捏造しません。 */
     val unreflected: Boolean? get() =
-        if (baselineKnown) saved != baseline || savedRaw.isNotEmpty() || savedPending != null || (savedDeleted && baseline != null) else null
+        if (!baselineKnown) null
+        else if (savedPending == null && reflectedSavedHash != null &&
+            reflectedSavedHash == savedUploadFingerprint(key, saved, savedDeleted, savedRaw)) false
+        else (saved.takeUnless { savedDeleted } != baseline || (!savedDeleted && savedRaw.isNotEmpty()) || savedPending != null)
 }
 
 @Serializable
@@ -49,7 +55,8 @@ internal data class LocalDocumentSnapshot(
     val directories: Map<String, Set<String>> = emptyMap(),
     val directoryRevisions: Map<String, Long> = emptyMap(),
     val initializedCategories: Set<String> = emptySet(),
-    val directoryBaselines: Map<String, Set<String>> = emptyMap()
+    val directoryBaselines: Map<String, Set<String>> = emptyMap(),
+    val uploads: List<SavedUploadOperation> = emptyList()
 )
 
 /**
@@ -65,6 +72,7 @@ internal class LocalDocumentRepository(
 
     private companion object {
         val publishers = ConcurrentHashMap<Path, Any>()
+        val reservedDocuments = ConcurrentHashMap<Path, MutableMap<EditorDocumentKey, String>>()
     }
     private val json = Json { prettyPrint = true; encodeDefaults = true }
     private val pointer get() = directory.resolve("current")
@@ -85,14 +93,28 @@ internal class LocalDocumentRepository(
         directories: Map<String, Set<String>> = emptyMap(),
         expectedDirectories: Map<String, Long> = emptyMap(),
         initializeCategories: Set<String> = emptySet(),
-        directoryBaselines: Map<String, Set<String>> = emptyMap()
+        directoryBaselines: Map<String, Set<String>> = emptyMap(),
+        upload: SavedUploadOperation? = null,
+        expectedUploadRevision: Long = 0,
+        uploadOwner: String? = null
     ): StoreResult<LocalDocumentSnapshot> = result {
         Files.createDirectories(directory.toPath())
-        synchronized(publishers.computeIfAbsent(directory.toPath().toRealPath()) { Any() }) {
+        val canonical = directory.toPath().toRealPath()
+        synchronized(publishers.computeIfAbsent(canonical) { Any() }) {
             FileChannel.open(directory.resolve("publisher.lock").toPath(),
                 StandardOpenOption.CREATE, StandardOpenOption.WRITE).use { channel ->
                 channel.lock().use {
                     val current = readCurrent()
+                    changes.forEach { change ->
+                        val owner = reservedDocuments[canonical]?.get(change.key)
+                        check(owner == null || owner == uploadOwner) { "アップロード確認中の文書は変更できません。" }
+                    }
+                    val uploads = current.uploads.associateByTo(linkedMapOf()) { it.id }
+                    upload?.let {
+                        check(it.target == source && it.validKeys) { "アップロードの宛先または対象文書が不正です。" }
+                        check((uploads[it.id]?.revision ?: 0L) == expectedUploadRevision) { "アップロード結果が更新されています。" }
+                        uploads[it.id] = it.copy(revision = expectedUploadRevision + 1)
+                    }
                     val records = current.documents.associateByTo(linkedMapOf()) { it.key }
                     require(changes.map { it.key }.toSet().size == changes.size) { "同じ文書を重複更新できません。" }
                     changes.forEach { change ->
@@ -112,11 +134,36 @@ internal class LocalDocumentRepository(
                         directoryRevisions = current.directoryRevisions + directoryChanges.associateWith {
                             (current.directoryRevisions[it] ?: 0L) + 1
                         }, initializedCategories = current.initializedCategories + initializeCategories,
-                        directoryBaselines = current.directoryBaselines + directoryBaselines)
+                        directoryBaselines = current.directoryBaselines + directoryBaselines,
+                        uploads = uploads.values.toList())
                     publishGeneration(next)
                     next
                 }
             }
+        }
+    }
+
+    /** 同じ保存元の別Serviceからの書込みも、確認中の対象keyだけ止めます。 */
+    fun reserve(owner: String, expected: Map<EditorDocumentKey, Long>): StoreResult<Unit> = result {
+        Files.createDirectories(directory.toPath())
+        val canonical = directory.toPath().toRealPath()
+        synchronized(publishers.computeIfAbsent(canonical) { Any() }) {
+            val current = readCurrent().documents.associateBy { it.key }
+            val reservations = reservedDocuments.computeIfAbsent(canonical) { mutableMapOf() }
+            expected.forEach { (key, revision) ->
+                check(key.source == source && (current[key]?.revision ?: 0L) == revision) { "確認対象の文書が更新されています。" }
+                check(reservations[key] == null || reservations[key] == owner) { "この文書は別のアップロードで使用中です。" }
+            }
+            expected.keys.forEach { reservations[it] = owner }
+        }
+    }
+
+    /** 取得したownerの予約だけを解除します。台帳の不明状態は消しません。 */
+    fun release(owner: String) {
+        if (!directory.isDirectory) return
+        val canonical = directory.toPath().toRealPath()
+        synchronized(publishers.computeIfAbsent(canonical) { Any() }) {
+            reservedDocuments[canonical]?.entries?.removeIf { it.value == owner }
         }
     }
 
@@ -127,6 +174,8 @@ internal class LocalDocumentRepository(
         val snapshot = json.decodeFromString<LocalDocumentSnapshot>(directory.resolve(name).readText(Charsets.UTF_8))
         check(snapshot.source == source && snapshot.documents.all { it.key.source == source }) { "保存元が一致しません。" }
         check(snapshot.documents.map { it.key }.toSet().size == snapshot.documents.size) { "保存文書が重複しています。" }
+        check(snapshot.uploads.map { it.id }.toSet().size == snapshot.uploads.size) { "アップロード台帳が重複しています。" }
+        check(snapshot.uploads.all { it.target == source && it.validKeys }) { "アップロード台帳の宛先または対象文書が不正です。" }
         return snapshot
     }
 

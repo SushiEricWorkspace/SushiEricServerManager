@@ -5,7 +5,7 @@
 <?import javafx.scene.control.MenuButton?>
 <?import javafx.scene.control.TextArea?>
 <?import javafx.scene.layout.BorderPane?>
-<?import javafx.scene.layout.HBox?>
+<?import javafx.scene.layout.FlowPane?>
 <?import javafx.scene.layout.Region?>
 <?import javafx.scene.layout.VBox?>
 
@@ -18,7 +18,7 @@
             <children>
                 <Label styleClass="mod-config-title" text="Mod設定" />
                 <Label fx:id="pathLabel" styleClass="mod-config-path" />
-                <HBox styleClass="mod-config-actions">
+                <FlowPane styleClass="mod-config-actions" hgap="8.0" vgap="8.0">
                     <children>
                         <MenuButton fx:id="sourceMenu" text="ローカル" />
                         <Button fx:id="saveButton" onAction="#handleSave"
@@ -27,10 +27,13 @@
                                 styleClass="button, btn-secondary" text="再読み込み" />
                         <Button fx:id="fetchButton" onAction="#handleFetch"
                                 styleClass="button, btn-secondary" text="サーバーから取得" />
-                        <Region HBox.hgrow="ALWAYS" />
+                        <Button fx:id="uploadButton" onAction="#handleUpload"
+                                styleClass="button, btn-secondary" text="保存済みをアップロード…" />
+                        <Button fx:id="readbackButton" onAction="#handleReadback"
+                                styleClass="button, btn-secondary" text="結果確認・読戻し…" />
                         <Label fx:id="statusLabel" styleClass="mod-config-status" />
                     </children>
-                </HBox>
+                </FlowPane>
             </children>
         </VBox>
     </top>

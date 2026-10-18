@@ -15,6 +15,8 @@ interface EditorDataStore {
     /** 既存ローカル原本のrootです。LOCAL Storeは取込元を明示します。 */
     val offlineDirectory: java.io.File? get() = null
     val isAvailable: Boolean
+    /** 接続と互換性の既存書込制限です。サーバーの比較書込能力は表しません。 */
+    val isWritable: Boolean get() = isAvailable
 
     fun <T : ManagedData<T, *>> list(
         descriptor: EditorDataDescriptor<T>

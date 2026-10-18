@@ -59,6 +59,13 @@ class MainController {
         sidebarRetry.setOnAction { onRetry?.invoke() }
     }
 
+    /** アップロード・読戻し中の選択文書は、別の画面処理が完了しても編集を再開しません。 */
+    internal var documentFrozen: Boolean = false
+        set(value) {
+            field = value
+            mainContentContainer.isDisable = value || operationRunning || loadingRunning
+        }
+
     var operationRunning: Boolean = false
         private set
 
@@ -79,7 +86,7 @@ class MainController {
         operationProgress.isManaged = false
         actionButtonContainer.isDisable = false
         sidebarContainer.isDisable = false
-        mainContentContainer.isDisable = false
+        mainContentContainer.isDisable = documentFrozen
         setTopLabel("")
     }
 
@@ -105,7 +112,7 @@ class MainController {
         operationProgress.isManaged = false
         actionButtonContainer.isDisable = false
         sidebarContainer.isDisable = false
-        mainContentContainer.isDisable = false
+        mainContentContainer.isDisable = documentFrozen
         setTopLabel("")
     }
 
