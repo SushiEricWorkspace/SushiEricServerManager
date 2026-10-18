@@ -8,6 +8,7 @@ import kotlinx.serialization.Serializable
  * 追加項目はすべてデフォルト値を持たせ、既存のconfig.jsonをそのまま読み込めるようにします。
  *
  * @property monitorIntervalTicks 監視情報の更新間隔。サーバー側のtick数で指定します。
+ * @property shortcuts 操作IDごとのキー上書き。未登録は既定値、空文字は割当解除です。
  * @property theme 全画面とダイアログに適用する配色。
  * @property showPlayerUuidInHistory 入出金履歴のプレイヤー選択欄でUUIDを表示するか。
  */
@@ -16,7 +17,8 @@ data class AppSettings(
     val monitorIntervalTicks: Int = DEFAULT_MONITOR_INTERVAL_TICKS,
     val sidebarDirectoryExpanded: Map<String, Map<String, Boolean>> = emptyMap(),
     val showPlayerUuidInHistory: Boolean = false,
-    val theme: AppTheme = AppTheme.DARK
+    val theme: AppTheme = AppTheme.DARK,
+    val shortcuts: Map<String, String> = emptyMap()
 ) {
     /**
      * 指定できる範囲へ丸めた更新間隔を返します。

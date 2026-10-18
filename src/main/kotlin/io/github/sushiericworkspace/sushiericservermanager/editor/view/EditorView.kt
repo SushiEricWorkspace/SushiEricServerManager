@@ -33,6 +33,8 @@ import io.github.sushiericworkspace.sushiericservermanager.editor.validation.Val
 import io.github.sushiericworkspace.sushiericservermanager.ui.dialog.CustomDialog
 import io.github.sushiericworkspace.sushiericservermanager.ui.dialog.ErrorType
 import io.github.sushiericworkspace.sushiericservermanager.ui.dialog.MergeConflictDialog
+import io.github.sushiericworkspace.sushiericservermanager.ui.shortcut.ShortcutManager
+import io.github.sushiericworkspace.sushiericservermanager.ui.shortcut.ShortcutScope
 import io.github.sushiericworkspace.sushiericservermanager.ui.shortcut.EditorShortcut
 import io.github.sushiericworkspace.sushiericdatamodel.data.core.SushiEricDataType
 import javafx.animation.Animation
@@ -496,8 +498,8 @@ abstract class EditorView<T : ManagedData<T, *>>(
      * @param container アクションボタンを水平に並べるためのトップレイアウトコンテナ
      */
     open fun setupActions(container: HBox) {
-        saveMenuItem = actionMenuItem("保存", EditorShortcut.SAVE) { onSave() }
-        saveAllMenuItem = actionMenuItem("すべて保存", EditorShortcut.SAVE_ALL) { onSaveAll() }
+        saveMenuItem = actionMenuItem(EditorShortcut.SAVE.displayName, EditorShortcut.SAVE) { onSave() }
+        saveAllMenuItem = actionMenuItem(EditorShortcut.SAVE_ALL.displayName, EditorShortcut.SAVE_ALL) { onSaveAll() }
 
         syncMenuItem = actionMenuItem("同期", EditorShortcut.SYNC) { onSynchronizeSelected() }
         syncAllMenuItem = actionMenuItem("すべて同期", EditorShortcut.SYNC_ALL) { onSynchronizeAll() }
@@ -515,14 +517,17 @@ abstract class EditorView<T : ManagedData<T, *>>(
         }
         uploadCategory?.let { category ->
             fileItems += SeparatorMenuItem()
-            uploadMenuItem = MenuItem("ローカルデータをアップロード…").apply {
-                onAction = EventHandler { onUploadLocalData(category) }
+            uploadMenuItem = actionMenuItem("ローカルデータを取り込む…", EditorShortcut.IMPORT_LOCAL) {
+                onUploadLocalData(category)
             }
             fileItems += uploadMenuItem!!
         }
 
         undoMenuItem = actionMenuItem("元に戻す", EditorShortcut.UNDO) { onUndo() }
         redoMenuItem = actionMenuItem("やり直す", EditorShortcut.REDO) { onRedo() }
+        ShortcutManager.register(main.shortcutRoot, ShortcutScope.EDITOR, EditorShortcut.REDO_ALTERNATIVE) {
+            ShortcutManager.execute(main.shortcutRoot, EditorShortcut.REDO)
+        }
         repairWarningsMenuItem = actionMenuItem("警告を修正", EditorShortcut.REPAIR_WARNING) {
             repairSelectedWarnings()
         }
@@ -564,9 +569,13 @@ abstract class EditorView<T : ManagedData<T, *>>(
         text: String,
         shortcut: EditorShortcut,
         action: () -> Unit
-    ): MenuItem = MenuItem(text).apply {
-        accelerator = shortcut.combination
-        onAction = EventHandler { if (!storeOperationBlocked) action() }
+    ): MenuItem = MenuItem().apply {
+        id = "action-${shortcut.name.lowercase()}"
+        textProperty().bind(ShortcutManager.hint(shortcut, text))
+        ShortcutManager.register(main.shortcutRoot, ShortcutScope.EDITOR, shortcut) {
+            if (isDisable || main.actionButtonContainer.isDisabled || storeOperationBlocked) false else { action(); true }
+        }
+        onAction = EventHandler { ShortcutManager.execute(main.shortcutRoot, shortcut) }
     }
 
     /** ローカルデータを、宛先ディレクトリを指定して未保存の編集として取り込みます。 */
@@ -1550,6 +1559,7 @@ abstract class EditorView<T : ManagedData<T, *>>(
         val scene = main.mainContentContainer.scene ?: return
 
         scene.addEventFilter(MouseEvent.MOUSE_PRESSED) { event ->
+            if (ShortcutManager.isComposing(scene)) return@addEventFilter
             val focusOwner = scene.focusOwner
 
             if (
@@ -1563,6 +1573,7 @@ abstract class EditorView<T : ManagedData<T, *>>(
         }
 
         scene.addEventFilter(KeyEvent.KEY_PRESSED) { event ->
+            if (ShortcutManager.isComposing(scene)) return@addEventFilter
             if (
                 shouldCommitHistoryOnKeyPress(
                     focusOwnerIsTextInput = scene.focusOwner is TextInputControl,
@@ -1669,7 +1680,7 @@ abstract class EditorView<T : ManagedData<T, *>>(
      */
     protected open fun focusValidationError(error: SushiEricValidationError): Boolean = false
 
-    private fun refreshActionMenuState() {
+    internal fun refreshActionMenuState() {
         val selectedId = currentSelectedDataId
         val selectedErrors = selectedId
             ?.let(editingDataMap::get)
@@ -1679,8 +1690,9 @@ abstract class EditorView<T : ManagedData<T, *>>(
 
         saveMenuItem?.isDisable = selectedId == null || !hasUnsavedChanges(selectedId)
         saveAllMenuItem?.isDisable = editingDataMap.keys.none(::hasUnsavedChanges)
-        undoMenuItem?.isDisable = selectedId == null || !editHistory.canUndo(selectedId)
-        redoMenuItem?.isDisable = selectedId == null || !editHistory.canRedo(selectedId)
+        val textInput = main.shortcutRoot.scene?.focusOwner as? TextInputControl
+        undoMenuItem?.isDisable = if (textInput != null) !textInput.isUndoable else selectedId == null || !editHistory.canUndo(selectedId)
+        redoMenuItem?.isDisable = if (textInput != null) !textInput.isRedoable else selectedId == null || !editHistory.canRedo(selectedId)
         repairWarningsMenuItem?.isDisable = selectedErrors.none { it.isWarning }
         repairErrorsMenuItem?.isDisable = selectedErrors.none { it.isError }
         repairAllWarningsMenuItem?.isDisable = allErrors.none { it.isWarning }

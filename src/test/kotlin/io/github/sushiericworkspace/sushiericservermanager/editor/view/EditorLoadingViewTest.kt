@@ -2,6 +2,16 @@ package io.github.sushiericworkspace.sushiericservermanager.editor.view
 
 import io.github.sushiericworkspace.sushiericdatamodel.data.core.ManagedData
 import io.github.sushiericworkspace.sushiericservermanager.app.AppScreen
+import io.github.sushiericworkspace.sushiericservermanager.config.OS
+import io.github.sushiericworkspace.sushiericservermanager.ui.shortcut.ShortcutManager
+import javafx.event.Event
+import javafx.scene.input.KeyCode
+import javafx.scene.input.KeyEvent
+import javafx.scene.input.InputMethodEvent
+import javafx.scene.input.InputMethodTextRun
+import javafx.scene.input.InputMethodHighlight
+import javafx.scene.control.TextField
+import javafx.collections.FXCollections
 import io.github.sushiericworkspace.sushiericservermanager.editor.controller.MainController
 import io.github.sushiericworkspace.sushiericservermanager.editor.main.item.ItemEditorLogic
 import io.github.sushiericworkspace.sushiericservermanager.editor.main.ore.OreEditorLogic
@@ -329,6 +339,89 @@ class EditorLoadingViewTest {
         }
     }
 
+    @Test
+    fun `作業中の履歴ショートカットを拒否し代替Redoの登録と解除を守る`() {
+        fixture(EditorDataDescriptors.ore) { f ->
+            val previous = fx { ShortcutManager.overrides() }
+            val base = f.service.ores.createDefault("a")
+            val local = base.deepCopy().apply { hardness = 25.45 }
+            fun press(code: KeyCode, shortcut: Boolean = true) = fx {
+                Event.fireEvent(f.main.mainContentContainer, KeyEvent(KeyEvent.KEY_PRESSED, "", "", code, false,
+                    shortcut && !OS.isMac, false, shortcut && OS.isMac))
+            }
+            try {
+                fx {
+                    ShortcutManager.save(emptyMap())
+                    f.view.setupActions(f.main.actionButtonContainer)
+                    f.view.seedHistory(base, local)
+                    f.main.mainContentContainer.isFocusTraversable = true
+                    f.main.mainContentContainer.requestFocus()
+                    assertTrue(f.view.onUndo()); assertTrue(f.view.onRedo())
+                    f.main.showOperation("取得と準備中")
+                    assertEquals(0, f.service.activeSaves)
+                }
+                press(KeyCode.Z)
+                fx { assertEquals(25.45, f.view.cached("a")!!.hardness); f.main.finishOperation(); f.main.mainContentContainer.requestFocus() }
+                press(KeyCode.Z)
+                fx { assertEquals(base.hardness, f.view.cached("a")!!.hardness); f.main.showOperation("取得と準備中") }
+                press(KeyCode.Y)
+                fx { assertEquals(base.hardness, f.view.cached("a")!!.hardness); f.main.finishOperation(); f.main.mainContentContainer.requestFocus() }
+                press(KeyCode.Y)
+                fx { assertEquals(25.45, f.view.cached("a")!!.hardness); ShortcutManager.save(mapOf("REDO_ALTERNATIVE" to "F7")) }
+                press(KeyCode.Z); press(KeyCode.Y)
+                fx { assertEquals(base.hardness, f.view.cached("a")!!.hardness) }
+                press(KeyCode.F7, false)
+                fx { assertEquals(25.45, f.view.cached("a")!!.hardness); f.main.clearShortcuts() }
+                press(KeyCode.Z)
+                fx { assertEquals(25.45, f.view.cached("a")!!.hardness) }
+            } finally { fx { f.main.finishOperation(); ShortcutManager.save(previous) } }
+        }
+    }
+
+    @Test
+    fun `IME未確定値を文書履歴へ確定せず取消後のUndoで復活させない`() {
+        fixture(EditorDataDescriptors.item) { f ->
+            fx { f.main.switchView(f.view); f.view.selectTab("a") }
+            awaitFx { f.view.cached("a") != null && !f.main.loadingRunning }
+            fx {
+                val model = f.view.cached("a")!!
+                val before = model.display.displayName
+                val field = TextField(before).apply {
+                    textProperty().addListener { _, _, text -> model.display.displayName = text }
+                }
+                f.main.mainContentContainer.children.setAll(field)
+                f.root.applyCss()
+                f.root.layout()
+                field.requestFocus()
+                assertSame(field, f.stage.scene.focusOwner)
+                field.positionCaret(field.length)
+                fun input(composed: String, committed: String = "") = Event.fireEvent(field, InputMethodEvent(
+                    InputMethodEvent.INPUT_METHOD_TEXT_CHANGED,
+                    FXCollections.observableArrayList<InputMethodTextRun>().apply {
+                        if (composed.isNotEmpty()) add(InputMethodTextRun(composed, InputMethodHighlight.UNSELECTED_RAW))
+                    }, committed, 0))
+                input("未確定")
+                assertEquals(before + "未確定", field.text)
+                assertEquals(field.text, model.display.displayName)
+                assertTrue(ShortcutManager.isComposing(f.stage.scene))
+                Event.fireEvent(field, KeyEvent(KeyEvent.KEY_PRESSED, "", "", KeyCode.S, false, !OS.isMac, false, OS.isMac))
+                input("")
+                assertFalse(ShortcutManager.isComposing(f.stage.scene))
+                assertEquals(before, model.display.displayName)
+                assertFalse(f.view.onUndo())
+                assertEquals(before, f.view.cached("a")!!.display.displayName)
+                input("未確定")
+                input("", "確定")
+                assertEquals(before + "確定", model.display.displayName)
+                Event.fireEvent(field, KeyEvent(KeyEvent.KEY_PRESSED, "", "", KeyCode.ENTER, false, false, false, false))
+                assertTrue(f.view.onUndo())
+                assertEquals(before, f.view.cached("a")!!.display.displayName)
+                assertTrue(f.view.onRedo())
+                assertEquals(before + "確定", f.view.cached("a")!!.display.displayName)
+            }
+        }
+    }
+
     private fun <T : ManagedData<T, *>> checkRealEditor(
         descriptor: EditorDataDescriptor<T>, kind: EditorDataStoreKind,
         factory: (MainController, EditorDataService) -> EditorView<*>
@@ -413,6 +506,11 @@ class EditorLoadingViewTest {
         ManagedDataEditorView<T>(main, service, access) {
         val shown = mutableListOf<String>()
         fun seed(base: T, local: T) { originalDataMap[base.id] = base; editingDataMap[base.id] = local }
+        fun seedHistory(base: T, local: T) {
+            seed(base, base.deepCopy()); currentSelectedDataId = base.id; registeredSidebarIds += base.id; recordHistorySnapshot(base.id)
+            editingDataMap[base.id] = local.deepCopy(); recordHistorySnapshot(base.id)
+            setupMainContent(local); refreshActionMenuState()
+        }
         fun cached(id: String): T? = editingDataMap[id]
         fun preload() = preloadSidebarDataForVisualStates(registeredSidebarIds)
         fun original(id: String): T? = originalDataMap[id]
