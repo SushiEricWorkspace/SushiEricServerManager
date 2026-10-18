@@ -4,7 +4,6 @@ import io.github.sushiericworkspace.sushiericservermanager.app.AppFrame
 import io.github.sushiericworkspace.sushiericservermanager.editor.result.ValidationResult
 import io.github.sushiericworkspace.sushiericservermanager.editor.view.EditorView
 import io.github.sushiericworkspace.sushiericservermanager.ui.dialog.ValidatedInputDialog
-import io.github.sushiericworkspace.sushiericservermanager.ui.shortcut.EditorShortcut
 import io.github.sushiericworkspace.sushiericservermanager.ui.shortcut.ShortcutManager
 import io.github.sushiericworkspace.sushiericservermanager.util.toCssHex
 import javafx.animation.PauseTransition
@@ -19,6 +18,8 @@ import javafx.stage.Stage
 import javafx.util.Duration
 
 class MainController {
+    @FXML private lateinit var rootPane: javafx.scene.layout.BorderPane
+    val shortcutRoot: javafx.scene.Node get() = rootPane
     @FXML lateinit var actionButtonContainer: HBox
     @FXML lateinit var sidebarContainer: VBox
     @FXML lateinit var mainContentContainer: HBox
@@ -119,24 +120,15 @@ class MainController {
         get() = sidebarContainer.scene?.window as? Stage
 
     fun switchView(logic: EditorView<*>) {
+        clearShortcuts()
         actionButtonContainer.children.clear()
         sidebarContainer.children.clear()
         mainContentContainer.children.clear()
         setTopLabel("")
 
         logic.setupActions(actionButtonContainer)
-        (actionButtonContainer.scene?.root as? AppFrame)?.useEditorMenus(actionButtonContainer)
+        (actionButtonContainer.scene?.root as? AppFrame)?.useEditorMenus(actionButtonContainer, logic::refreshActionMenuState)
         logic.start()
-
-        if (mainContentContainer.scene != null) {
-            setupEditorShortcuts(logic)
-        } else {
-            mainContentContainer.sceneProperty().addListener { _, _, newScene ->
-                if (newScene != null) {
-                    setupEditorShortcuts(logic)
-                }
-            }
-        }
     }
 
     fun setTopLabel(text: String, textColor: Color = Color.WHITE) {
@@ -191,45 +183,9 @@ class MainController {
         topLabelTimer = null
     }
 
-    /**
-     * 現在のエディタに対して保存ショートカットを登録します。
-     */
-    private fun setupEditorShortcuts(logic: EditorView<*>) {
-        val scene = mainContentContainer.scene ?: return
-
-        ShortcutManager.register(
-            scene = scene,
-            shortcut = EditorShortcut.SAVE
-        ) {
-            if (!logic.storeOperationBlocked) logic.onSave()
-        }
-        ShortcutManager.register(scene, EditorShortcut.SAVE_ALL) {
-            if (!logic.storeOperationBlocked) logic.onSaveAll()
-        }
-        listOf(
-            EditorShortcut.SYNC to logic::onSynchronizeSelected,
-            EditorShortcut.SYNC_ALL to logic::onSynchronizeAll,
-            EditorShortcut.CREATE_DATA to logic::onCreateData,
-            EditorShortcut.CREATE_DIRECTORY to logic::onCreateDirectory,
-            EditorShortcut.REPAIR_WARNING to logic::repairSelectedWarnings,
-            EditorShortcut.REPAIR_ALL_WARNINGS to logic::repairAllWarnings,
-            EditorShortcut.FOCUS_ERROR to logic::focusSelectedError,
-            EditorShortcut.FOCUS_ALL_ERRORS to logic::focusAllErrors
-        ).forEach { (shortcut, action) ->
-            ShortcutManager.register(scene, shortcut) { if (!logic.storeOperationBlocked) action() }
-        }
-        ShortcutManager.registerHistoryShortcuts(
-            scene = scene,
-            onUndo = { !logic.storeOperationBlocked && logic.onUndo() },
-            onRedo = { !logic.storeOperationBlocked && logic.onRedo() }
-        )
-    }
-
-    /**
-     * 現在のエディタ画面に登録されたショートカットを解除します。
-     */
+    /** この機能領域の操作登録だけを解除します。他領域の登録は残します。 */
     fun clearShortcuts() {
-        ShortcutManager.unregisterAll(mainContentContainer.scene)
+        ShortcutManager.unregister(shortcutRoot)
     }
 
     /**

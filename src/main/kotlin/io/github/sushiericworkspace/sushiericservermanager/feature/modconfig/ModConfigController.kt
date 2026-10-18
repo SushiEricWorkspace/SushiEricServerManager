@@ -7,6 +7,7 @@ import io.github.sushiericworkspace.sushiericservermanager.editor.store.StoreRes
 import io.github.sushiericworkspace.sushiericservermanager.ui.dialog.CustomDialog
 import io.github.sushiericworkspace.sushiericservermanager.ui.shortcut.EditorShortcut
 import io.github.sushiericworkspace.sushiericservermanager.ui.shortcut.ShortcutManager
+import io.github.sushiericworkspace.sushiericservermanager.ui.shortcut.ShortcutScope
 import io.github.sushiericworkspace.sushiericservermanager.app.ApplicationFlow
 import javafx.application.Platform
 import javafx.concurrent.Task
@@ -52,24 +53,17 @@ class ModConfigController : Initializable {
         refreshControls()
     }
 
-    /** ボタンへ割り当てたショートカットキーを表示します。 */
     private fun applyShortcutHints() {
-        saveButton.text = "${EditorShortcut.SAVE.displayName}（${EditorShortcut.SAVE.combination.displayText}）"
-        reloadButton.text =
-            "${EditorShortcut.RELOAD.displayName}（${EditorShortcut.RELOAD.combination.displayText}）"
+        saveButton.textProperty().bind(ShortcutManager.hint(EditorShortcut.SAVE))
+        reloadButton.textProperty().bind(ShortcutManager.hint(EditorShortcut.RELOAD))
     }
 
-    /**
-     * この画面のSceneへショートカットキーを登録します。
-     *
-     * FXMLの読み込み時点ではSceneが未作成のため、割り当てられてから登録します。
-     */
     private fun installShortcutsWhenSceneReady() {
-        rootPane.sceneProperty().addListener { _, _, scene ->
-            if (scene == null) return@addListener
-
-            ShortcutManager.register(scene, EditorShortcut.SAVE) { handleSave() }
-            ShortcutManager.register(scene, EditorShortcut.RELOAD) { handleReload() }
+        ShortcutManager.register(rootPane, ShortcutScope.MOD_CONFIG, EditorShortcut.SAVE) {
+            if (busy || !contentArea.isEditable) false else { save(); true }
+        }
+        ShortcutManager.register(rootPane, ShortcutScope.MOD_CONFIG, EditorShortcut.RELOAD) {
+            if (busy) false else { reload(); true }
         }
     }
 
@@ -87,7 +81,9 @@ class ModConfigController : Initializable {
     /** 保存されている内容を再読み込みします。 */
     @FXML
     @Suppress("unused")
-    fun handleReload() {
+    fun handleReload() { ShortcutManager.execute(rootPane, EditorShortcut.RELOAD) }
+
+    private fun reload() {
         if (busy) return
 
         if (contentArea.isEditable && contentArea.text.isNotEmpty()) {
@@ -107,7 +103,9 @@ class ModConfigController : Initializable {
     /** 入力された内容をそのまま保存します。 */
     @FXML
     @Suppress("unused")
-    fun handleSave() {
+    fun handleSave() { ShortcutManager.execute(rootPane, EditorShortcut.SAVE) }
+
+    private fun save() {
         val service = dataService ?: return
         if (busy) return
 

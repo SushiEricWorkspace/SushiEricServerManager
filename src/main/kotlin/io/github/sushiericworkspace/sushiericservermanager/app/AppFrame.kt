@@ -4,6 +4,7 @@ import io.github.sushiericworkspace.sushiericservermanager.communication.managem
 import io.github.sushiericworkspace.sushiericservermanager.editor.session.EditorSession
 import io.github.sushiericworkspace.sushiericservermanager.ui.AppTooltip
 import io.github.sushiericworkspace.sushiericservermanager.ui.dialog.AppearanceDialog
+import io.github.sushiericworkspace.sushiericservermanager.ui.dialog.ShortcutSettingsDialog
 import io.github.sushiericworkspace.sushiericservermanager.ui.dialog.CustomDialog
 import io.github.sushiericworkspace.sushiericservermanager.update.AppVersion
 import io.github.sushiericworkspace.sushiericservermanager.util.Utility
@@ -55,7 +56,7 @@ internal class AppFrame(private val screen: AppScreen, content: Parent) : Border
         HeaderBar.setDragType(menuBar, HeaderDragType.NONE)
         val settings = MenuButton("設定").apply {
             id = "applicationSettings"
-            items.addAll(MenuItem("外観").apply { setOnAction { AppearanceDialog.show(stage) } }, MenuItem("キーボードショートカット").apply { isDisable = true })
+            items.addAll(MenuItem("外観").apply { setOnAction { AppearanceDialog.show(stage) } }, MenuItem("キーボードショートカット").apply { setOnAction { ShortcutSettingsDialog.show(stage) } })
         }
         HeaderBar.setDragType(settings, HeaderDragType.NONE)
         header.left = if (isMac) null else menuBar
@@ -149,7 +150,7 @@ internal class AppFrame(private val screen: AppScreen, content: Parent) : Border
     }
 
     /** EditorViewの既存MenuItemを移し、操作条件と全項目を共通メニューへ引き継ぎます。 */
-    fun useEditorMenus(container: HBox) {
+    fun useEditorMenus(container: HBox, refreshActions: () -> Unit) {
         val buttons = container.children.filterIsInstance<MenuButton>()
         require(buttons.size == 2) { "Editorのファイル・編集メニューが必要です。" }
         val file = menuBar.menus[0]
@@ -160,6 +161,8 @@ internal class AppFrame(private val screen: AppScreen, content: Parent) : Border
         buttons.forEach { it.items.clear() }
         file.items.setAll(fileItems + SeparatorMenuItem() + windowActions)
         edit.items.setAll(editItems)
+        file.setOnShowing { refreshActions() }
+        edit.setOnShowing { refreshActions() }
         file.disableProperty().bind(container.disableProperty())
         edit.disableProperty().bind(container.disableProperty())
         container.children.removeAll(buttons)
