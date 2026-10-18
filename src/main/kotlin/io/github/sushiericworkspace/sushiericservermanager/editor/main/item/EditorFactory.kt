@@ -54,6 +54,7 @@ import javafx.scene.control.ListCell
 import javafx.scene.control.Spinner
 import javafx.scene.control.SpinnerValueFactory
 import javafx.scene.control.TextArea
+import javafx.scene.control.TextInputControl
 import javafx.scene.control.TextField
 import javafx.scene.control.TextFormatter
 import javafx.scene.control.Tooltip
@@ -121,7 +122,9 @@ class ItemEditorFactory(
     private val refreshSidebarState: (String) -> Unit,
     private val recordHistorySnapshot: (String) -> Unit = refreshSidebarState,
     private val headSkinTextureLookup: HeadSkinTextureLookup =
-        MojangHeadSkinTextureLookup()
+        MojangHeadSkinTextureLookup(),
+    private val retainDraft: (String, TextInputControl, (String) -> Boolean) -> Unit = { _, _, _ -> },
+    private val moveDraft: (String, String?) -> Unit = { _, _ -> }
 ) : EditorGraphicFactory<TreeRow> {
 
     private val decorationDisplay = linkedMapOf(
@@ -174,6 +177,7 @@ class ItemEditorFactory(
     }
 
     private fun intSpinnerRow(
+        fieldKey: String,
         label: String,
         initialValue: Int,
         min: Int,
@@ -189,11 +193,12 @@ class ItemEditorFactory(
                 max = max,
                 step = step,
                 onChanged = onChanged
-            )
+            ).apply { retainDraft(fieldKey, editor) { it.toIntOrNull()?.let { value -> value in min..max } == true } }
         )
     }
 
     private fun doubleSpinnerRow(
+        fieldKey: String,
         label: String,
         initialValue: Double,
         min: Double,
@@ -213,12 +218,13 @@ class ItemEditorFactory(
                     step = step,
                     decimalPlaces = decimalPlaces,
                     onChanged = onChanged
-                ),
+                ).apply { retainDraft(fieldKey, editor) { it.toDoubleOrNull()?.let { value -> value.isFinite() && value in min..max } == true } },
             tooltipText = tooltipText
         )
     }
 
     private fun longSpinnerRow(
+        fieldKey: String,
         label: String,
         initialValue: Long,
         min: Long,
@@ -234,7 +240,7 @@ class ItemEditorFactory(
                 max = max,
                 step = step,
                 onChanged = onChanged
-            )
+            ).apply { retainDraft(fieldKey, editor) { it.toLongOrNull()?.let { value -> value in min..max } == true } }
         )
     }
 
@@ -275,11 +281,11 @@ class ItemEditorFactory(
 
     private fun createLongSwordRows(content: MutableLongSwordData): List<Node> {
         return listOf(
-            doubleSpinnerRow("クールダウン:", content.cooldown, 0.0, 999.0, 0.1, 1) { value ->
+            doubleSpinnerRow("detail.cooldown", "クールダウン:", content.cooldown, 0.0, 999.0, 0.1, 1) { value ->
                 content.cooldown = value
                 refreshSidebarState(itemData.id)
             },
-            doubleSpinnerRow("レンジ:", content.range, 0.0, 999.0, 0.1, 1) { value ->
+            doubleSpinnerRow("detail.range", "レンジ:", content.range, 0.0, 999.0, 0.1, 1) { value ->
                 content.range = value
                 refreshSidebarState(itemData.id)
             }
@@ -288,7 +294,7 @@ class ItemEditorFactory(
 
     private fun createPickaxeRows(content: MutablePickaxeData): List<Node> {
         return listOf(
-            intSpinnerRow("Tier:", content.tier, 0, Int.MAX_VALUE, 1) { value ->
+            intSpinnerRow("detail.tier", "Tier:", content.tier, 0, Int.MAX_VALUE, 1) { value ->
                 content.tier = value
                 refreshSidebarState(itemData.id)
             }
@@ -297,6 +303,7 @@ class ItemEditorFactory(
 
     private fun createBowRows(content: MutableBowContent): List<Node> {
         val angleRow = doubleSpinnerRow(
+            "detail.angle",
             "マルチショット角度:",
             content.angle,
             0.0,
@@ -313,7 +320,7 @@ class ItemEditorFactory(
 
         return buildList {
             add(
-                intSpinnerRow("マルチショット:", content.multi, 0, 999, 1) { value ->
+                intSpinnerRow("detail.multi", "マルチショット:", content.multi, 0, 999, 1) { value ->
                     content.multi = value
                     angleRow.isVisible = value > 0
                     angleRow.isManaged = value > 0
@@ -322,14 +329,14 @@ class ItemEditorFactory(
             )
             add(angleRow)
             add(
-                intSpinnerRow("貫通:", content.pierce, 0, 999, 1) { value ->
+                intSpinnerRow("detail.pierce", "貫通:", content.pierce, 0, 999, 1) { value ->
                     content.pierce = value
                     refreshSidebarState(itemData.id)
                 }
             )
             if (content is MutableShortBowData) {
                 add(
-                    doubleSpinnerRow("連射速度:", content.shortInterval, 0.0, 999.0, 0.1, 1) { value ->
+                    doubleSpinnerRow("detail.shortInterval", "連射速度:", content.shortInterval, 0.0, 999.0, 0.1, 1) { value ->
                         content.shortInterval = value
                         refreshSidebarState(itemData.id)
                     }
@@ -340,23 +347,24 @@ class ItemEditorFactory(
 
     private fun createCrossbowRows(content: MutableCrossbowData): List<Node> {
         return listOf(
-            doubleSpinnerRow("チャージ時間:", content.chargeSecond, 0.0, 999.0, 0.1, 1) { value ->
+            doubleSpinnerRow("detail.chargeSecond", "チャージ時間:", content.chargeSecond, 0.0, 999.0, 0.1, 1) { value ->
                 content.chargeSecond = value
                 refreshSidebarState(itemData.id)
             },
-            doubleSpinnerRow("矢消費効率:", content.arrowEfficiency, 0.0, 1.0, 0.1, 1) { value ->
+            doubleSpinnerRow("detail.arrowEfficiency", "矢消費効率:", content.arrowEfficiency, 0.0, 1.0, 0.1, 1) { value ->
                 content.arrowEfficiency = value
                 refreshSidebarState(itemData.id)
             },
-            intSpinnerRow("矢本数:", content.arrowCount, 0, 999, 1) { value ->
+            intSpinnerRow("detail.arrowCount", "矢本数:", content.arrowCount, 0, 999, 1) { value ->
                 content.arrowCount = value
                 refreshSidebarState(itemData.id)
             },
-            doubleSpinnerRow("拡散率:", content.diffusionRate, 0.0, 1.0, 0.1, 1) { value ->
+            doubleSpinnerRow("detail.diffusionRate", "拡散率:", content.diffusionRate, 0.0, 1.0, 0.1, 1) { value ->
                 content.diffusionRate = value
                 refreshSidebarState(itemData.id)
             },
             doubleSpinnerRow(
+                "detail.recoilPerProjectile",
                 "1本あたりの反動量:",
                 content.recoilPerProjectile,
                 0.0,
@@ -369,6 +377,7 @@ class ItemEditorFactory(
                 refreshSidebarState(itemData.id)
             },
             doubleSpinnerRow(
+                "detail.maxRecoil",
                 "合計反動量の上限:",
                 content.maxRecoil,
                 0.0,
@@ -419,6 +428,7 @@ class ItemEditorFactory(
     private fun createShieldRows(content: MutableShieldData): List<Node> {
         return listOf(
             longSpinnerRow(
+                "detail.blockCooldown",
                 "Blockクールダウン (tick):",
                 content.blockCooldown,
                 0L,
@@ -429,6 +439,7 @@ class ItemEditorFactory(
                 refreshSidebarState(itemData.id)
             },
             longSpinnerRow(
+                "detail.parryCooldown",
                 "Parryクールダウン (tick):",
                 content.parryCooldown,
                 0L,
@@ -1012,7 +1023,9 @@ class ItemEditorFactory(
                                                     step = 1,
                                                     allowNegative = false,
                                                     allowPlus = true
-                                                )
+                                                ).apply {
+                                                    retainDraft("detail.maxStackSize", editor) { it.toIntOrNull()?.let { value -> value in 1..99 } == true }
+                                                }
                                             } else {
                                                 Label("1（固定）")
                                             }
@@ -1085,6 +1098,7 @@ class ItemEditorFactory(
                             normalizeItemStatValue(type, value)
 
                         fun commitSpinnerValue(spinner: Spinner<Double>) {
+                            if (spinner.editor.properties["input-draft-invalid"] == true) return
                             val converter = spinner.valueFactory.converter
                             spinner.valueFactory.value = converter.fromString(spinner.editor.text)
                         }
@@ -1119,13 +1133,18 @@ class ItemEditorFactory(
                                 }
 
                                 editor.setOnAction {
-                                    valueFactory.value = valueFactory.converter.fromString(editor.text)
+                                    if (editor.properties["input-draft-invalid"] != true)
+                                        valueFactory.value = valueFactory.converter.fromString(editor.text)
                                 }
 
                                 focusedProperty().addListener { _, _, focused ->
-                                    if (!focused) {
+                                    if (!focused && editor.properties["input-draft-invalid"] != true) {
                                         valueFactory.value = valueFactory.converter.fromString(editor.text)
                                     }
+                                }
+                            }.apply {
+                                retainDraft("stats." + type.name, editor) {
+                                    it.toDoubleOrNull()?.let { value -> value.isFinite() && (value == NO_FLAT_ITEM_STAT_VALUE || value in type.min..type.max) } == true
                                 }
                             }
                         }
@@ -1176,11 +1195,12 @@ class ItemEditorFactory(
                                 }
 
                                 editor.setOnAction {
-                                    valueFactory.value = valueFactory.converter.fromString(editor.text)
+                                    if (editor.properties["input-draft-invalid"] != true)
+                                        valueFactory.value = valueFactory.converter.fromString(editor.text)
                                 }
 
                                 focusedProperty().addListener { _, _, focused ->
-                                    if (!focused) {
+                                    if (!focused && editor.properties["input-draft-invalid"] != true) {
                                         valueFactory.value = valueFactory.converter.fromString(editor.text)
                                     }
                                 }
@@ -1208,6 +1228,8 @@ class ItemEditorFactory(
                             onRemoved: () -> Unit
                         ): VBox {
                             var entry = initialEntry
+                            val draftPrefix = "statMultipliers." + type.name + "."
+                            val draftIndex = multipliersOf(type).indexOf(initialEntry)
                             val selectedParts = selectedItemStatMultiplierParts(entry.target).toMutableSet()
                             val partCheckBoxes = linkedMapOf<StatsPart, CheckBox>()
 
@@ -1292,6 +1314,9 @@ class ItemEditorFactory(
                                 }
                             }.apply {
                                 tooltip = AppTooltip.create(ITEM_STAT_MULTIPLIER_VALUE_TOOLTIP)
+                                retainDraft(draftPrefix + draftIndex, editor) {
+                                    it.toDoubleOrNull()?.let { value -> value.isFinite() && value in ITEM_STAT_MULTIPLIER_MIN..ITEM_STAT_MULTIPLIER_MAX } == true
+                                }
                             }
 
                             val row = HBox(8.0).apply {
@@ -1320,6 +1345,10 @@ class ItemEditorFactory(
                                         styleClass.add("editor-small-button")
 
                                         setOnAction {
+                                            val index = multipliersOf(type).indexOf(entry)
+                                            val size = multipliersOf(type).size
+                                            moveDraft(draftPrefix + index, null)
+                                            for (next in index + 1 until size) moveDraft(draftPrefix + next, draftPrefix + (next - 1))
                                             multipliersOf(type).remove(entry)
 
                                             if (multipliersOf(type).isEmpty()) {
@@ -1481,6 +1510,10 @@ class ItemEditorFactory(
 
                                                         setOnAction {
                                                             itemData.stats.remove(type)
+                                                            moveDraft("stats." + type.name, null)
+                                                            itemData.statMultipliers[type].orEmpty().indices.forEach {
+                                                                moveDraft("statMultipliers." + type.name + "." + it, null)
+                                                            }
                                                             itemData.statMultipliers.remove(type)
                                                             visibleTypes.remove(type)
                                                             refreshSidebarState(itemData.id)

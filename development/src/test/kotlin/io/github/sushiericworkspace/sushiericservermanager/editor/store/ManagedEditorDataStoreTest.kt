@@ -54,30 +54,38 @@ class ManagedEditorDataStoreTest {
         val service = EditorDataService(peer.store(), directory.toFile())
         val descriptor = EditorDataDescriptors.item
         val bases = listOf("first", "second").map { MutableItemBaseData(id = it).apply { display.displayName = "original" } }
-        bases.forEach { assertIs<StoreResult.Success<Unit>>(service.items.saveStore(it.id, it).also { result -> assertTrue(result is StoreResult.Success, result.toString()) }) }
+        val local = service.localService
+        bases.forEach { assertIs<StoreResult.Success<Unit>>(local.items.saveStore(it.id, it)) }
+        val ioThreads = java.util.concurrent.CopyOnWriteArrayList<Boolean>()
+        val access = local.DataAccess(EditorDataDescriptor(
+            descriptor.dataType, descriptor.load, descriptor.save, descriptor.validate, descriptor.merger,
+            loadBackup = { file, root -> ioThreads += Platform.isFxApplicationThread(); descriptor.loadBackup(file, root) },
+            saveBackup = { file, data -> ioThreads += Platform.isFxApplicationThread(); descriptor.saveBackup(file, data) },
+            validateInStore = descriptor.validateInStore, storesIdInFile = descriptor.storesIdInFile
+        ))
+        val editingReady = CompletableFuture<Unit>()
         val completed = CompletableFuture<EditorView.BatchSaveResult>()
         val fixture = fx {
             val loader = FXMLLoader(javaClass.getResource("/fxml/main/base.fxml"))
             val root = loader.load<Parent>()
             val main = loader.getController<MainController>()
             val stage = Stage().apply { scene = Scene(root); show() }
-            val logic = object : EditorView<MutableItemBaseData>(main, service, service.items) {
-                init {
-                    bases.forEach { base ->
-                        originalDataMap[base.id] = base.deepCopy()
-                        editingDataMap[base.id] = base.deepCopy().apply { display.displayName = "changed" }
-                    }
-                    currentSelectedDataId = "first"
-                }
+            val logic = object : EditorView<MutableItemBaseData>(main, service, access) {
                 override fun setupSidebar(container: VBox, selectId: String?) {
                     assertTrue(Platform.isFxApplicationThread())
                     loadSidebar(onFailed = { error("一覧の取得に失敗しました") }) { ids, _ ->
                         assertEquals(setOf("first", "second"), ids.toSet())
+                        if (!editingReady.isDone) {
+                            bases.forEach { base -> editingDataMap.getValue(base.id).display.displayName = "changed" }
+                            currentSelectedDataId = "first"
+                            editingReady.complete(Unit)
+                        }
                     }
                 }
                 override fun setupMainContent(selectData: MutableItemBaseData) = Unit
                 override fun resolveSaveConflict(dataId: String, originalData: MutableItemBaseData, currentData: MutableItemBaseData, serverData: MutableItemBaseData) = currentData
             }
+            main.switchView(logic)
             val timer = Timeline(KeyFrame(Duration.millis(20.0), {
                 Platform.runLater {
                     Window.getWindows().toList().mapNotNull { it.scene?.root as? DialogPane }.forEach { pane ->
@@ -89,14 +97,19 @@ class ManagedEditorDataStoreTest {
             Triple(logic, stage, timer)
         }
         try {
+            editingReady.get(15, TimeUnit.SECONDS)
             peer.ioThreads.clear()
+            val originalFiles = peer.files.toMap()
+            ioThreads.clear()
             fx { fixture.first.onSaveAll { completed.complete(it) } }
             val result = completed.get(15, TimeUnit.SECONDS)
             assertEquals(EditorView.SaveOutcome.SAVED, result.outcome)
             assertEquals(listOf("first", "second"), result.saved)
-            assertTrue(peer.ioThreads.isNotEmpty())
-            assertTrue(peer.ioThreads.none { it })
-            bases.forEach { base -> assertEquals("changed", assertIs<StoreResult.Success<MutableItemBaseData>>(service.items.loadStore(base.id)).value.display.displayName) }
+            assertTrue(ioThreads.isNotEmpty())
+            assertTrue(ioThreads.none { it })
+            assertTrue(peer.ioThreads.isEmpty())
+            assertEquals(originalFiles, peer.files)
+            bases.forEach { base -> assertEquals("changed", assertIs<StoreResult.Success<MutableItemBaseData>>(local.items.loadStore(base.id)).value.display.displayName) }
         } finally {
             val closed = CompletableFuture<Boolean>()
             fx { fixture.third.stop(); fixture.first.onClose { closed.complete(it) } }

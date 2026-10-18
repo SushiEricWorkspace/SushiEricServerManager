@@ -26,10 +26,12 @@ class EditorDataServiceDirectoryTest {
         val normal = object : EditorDataStore by memory {
             override val kind = EditorDataStoreKind.REMOTE
             override val identity = "remote-profile"
+            override val documentSource = EditorDocumentSource.Server("normal-profile", "declared/root")
         }
         val managed = object : EditorDataStore by memory {
             override val kind = EditorDataStoreKind.REMOTE
             override val identity = "managed-session"
+            override val documentSource = EditorDocumentSource.Server("managed-profile", "declared/root")
         }
         val local = LocalEditorDataStore(directory.resolve("offline-store"))
         val services = listOf(normal, managed, local).map { EditorDataService(it, directory.resolve("backups")) }
@@ -103,7 +105,7 @@ class EditorDataServiceDirectoryTest {
             val store = InMemoryEditorDataStore("backup-test")
             store.save(EditorDataDescriptors.item, oldId, data)
             val access = EditorDataService(store, backupRoot).items
-            access.saveToLocalBackup(oldId, "editing", data)
+            access.saveToLocalBackup(oldId, "editing", data.deepCopy().apply { editorMeta.comment.add("編集中") })
             access.saveToLocalBackup(oldId, "original", data)
 
             val moved = assertIs<StoreResult.Success<String>>(access.move(oldId, "archive"))
@@ -113,6 +115,10 @@ class EditorDataServiceDirectoryTest {
             val movedPair = assertNotNull(access.loadBackupPair(moved.value))
             assertEquals(moved.value, movedPair.first.id)
             assertEquals(moved.value, movedPair.second.id)
+            assertEquals(listOf("編集中"), movedPair.first.editorMeta.comment)
+            assertTrue(movedPair.second.editorMeta.comment.isEmpty())
+            assertEquals(oldId, assertIs<StoreResult.Success<MutableItemBaseData>>(
+                store.load(EditorDataDescriptors.item, oldId)).value.id)
         } finally {
             backupRoot.deleteRecursively()
         }

@@ -69,7 +69,8 @@ class WorkspaceViewTest {
                 var first = 0; var second = 0
                 fun editor(feature: WorkspaceFeature, action: () -> Unit): Pair<VBox, MenuItem> {
                     val save = MenuItem("保存").apply { id = "save-${feature.name}" }
-                    val actions = HBox(MenuButton("ファイル", null, save), MenuButton("編集"))
+                    val actions = HBox(MenuButton("ファイル", null, save).apply { styleClass.add("editor-menu-button") },
+                        MenuButton("編集").apply { styleClass.add("editor-menu-button") })
                     val root = VBox(actions, TextField())
                     workspace.show(feature, root)
                     ShortcutManager.register(root, ShortcutScope.EDITOR, EditorShortcut.SAVE) { action(); true }

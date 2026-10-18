@@ -117,6 +117,34 @@ class OfflineWorkspaceMigratorTest {
         }
     }
 
+    @Test
+    fun copiedMigrationKeepsOriginal() {
+        val fixture = createTempDirectory("offline-copy").toFile()
+        try {
+            val root = fixture.resolve("original")
+            val store = LocalEditorDataStore(root)
+            assertIs<StoreResult.Success<Unit>>(store.save(EditorDataDescriptors.item, "sword", validItem("sword")))
+            OfflineManifestRepository(root).write(OfflineWorkspaceManifest(dataFormatVersion = 0))
+            val originals = root.walkTopDown().filter(File::isFile).associate {
+                it.relativeTo(root).path to (it.readBytes() to it.lastModified())
+            }
+            val migration = object : DataMigration {
+                override val fromVersion = 0
+                override val toVersion = 1
+                override fun migrate(source: File, target: File) { source.copyTo(target) }
+            }
+            val result = assertIs<StoreResult.Success<LocalEditorDataStore>>(
+                OfflineWorkspaceMigrator(root, DataMigrationRegistry(listOf(migration)))
+                    .copyToCurrent(fixture.resolve("copy")))
+            assertIs<StoreResult.Success<MutableItemBaseData>>(result.value.load(EditorDataDescriptors.item, "sword"))
+            assertEquals(originals.keys, root.walkTopDown().filter(File::isFile).map { it.relativeTo(root).path }.toSet())
+            originals.forEach { (path, original) ->
+                assertContentEquals(original.first, root.resolve(path).readBytes())
+                assertEquals(original.second, root.resolve(path).lastModified())
+            }
+        } finally { fixture.deleteRecursively() }
+    }
+
     private fun validItem(id: String): MutableItemBaseData = MutableItemBaseData(id = id).apply {
         display.displayName = "Sword"
     }

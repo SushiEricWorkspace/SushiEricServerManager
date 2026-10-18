@@ -245,10 +245,10 @@ object EditorSession {
         }
     }
 
-    fun startOfflineSession(store: EditorDataStore) {
+    fun startOfflineSession(store: EditorDataStore, prepared: EditorDataService? = null) {
         check(connection == null)
         mode = AppMode.OFFLINE
-        dataService = EditorDataService(store).also { it.itemReferences.load() }
+        dataService = (prepared ?: EditorDataService(store)).also { it.itemReferences.load() }
     }
 
     /** 受理済みI/Oと接続の終了を待ちます。UIスレッド外で呼び出し、失敗時はsessionを保持します。 */

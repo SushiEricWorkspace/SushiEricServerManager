@@ -12,7 +12,7 @@ enum class EditorShortcut(
     val available: Boolean = true
 ) {
     SAVE(
-        displayName = "保存（現在の保存先）",
+        displayName = "ローカル保存",
         combination = KeyCodeCombination(
             KeyCode.S,
             KeyCombination.SHORTCUT_DOWN
@@ -20,7 +20,7 @@ enum class EditorShortcut(
         scopes = setOf(ShortcutScope.EDITOR, ShortcutScope.MOD_CONFIG)
     ),
     SAVE_ALL(
-        displayName = "すべて保存（現在の保存先）",
+        displayName = "すべてローカル保存",
         combination = KeyCodeCombination(
             KeyCode.S,
             KeyCombination.SHORTCUT_DOWN,
@@ -28,14 +28,14 @@ enum class EditorShortcut(
         )
     ),
     SYNC(
-        displayName = "同期",
+        displayName = "サーバーから取得",
         combination = KeyCodeCombination(
             KeyCode.R,
             KeyCombination.SHORTCUT_DOWN
         )
     ),
     SYNC_ALL(
-        displayName = "すべて同期",
+        displayName = "サーバーからすべて取得",
         combination = KeyCodeCombination(
             KeyCode.R,
             KeyCombination.SHORTCUT_DOWN,
@@ -60,7 +60,7 @@ enum class EditorShortcut(
     /**
      * 保存内容を再読み込みします。
      *
-     * 同期（SHORTCUT+R）とは別の画面で使うため、一般的な再読み込みのキーを割り当てます。
+     * サーバーから取得（SHORTCUT+R）とは別の画面で使うため、一般的な再読み込みのキーを割り当てます。
      */
     RELOAD(
         displayName = "再読み込み",
@@ -124,9 +124,7 @@ enum class EditorShortcut(
         )
     ),
     IMPORT_LOCAL("ローカルデータを取り込む", null),
-    LOCAL_SAVE("ローカル保存（準備中）", null, available = false),
-    UPLOAD("サーバーへアップロード（準備中）", null, available = false),
-    DOWNLOAD("サーバーから取得（準備中）", null, available = false)
+    UPLOAD("サーバーへアップロード（準備中）", null, available = false)
 }
 
 /** 同時に操作を受け付ける機能の種類です。文書の識別は登録先Nodeで行います。 */

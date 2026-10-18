@@ -42,6 +42,12 @@ import javafx.animation.PauseTransition
 import javafx.animation.KeyFrame
 import javafx.animation.Timeline
 import io.github.sushiericworkspace.sushiericservermanager.editor.service.LocalBackupSnapshot
+import io.github.sushiericworkspace.sushiericservermanager.editor.service.LocalDocumentSnapshot
+import io.github.sushiericworkspace.sushiericservermanager.editor.service.LocalDocumentVersion
+import io.github.sushiericworkspace.sushiericservermanager.editor.service.PendingStoreOperationKind
+import io.github.sushiericworkspace.sushiericservermanager.editor.service.LocalDocumentRecord
+import io.github.sushiericworkspace.sushiericservermanager.editor.service.EditorDocumentKey
+import io.github.sushiericworkspace.sushiericservermanager.editor.service.EditorDocumentSource
 import javafx.application.Platform
 import javafx.event.EventHandler
 import javafx.scene.Scene
@@ -53,6 +59,8 @@ import javafx.concurrent.Task
 import javafx.beans.value.ChangeListener
 import javafx.scene.control.Button
 import javafx.scene.control.Label
+import javafx.scene.control.ChoiceDialog
+import io.github.sushiericworkspace.sushiericservermanager.app.AppScreen
 import javafx.scene.control.MenuButton
 import javafx.scene.control.MenuItem
 import javafx.scene.control.SeparatorMenuItem
@@ -85,9 +93,42 @@ import org.slf4j.LoggerFactory
  */
 abstract class EditorView<T : ManagedData<T, *>>(
     protected val main: MainController,
-    protected val dataService: EditorDataService,
-    protected val dataAccess: EditorDataService.DataAccess<T>
+    dataService: EditorDataService,
+    dataAccess: EditorDataService.DataAccess<T>
 ) {
+    private val connectedService = dataService
+    protected var dataService: EditorDataService = dataService.localService
+        private set
+    protected var dataAccess: EditorDataService.DataAccess<T> = this.dataService.documentAccess(dataAccess.descriptor)
+        private set
+    private data class SourceState<D>(
+        val editing: MutableMap<String, D> = mutableMapOf(),
+        val original: MutableMap<String, D> = mutableMapOf(),
+        val saved: MutableMap<String, D> = mutableMapOf(),
+        val pending: MutableMap<String, PendingStoreOperation> = mutableMapOf(),
+        val conflicts: MutableMap<String, List<DataConflict>> = mutableMapOf(),
+        val removed: MutableSet<String> = mutableSetOf(),
+        val expanded: MutableMap<String, Boolean> = mutableMapOf(),
+        var selected: String? = null,
+        var tabs: IdTabsState = IdTabsState(),
+        var tabsRestored: Boolean = false,
+        var remoteIds: Set<String> = emptySet()
+    )
+    private val sourceStates = mutableMapOf<EditorDocumentSource, SourceState<T>>()
+    private val sourceState get() = sourceStates.getOrPut(this.dataService.documentSource) {
+        SourceState(expanded = AppSettingsManager.load().sidebarDirectoryExpanded[sidebarStateKey].orEmpty().toMutableMap())
+    }
+    private var switchingSource = false
+    private var initialSourceResolved = false
+    private val sourceMenu = MenuButton("ローカル").apply {
+        items.add(MenuItem("ローカル").apply { setOnAction { switchSource(connectedService.localService) } })
+        if (connectedService.isRemote) items.add(MenuItem("サーバーの作業コピー").apply {
+            setOnAction { switchSource(connectedService) }
+        })
+        items.add(SeparatorMenuItem())
+        items.add(MenuItem("旧退避から復元…").apply { setOnAction { restoreLegacyBackup() } })
+    }
+
     private data class PreparedSave<D : ManagedData<D, *>>(
         val dataId: String,
         val operation: PendingStoreOperation?,
@@ -95,8 +136,12 @@ abstract class EditorView<T : ManagedData<T, *>>(
         val localData: D,
         val automaticallyMergedData: D?,
         val previewData: D,
-        val saveData: D?
+        val saveData: D?,
+        val raw: Map<String, String> = emptyMap(),
+        val versions: Map<String, LocalDocumentVersion> = emptyMap()
     )
+
+    private data class SavedCheckpoint<D>(val data: D?, val document: LocalDocumentRecord)
 
     private data class SaveDataPreview<D>(
         val data: D,
@@ -105,9 +150,8 @@ abstract class EditorView<T : ManagedData<T, *>>(
 
     /** サイドバー表示方式。必要なエディターは従来の平坦表示へ切り替えられます。 */
     protected open val sidebarDisplayMode: SidebarDisplayMode = SidebarDisplayMode.TREE
-    private val sidebarStateKey = "${dataService.cacheIdentity}:${dataAccess.dataType.categoryDirName}"
-    protected val sidebarExpandedState: MutableMap<String, Boolean> =
-        AppSettingsManager.load().sidebarDirectoryExpanded[sidebarStateKey].orEmpty().toMutableMap()
+    private val sidebarStateKey get() = "${dataService.cacheIdentity}:${dataAccess.dataType.categoryDirName}"
+    protected val sidebarExpandedState: MutableMap<String, Boolean> get() = sourceState.expanded
 
     protected fun persistSidebarExpandedState() {
         val settings = AppSettingsManager.load()
@@ -123,7 +167,9 @@ abstract class EditorView<T : ManagedData<T, *>>(
     protected var autoSaveTimeline: Timeline? = null
 
     /** 現在画面に表示しているアイテムのID */
-    protected var currentSelectedDataId: String? = null
+    protected var currentSelectedDataId: String?
+        get() = sourceState.selected
+        set(value) { sourceState.selected = value }
 
     protected val registeredSidebarIds = mutableSetOf<String>()
     private val sidebarStates = mutableMapOf<String, SidebarDataState>()
@@ -153,14 +199,38 @@ abstract class EditorView<T : ManagedData<T, *>>(
     protected val logger: Logger = LoggerFactory.getLogger(javaClass)
 
     // ID（String）をキーにしたキャッシュMap
-    protected val editingDataMap = mutableMapOf<String, T>()
-    protected val originalDataMap = mutableMapOf<String, T>()
+    protected val editingDataMap get() = sourceState.editing
+    protected val originalDataMap get() = sourceState.original
+    private val inputDrafts = mutableMapOf<EditorDocumentKey, MutableMap<String, String>>()
+    private val savedInputDrafts = mutableMapOf<EditorDocumentKey, Map<String, String>>()
+    private val localDocumentStates = mutableMapOf<EditorDocumentKey, LocalDocumentRecord>()
+    private val documentVersions = mutableMapOf<EditorDocumentKey, LocalDocumentVersion>()
+
+    private fun versions(ids: Collection<String>): Map<String, LocalDocumentVersion> = ids.associateWith { id ->
+        val key = documentKey(id)
+        documentVersions.getOrPut(key) {
+            LocalDocumentVersion(key, localDocumentStates[key]?.takeIf { it.key == key }?.revision ?: 0L)
+        }
+    }
+
+    private fun observeDocument(record: LocalDocumentRecord) {
+        localDocumentStates[record.key] = record
+        documentVersions[record.key] = LocalDocumentVersion(record.key, record.revision, record.unsaved)
+    }
+
     private var backupGeneration = 0L
-    private val removedBackupIds = mutableSetOf<String>()
+    private val removedBackupIds get() = sourceState.removed
     private var closing = false
-    private val mergeConflicts = mutableMapOf<String, List<DataConflict>>()
-    private val pendingStoreOperations = mutableMapOf<String, PendingStoreOperation>()
-    private val editHistory = EditorDataHistory<T>(copy = { it.deepCopy() })
+    private val mergeConflicts get() = sourceState.conflicts
+    private val pendingStoreOperations get() = sourceState.pending
+    protected fun documentKey(id: String): EditorDocumentKey = dataAccess.documentKey(id)
+    private data class EditingSnapshot<D>(val data: D, val raw: Map<String, String>)
+    private val editHistory = EditorDataHistory<EditingSnapshot<T>>(copy = {
+        EditingSnapshot(it.data.deepCopy(), it.raw.toMap())
+    })
+
+    private fun historySnapshot(id: String, data: T) =
+        EditingSnapshot(data, inputDrafts[documentKey(id)].orEmpty().toMap())
 
     private var historyScene: Scene? = null
     private val historySceneListener = ChangeListener<Scene> { _, _, _ -> installHistoryCommitFilter() }
@@ -174,14 +244,18 @@ abstract class EditorView<T : ManagedData<T, *>>(
         if (historyScene?.let(ShortcutManager::isComposing) != true && owns(owner) &&
             shouldCommitHistoryOnKeyPress(owner is TextInputControl, event.code, event.isShortcutDown)) commitPendingTextEdit()
     }
-    private var documentState = IdTabsState()
-    private var documentsRestored = false
+    private var documentState: IdTabsState
+        get() = sourceState.tabs
+        set(value) { sourceState.tabs = value }
+    private var documentsRestored: Boolean
+        get() = sourceState.tabsRestored
+        set(value) { sourceState.tabsRestored = value }
     private val idTabs = IdTabStrip(
         onSelect = { if (currentSelectedDataId != it) selectTab(it) },
         onClose = ::closeDocument,
         onMove = { id, index -> documentState = documentState.move(id, index); updateDocumentTabs() }
     )
-    private val syncService = EditorSyncService(dataAccess)
+    private val syncService get() = EditorSyncService(dataAccess)
     private var saveMenuItem: MenuItem? = null
     private var saveAllMenuItem: MenuItem? = null
     private var syncMenuItem: MenuItem? = null
@@ -199,7 +273,7 @@ abstract class EditorView<T : ManagedData<T, *>>(
     private var repairBusy = false
     private var syncBusy = false
     val saveRunning: Boolean get() = main.operationRunning
-    internal open val closeBusy: Boolean get() = saveRunning || main.loadingRunning || dataService.activeSaves > 0 || syncBusy || repairBusy || importBusy || closing
+    internal open val closeBusy: Boolean get() = switchingSource || saveRunning || main.loadingRunning || dataService.activeSaves > 0 || syncBusy || repairBusy || importBusy || closing
     internal val storeOperationBlocked: Boolean get() = dataService.activeSaves > 0 || main.loadingRunning || repairBusy || closing || closed || EditorWindowManager.isClosing
     private val saveListener = ChangeListener<Number> { _, _, count ->
         main.actionButtonContainer.isDisable = count.toInt() > 0 || main.loadingRunning || main.operationRunning || closing
@@ -217,15 +291,126 @@ abstract class EditorView<T : ManagedData<T, *>>(
     @Volatile private var loadGeneration = 0
     private var restoringBackup = false
     private var pendingPreloadIds: List<String> = emptyList()
-    private val sessionBound = EditorSession.dataService === dataService
+    private val sessionBound = EditorSession.dataService === connectedService
     private fun acceptsLoad(generation: Int): Boolean = !closed && !closing && generation == loadGeneration &&
-        dataService.store.isAvailable && (!sessionBound || EditorSession.dataService === dataService)
+        dataService.store.isAvailable && (!sessionBound || EditorSession.dataService === connectedService)
 
     private var sidebarRefresh: Pair<List<StoreResource>, List<String>>? = null
     private var sidebarSnapshot: Pair<List<StoreResource>, List<String>>? = null
 
+    private fun switchSource(next: EditorDataService) {
+        if (next === dataService || closeBusy || switchingSource || main.shortcutRoot.scene?.let(ShortcutManager::isComposing) == true) return
+        commitPendingTextEdit()
+        switchingSource = true
+        val previous = dataService
+        loadGeneration++
+        cancelSidebarPreload()
+        stopAutoSaveTimer()
+        main.showOperation("保存元を切り替えています")
+        requestBackup(allowDuringOperation = true) { success ->
+            switchingSource = false
+            main.finishOperation()
+            if (!success) return@requestBackup
+            previous.activeSavesProperty.removeListener(saveListener)
+            dataService = next
+            dataAccess = next.documentAccess(dataAccess.descriptor)
+            next.activeSavesProperty.addListener(saveListener)
+            sidebarSnapshot = null
+            sidebarRefresh = null
+            sidebarValidation.clear()
+            registeredSidebarIds.clear()
+            main.mainContentContainer.children.clear()
+            WorkspaceManager.current?.documentSource(main.shortcutRoot, next.cacheIdentity)
+            setupActions(main.actionButtonContainer)
+            sourceMenu.text = if (next.isRemote) "サーバーの作業コピー" else "ローカル"
+            onSourceChanged()
+            if (sourceState.tabsRestored) setupSidebar(main.sidebarContainer, currentSelectedDataId)
+            else start()
+        }
+    }
+
+    private fun restoreLegacyBackup() {
+        if (closeBusy || main.shortcutRoot.scene?.let(ShortcutManager::isComposing) == true) return
+        commitPendingTextEdit()
+        importBusy = true
+        importApplying = true
+        main.showOperation("旧退避の候補を確認しています")
+        fun finish() {
+            importBusy = false
+            importApplying = false
+            main.finishOperation()
+        }
+        dataService.submitIo { dataAccess.legacyBackupCandidates() }.whenComplete { candidates, error ->
+            Platform.runLater {
+                if (error != null || candidates.isNullOrEmpty()) {
+                    finish()
+                    if (error != null) logger.error("旧退避の候補を読み込めませんでした", error)
+                    CustomDialog.information().title("旧退避から復元")
+                        .header(if (error == null) "復元候補がありません" else "復元候補を読み込めませんでした")
+                        .owner(main.currentStage).show()
+                    return@runLater
+                }
+                val format = java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss")
+                val choices = candidates.withIndex().associate { (index, candidate) ->
+                    (index + 1).toString() + ". " + candidate.name + " / " + format.format(java.util.Date(candidate.modified)) + " / " + candidate.count + " 件" to candidate
+                }
+                val selected = ChoiceDialog(choices.keys.first(), choices.keys).apply {
+                    title = "旧退避から復元"
+                    headerText = "この作業コピーへ復元する旧退避を選択してください"
+                    contentText = "候補の接続先との由来は確認されていません。"
+                    main.currentStage?.let(::initOwner)
+                    dialogPane.stylesheets.add(EditorView::class.java.getResource(AppScreen.WIDGETS_ONLY.css)!!.toExternalForm())
+                }.showAndWait().orElse(null)?.let(choices::get)
+                if (selected == null || !CustomDialog.confirmation().title("旧退避の復元確認")
+                    .header(selected.name + " の編集退避をこの作業コピーへ復元しますか？")
+                    .content(selected.location + "\n同じIDの編集中内容を置き換えます。現在のローカル保存済み内容と取得基準、旧退避の原本は保持します。接続先との由来の一致は確認されていません。")
+                    .owner(main.currentStage).show()) { finish(); return@runLater }
+                requestBackup(allowDuringOperation = true) { backedUp ->
+                    if (!backedUp) { finish(); return@requestBackup }
+                    dataService.submitIo { dataAccess.restoreLegacyBackup(selected.location) }.whenComplete { result, failure ->
+                        Platform.runLater {
+                            finish()
+                            when {
+                                failure != null || result is StoreResult.Failure -> {
+                                    logger.error("旧退避の復元に失敗しました", failure)
+                                    CustomDialog.error().header("旧退避を復元できませんでした")
+                                        .content("原本と現在のローカル文書を保持しています。")
+                                        .owner(main.currentStage).show()
+                                }
+                                result is StoreResult.Success -> {
+                                    result.value.forEach { onHistoryDataRestored(it.key.id) }
+                                    editingDataMap.clear()
+                                    originalDataMap.clear()
+                                    sourceState.saved.clear()
+                                    pendingStoreOperations.clear()
+                                    mergeConflicts.clear()
+                                    start()
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    protected open fun onSourceChanged() = Unit
+
     /** 画面表示後にバックアップを背景で復元し、その後に一覧を読み込みます。 */
     fun start() {
+        if (!initialSourceResolved) {
+            initialSourceResolved = true
+            val savedSource = WorkspaceManager.current?.documentSource(main.shortcutRoot)
+            if (connectedService.isRemote && savedSource == connectedService.cacheIdentity) {
+                dataService.activeSavesProperty.removeListener(saveListener)
+                dataService = connectedService
+                dataAccess = connectedService.documentAccess(dataAccess.descriptor)
+                dataService.activeSavesProperty.addListener(saveListener)
+                sourceMenu.text = "サーバーの作業コピー"
+                onSourceChanged()
+                setupActions(main.actionButtonContainer)
+            }
+        }
         restoringBackup = true
         val generation = ++loadGeneration
         main.showLoading("自動保存バックアップを復元しています", lockSidebar = true)
@@ -237,6 +422,13 @@ abstract class EditorView<T : ManagedData<T, *>>(
             if (!acceptsLoad(generation)) return@setOnSucceeded
             restoringBackup = false
             val restored = task.value
+            restored.documents.forEach { record ->
+                observeDocument(record)
+                inputDrafts[record.key] = record.raw.toMutableMap()
+                savedInputDrafts[record.key] = record.savedRaw
+            }
+            sourceState.saved.clear()
+            sourceState.saved.putAll(restored.saved)
             injectAutoSaveCaches(restored.editing, restored.original, restored.operations)
             setupSidebar(main.sidebarContainer)
         }
@@ -250,34 +442,37 @@ abstract class EditorView<T : ManagedData<T, *>>(
     private data class RestoredData<D>(
         val editing: Map<String, D>,
         val original: Map<String, D>,
-        val operations: List<PendingStoreOperation>
+        val operations: List<PendingStoreOperation>,
+        val documents: List<LocalDocumentRecord> = emptyList(),
+        val saved: Map<String, D> = emptyMap()
     )
 
     private fun readAutoSaveCaches(): RestoredData<T> {
-        val editing = mutableMapOf<String, T>()
-        val original = mutableMapOf<String, T>()
-        val directory = dataService.autoSaveDirectory.resolve(dataService.cacheIdentity)
-            .resolve(dataAccess.dataType.categoryDirName).resolve("editing")
-        directory.listFiles { file -> file.isFile && file.extension.lowercase() == "yml" }
-            ?.forEach { file ->
-                val id = file.nameWithoutExtension
-                val pair = dataAccess.loadBackupPair(id) ?: return@forEach
-                val restoredId = pair.first.id
-                editing[restoredId] = pair.first
-                original[restoredId] = pair.second.apply { this.id = restoredId }
-                if (!closed && restoredId != id) {
-                    dataAccess.saveToLocalBackup(restoredId, "editing", pair.first)
-                    dataAccess.saveToLocalBackup(restoredId, "original", pair.second)
-                    dataAccess.deleteLocalBackup(id)
-                }
-            }
-        val storedOperations = dataAccess.loadPendingStoreOperations()
-        val operations = storedOperations.mapNotNull { it.toPendingOperation() }
-            .filter { it.currentId in editing && it.currentId in original }
-        if (!closed && operations.size != storedOperations.size) {
-            dataAccess.savePendingStoreOperations(operations.map(PendingStoreOperation::toRecord))
+        when (val initialized = dataAccess.listStoreResources()) {
+            is StoreResult.Success -> Unit
+            is StoreResult.Failure -> error("ローカル文書の準備に失敗しました: " + initialized.error.code)
         }
-        return RestoredData(editing, original, operations)
+        val records = when (val loaded = dataAccess.localDocuments()) {
+            is StoreResult.Success -> loaded.value.filter { it.movedTo == null && !(it.savedDeleted && it.deleted) }
+            is StoreResult.Failure -> error("ローカル文書の復元に失敗しました: " + loaded.error.code)
+        }
+        val movedSources = records.mapNotNull { record ->
+            record.pending?.takeIf { it.kind == PendingStoreOperationKind.RENAME && it != record.savedPending }?.sourceId
+        }.toSet()
+        val editing = linkedMapOf<String, T>()
+        val original = linkedMapOf<String, T>()
+        records.filterNot { it.key.id in movedSources }.forEach { record ->
+            val text = record.editing ?: record.saved ?: return@forEach
+            editing[record.key.id] = dataAccess.decodeDocument(record.key.id, text)
+            original[record.key.id] = dataAccess.decodeDocument(record.key.id, record.original ?: record.saved ?: text)
+        }
+        val operations = records.mapNotNull { record ->
+            record.pending?.takeIf { it != record.savedPending }?.toPendingOperation()
+        }
+        val saved = records.mapNotNull { record ->
+            record.saved?.let { record.key.id to dataAccess.decodeDocument(record.key.id, it) }
+        }.toMap()
+        return RestoredData(editing, original, operations, records, saved)
     }
 
     /** 一覧とディレクトリを背景で取得します。保存後は既に取得した一覧をそのまま渡します。 */
@@ -345,7 +540,7 @@ abstract class EditorView<T : ManagedData<T, *>>(
      *
      * サーバーに接続していて、アップロードに対応するデータ種別のときだけ値があります。
      */
-    private val uploadCategory: UploadDataCategory? =
+    private val uploadCategory: UploadDataCategory? get() =
         UploadDataCategory.of(dataAccess.dataType).takeIf { dataService.isRemote }
     private var sidebarPreloadGeneration = 0
 
@@ -359,26 +554,29 @@ abstract class EditorView<T : ManagedData<T, *>>(
      *
      * サイドバーを構築するたびに更新し、ローカルにだけ存在するデータの判別へ使用します。
      */
-    protected var remoteDataIds: Set<String> = emptySet()
+    protected var remoteDataIds: Set<String>
+        get() = sourceState.remoteIds
+        set(value) { sourceState.remoteIds = value }
 
     /**
      * 指定したデータの編集キャッシュと自動保存バックアップを破棄します。
      *
-     * ストア上のファイルには触れないため、サーバー未保存データの削除や、
+     * ストア上のファイルには触れないため、ローカル未保存データの削除や、
      * ストア側の削除が完了した後の後処理に使用します。
      */
     protected fun discardLocalEditingData(id: String) {
         editingDataMap.remove(id)
         originalDataMap.remove(id)
+        sourceState.saved.remove(id)
         mergeConflicts.remove(id)
-        editHistory.remove(id)
+        editHistory.remove(documentKey(id))
         removeLocalBackup(id)
     }
 
     /** 新規データを、保存時にストアへ追加する保留操作として登録します。 */
     protected fun stageDataCreation(id: String) {
         pendingStoreOperations[id] = PendingStoreOperation.Create(id)
-        editingDataMap[id]?.let { editHistory.reset(id, it) }
+        editingDataMap[id]?.let { editHistory.reset(documentKey(id), historySnapshot(id, it)) }
         persistPendingStoreState()
         refreshSidebarState(id)
         refreshSyncButtonState()
@@ -393,8 +591,12 @@ abstract class EditorView<T : ManagedData<T, *>>(
         val operation = composePendingRename(previous, oldId, newId)
         renameEditingCache(editingDataMap, oldId, newId)
         renameEditingCache(originalDataMap, oldId, newId)
+        renameEditingCache(sourceState.saved, oldId, newId)
         mergeConflicts.remove(oldId)?.let { mergeConflicts[newId] = it }
-        editHistory.rename(oldId, newId)
+        editHistory.rename(documentKey(oldId), documentKey(newId))
+        inputDrafts.remove(documentKey(oldId))?.let { inputDrafts[documentKey(newId)] = it }
+        savedInputDrafts.remove(documentKey(oldId))?.let { savedInputDrafts[documentKey(newId)] = it }
+        localDocumentStates.remove(documentKey(oldId))?.let { localDocumentStates[documentKey(newId)] = it }
         documentState = documentState.copy(ids = documentState.ids.map { if (it == oldId) newId else it },
             selected = if (documentState.selected == oldId) newId else documentState.selected)
         updateDocumentTabs()
@@ -528,8 +730,8 @@ abstract class EditorView<T : ManagedData<T, *>>(
         saveMenuItem = actionMenuItem(EditorShortcut.SAVE.displayName, EditorShortcut.SAVE) { onSave() }
         saveAllMenuItem = actionMenuItem(EditorShortcut.SAVE_ALL.displayName, EditorShortcut.SAVE_ALL) { onSaveAll() }
 
-        syncMenuItem = actionMenuItem("同期", EditorShortcut.SYNC) { onSynchronizeSelected() }
-        syncAllMenuItem = actionMenuItem("すべて同期", EditorShortcut.SYNC_ALL) { onSynchronizeAll() }
+        syncMenuItem = actionMenuItem(EditorShortcut.SYNC.displayName, EditorShortcut.SYNC) { onSynchronizeSelected() }
+        syncAllMenuItem = actionMenuItem(EditorShortcut.SYNC_ALL.displayName, EditorShortcut.SYNC_ALL) { onSynchronizeAll() }
 
         val fileItems = mutableListOf<MenuItem>(
             saveMenuItem!!,
@@ -588,7 +790,8 @@ abstract class EditorView<T : ManagedData<T, *>>(
                 repairAllErrorsMenuItem
             )
         }
-        container.children.setAll(fileMenu, editMenu)
+        container.children.setAll(fileMenu, editMenu, sourceMenu)
+        main.refreshEditorMenus(this)
         refreshActionMenuState()
     }
 
@@ -610,7 +813,7 @@ abstract class EditorView<T : ManagedData<T, *>>(
         if (storeOperationBlocked || importBusy || syncBusy || repairBusy) return
         val generation = ++importGeneration
         fun active(): Boolean = generation == importGeneration && !closing && !closed &&
-            dataService.store.isAvailable && (!sessionBound || EditorSession.dataService === dataService)
+            dataService.store.isAvailable && (!sessionBound || EditorSession.dataService === connectedService)
         val profileName = dataService.currentProfileName ?: return
         var editingBeforeLoad: Map<String, T> = emptyMap()
         var operationsBeforeLoad: Map<String, PendingStoreOperation> = emptyMap()
@@ -684,8 +887,9 @@ abstract class EditorView<T : ManagedData<T, *>>(
                             val hasOriginal = id in originalDataMap
                             originalDataMap.putIfAbsent(id, (entry.original ?: dataAccess.createDefault(id)).deepCopy())
                             editingDataMap[id] = entry.data.deepCopy()
+                            inputDrafts[documentKey(id)] = entry.raw.toMutableMap()
                             mergeConflicts.remove(id)
-                            editHistory.reset(id, entry.data)
+                            editHistory.reset(documentKey(id), historySnapshot(id, entry.data))
                             val deletion = pendingStoreOperations[id] as? PendingStoreOperation.Delete
                             if (deletion != null) {
                                 if (deletion.sourceId == id) pendingStoreOperations.remove(id)
@@ -756,7 +960,7 @@ abstract class EditorView<T : ManagedData<T, *>>(
 
     /**
      * 指定された一意の識別子（IDやファイル名など）に対応するタブ（アイテム）を選択状態にします。
-     * 最新データの取得と自動マージを背景実行し、最新の選択要求にだけ結果を反映します。
+     * 保存元のローカル作業コピーを背景で読み、最新の選択要求にだけ結果を表示します。
      * 取得中は編集を抑止しますが、別のデータの選択と画面終了は可能です。
      *
      * @param targetId 選択対象となるリソースの識別子（ID）
@@ -772,44 +976,36 @@ abstract class EditorView<T : ManagedData<T, *>>(
         currentSelectedDataId = targetId
         val generation = ++loadGeneration
         val local = editingDataMap[targetId]?.deepCopy()
-        val base = originalDataMap[targetId]?.deepCopy()
         previousId?.takeIf { it != targetId }?.let(::refreshSidebarState)
         refreshSidebarState(targetId)
-        if (local != null && (sidebarRefresh != null || hasPendingStoreOperation(targetId) ||
-                (!dataService.isRemote && local != base))) {
+        if (local != null) {
             finishLoading()
             displaySelected(targetId)
             return
         }
         sidebarValidation[targetId] = SidebarValidationStatus.CHECKING
         refreshSidebarState(targetId)
-        main.showLoading("$targetId の最新データを取得しています")
-        val task = object : Task<StoreResult<T>>() {
-            override fun call(): StoreResult<T> = dataAccess.loadStore(targetId)
+        main.showLoading("$targetId のローカル作業コピーを読み込んでいます")
+        val task = object : Task<StoreResult<Pair<T, LocalDocumentRecord>>>() {
+            override fun call(): StoreResult<Pair<T, LocalDocumentRecord>> = dataAccess.observeStore(targetId)
         }
         task.setOnSucceeded {
             if (!acceptsLoad(generation)) return@setOnSucceeded
             finishLoading()
             when (val result = task.value) {
                 is StoreResult.Success -> {
-                    val remote = result.value
-                    if (local != null && base != null && dataService.isRemote) {
-                        main.showLoading("$targetId の未保存変更をマージしています")
-                        mergeSelectedWithLatest(targetId, generation, base, local, remote)
-                    } else {
-                        editingDataMap[targetId] = remote
-                        originalDataMap[targetId] = remote.deepCopy()
-                        displaySelected(targetId)
-                    }
+                    val remote = result.value.first
+                    observeDocument(result.value.second)
+                    editingDataMap[targetId] = remote
+                    originalDataMap[targetId] = remote.deepCopy()
+                    sourceState.saved[targetId] = remote.deepCopy()
+                    displaySelected(targetId)
                 }
                 is StoreResult.Failure -> {
                     sidebarValidation[targetId] = SidebarValidationStatus.FAILED
                     refreshSidebarState(targetId)
-                    if (local != null) displaySelected(targetId)
-                    else main.mainContentContainer.children.clear()
-                    if (local == null || result.error.code != StoreErrorCode.FILE_NOT_FOUND) {
-                        showReadFailure(targetId, result.error)
-                    }
+                    main.mainContentContainer.children.clear()
+                    showReadFailure(targetId, result.error)
                     startPendingPreload()
                 }
             }
@@ -818,7 +1014,6 @@ abstract class EditorView<T : ManagedData<T, *>>(
             if (!acceptsLoad(generation)) return@setOnFailed
             sidebarValidation[targetId] = SidebarValidationStatus.FAILED
             refreshSidebarState(targetId)
-            if (local != null) displaySelected(targetId)
             showReadFailure(targetId, StoreError(StoreErrorCode.IO_ERROR, cause = task.exception))
             startPendingPreload()
         }
@@ -830,7 +1025,7 @@ abstract class EditorView<T : ManagedData<T, *>>(
         refreshSidebarState(targetId)
         refreshSyncButtonState()
         val editing = editingDataMap.getValue(targetId)
-        editHistory.initialize(targetId, editing)
+        editHistory.initialize(documentKey(targetId), historySnapshot(targetId, editing))
         setupMainContent(editing)
         installHistoryCommitFilter()
         loadEditorReferences()
@@ -851,30 +1046,6 @@ abstract class EditorView<T : ManagedData<T, *>>(
         restoredCacheCount = 0
     }
 
-    private fun mergeSelectedWithLatest(targetId: String, generation: Int, base: T, local: T, remote: T) {
-        val task = object : Task<ThreeWayMergeResult<T>>() {
-            override fun call(): ThreeWayMergeResult<T> = dataAccess.merge(base, local, remote)
-        }
-        task.setOnSucceeded {
-            if (!acceptsLoad(generation)) return@setOnSucceeded
-            val merge = task.value
-            editingDataMap[targetId] = merge.merged
-            originalDataMap[targetId] = remote.deepCopy()
-            if (remote != base) editHistory.reset(targetId, merge.merged)
-            mergeConflicts[targetId] = merge.conflicts
-            displaySelected(targetId)
-            if (merge.merged != remote) persistContentChangeBackup(targetId)
-            else removeLocalBackup(targetId)
-        }
-        task.setOnFailed {
-            if (!acceptsLoad(generation)) return@setOnFailed
-            displaySelected(targetId)
-            showReadFailure(targetId, StoreError(StoreErrorCode.IO_ERROR, cause = task.exception))
-            startPendingPreload()
-        }
-        dataService.executeIo(task)
-    }
-
     /**
      * 入力を確定してスナップショットを取得し、単件保存を背景実行します。
      * 確認と画面更新、[onComplete]はJavaFXスレッドで実行します。
@@ -892,16 +1063,11 @@ abstract class EditorView<T : ManagedData<T, *>>(
         val local = editingDataMap.getValue(dataId).deepCopy()
         val original = originalDataMap.getValue(dataId).deepCopy()
         val operation = pendingStoreOperations[dataId]
-        val sourceId = when (operation) {
-            is PendingStoreOperation.Rename -> operation.sourceId
-            is PendingStoreOperation.Delete -> operation.sourceId
-            else -> dataId
-        }
         savedDuringOperation = false
         loadGeneration++
         cancelSidebarPreload()
         dataService.beginSave()
-        main.showOperation("保存前の最新データを取得しています")
+        main.showOperation("ローカル保存を準備しています")
 
         var finished = false
         fun finish(outcome: SaveOutcome, beforeNotification: () -> Unit = {}) {
@@ -927,8 +1093,8 @@ abstract class EditorView<T : ManagedData<T, *>>(
             finish(if (saved) SaveOutcome.SAVED_WITH_ERRORS else SaveOutcome.FAILED) {
                 CustomDialog.error()
                     .title(if (saved) "保存後の処理に失敗しました" else "保存に失敗しました")
-                    .content(if (saved) "ストアへの書き込みは完了しています。表示やバックアップの状態を確認してください。"
-                        else "編集中の内容は保持されています。接続と入力内容を確認してください。")
+                    .content(if (saved) "ローカル保存は完了しています。表示や退避の状態を確認してください。"
+                        else "編集中の内容は保持されています。保存先と入力内容を確認してください。")
                     .owner(main.currentStage).show()
             }
         }
@@ -938,7 +1104,7 @@ abstract class EditorView<T : ManagedData<T, *>>(
         }
 
         fun persist(prepared: PreparedSave<T>) {
-            main.showOperation("検証・書き込みを実行しています")
+            main.showOperation("ローカルに保存しています")
             saveStep({ writeSingleSave(prepared) }, ::fail) { result ->
                 when (result) {
                     is StoreResult.Failure -> {
@@ -960,31 +1126,16 @@ abstract class EditorView<T : ManagedData<T, *>>(
         fun confirm(preview: SaveDataPreview<T>?) {
             if (preview == null) { finish(SaveOutcome.CANCELLED); return }
             val prepared = PreparedSave(dataId, operation, original, local,
-                preview.automaticallyMergedData, preview.data, preview.data.takeUnless { operation is PendingStoreOperation.Delete })
+                preview.automaticallyMergedData, preview.data, preview.data.takeUnless { operation is PendingStoreOperation.Delete },
+                inputDrafts[documentKey(dataId)].orEmpty().toMap(),
+                versions(listOfNotNull(dataId, operation?.toRecord()?.sourceId)))
             main.showOperation("保存する差分を確認しています")
             if (!confirmSaveChanges(prepared)) { finish(SaveOutcome.CANCELLED); return }
             persist(prepared)
         }
 
-        if (operation is PendingStoreOperation.Delete || !dataService.isRemote) {
-            try { confirm(SaveDataPreview(local, null)) } catch (error: Exception) { fail(error) }
-        } else {
-            saveStep({
-                val loaded = dataAccess.load(sourceId)
-                val merge = loaded.first?.takeIf { loaded.second == LoadResult.SUCCESS }
-                    ?.let { dataAccess.merge(original, local, it) }
-                loaded to merge
-            }, ::fail) { (loaded, merge) ->
-                if (loaded.second in listOf(LoadResult.FAILED, LoadResult.PROFILE_NOT_SELECTED, LoadResult.SFTP_INACTIVE)) {
-                    finish(SaveOutcome.FAILED) {
-                        CustomDialog.error(ErrorType.NETWORK_ERROR).owner(main.currentStage).show()
-                    }
-                    return@saveStep
-                }
-                main.showOperation("マージ・競合を確認しています")
-                confirm(prepareSaveData(dataId, sourceId, local, original, loaded, merge))
-            }
-        }
+        try { confirm(SaveDataPreview(local, null)) } catch (error: Exception) { fail(error) }
+
     }
 
     private fun <R> saveStep(operation: () -> R, failed: (Throwable) -> Unit, completed: (R) -> Unit) {
@@ -996,43 +1147,19 @@ abstract class EditorView<T : ManagedData<T, *>>(
         }
     }
 
-    private fun writeSingleSave(prepared: PreparedSave<T>): StoreResult<T?> {
-        val operation = prepared.operation
-        if (operation is PendingStoreOperation.Delete) {
-            return when (val result = dataService.store.delete(dataAccess.descriptor, operation.sourceId)) {
-                is StoreResult.Success -> StoreResult.Success(null)
-                is StoreResult.Failure -> if (result.error.code == StoreErrorCode.FILE_NOT_FOUND) StoreResult.Success(null) else result
-            }
-        }
-        val data = requireNotNull(prepared.saveData).deepCopy().apply { id = prepared.dataId }
-        if (operation is PendingStoreOperation.Rename) {
-            val renamed = dataAccess.renameStoreTo(operation.sourceId, prepared.dataId)
-            if (renamed != RenameResult.SUCCESS) {
-                val code = when (renamed) {
-                    RenameResult.FILE_NOT_FOUND -> StoreErrorCode.FILE_NOT_FOUND
-                    RenameResult.ALREADY_EXISTS -> StoreErrorCode.ALREADY_EXISTS
-                    else -> StoreErrorCode.IO_ERROR
-                }
-                return StoreResult.Failure(StoreError(code, prepared.dataId, "ID変更に失敗しました: $renamed"))
-            }
-        }
-        val result = try { saveStoreData(prepared.dataId, data) } catch (error: Exception) {
-            StoreResult.Failure(StoreError(StoreErrorCode.IO_ERROR, prepared.dataId, cause = error))
-        }
-        if (result is StoreResult.Failure && operation is PendingStoreOperation.Rename) {
-            val rollback = dataAccess.renameStoreTo(prepared.dataId, operation.sourceId)
-            if (rollback != RenameResult.SUCCESS) {
-                logger.error("保存失敗後にID変更を戻せませんでした: id={}, result={}", prepared.dataId, rollback)
-                return StoreResult.Failure(result.error.copy(detail = "保存に失敗し、ID変更も元に戻せませんでした。ストアの状態を確認してください。"))
-            }
-        }
-        return when (result) {
-            is StoreResult.Success -> StoreResult.Success(data)
-            is StoreResult.Failure -> result
+    private fun writeSingleSave(prepared: PreparedSave<T>): StoreResult<SavedCheckpoint<T>> {
+        val deleted = prepared.operation is PendingStoreOperation.Delete
+        val data = prepared.localData.deepCopy().apply { id = prepared.dataId }
+        return when (val saved = dataAccess.saveLocalDocument(prepared.dataId, data,
+            prepared.raw, prepared.operation?.toRecord(), deleted, prepared.versions)) {
+            is StoreResult.Success -> StoreResult.Success(SavedCheckpoint(data.takeUnless { deleted }, saved.value))
+            is StoreResult.Failure -> saved
         }
     }
 
-    private fun applySavedData(prepared: PreparedSave<T>, saved: T?) {
+    private fun applySavedData(prepared: PreparedSave<T>, checkpoint: SavedCheckpoint<T>) {
+        val saved = checkpoint.data
+        localDocumentStates[checkpoint.document.key] = checkpoint.document
         val id = prepared.dataId
         val operation = prepared.operation
         val sourceId = when (operation) {
@@ -1043,19 +1170,21 @@ abstract class EditorView<T : ManagedData<T, *>>(
         removedBackupIds.add(id)
         removedBackupIds.add(sourceId)
         pendingStoreOperations.remove(id)
+        savedInputDrafts[documentKey(id)] = inputDrafts[documentKey(id)].orEmpty().toMap()
         mergeConflicts.remove(id)
         if (operation is PendingStoreOperation.Delete) {
             editingDataMap.remove(id)
             originalDataMap.remove(id)
-            editHistory.remove(id)
+            sourceState.saved.remove(id)
+            editHistory.remove(documentKey(id))
             onPersistedDataDeleted(id)
-            if (dataAccess.descriptor == EditorDataDescriptors.item) dataService.itemReferences.deleted(sourceId)
             remoteDataIds = remoteDataIds - sourceId
         } else {
             val data = requireNotNull(saved)
             editingDataMap[id] = data.deepCopy()
             originalDataMap[id] = data.deepCopy()
-            editHistory.reset(id, data)
+            sourceState.saved[id] = data.deepCopy()
+            editHistory.reset(documentKey(id), historySnapshot(id, data))
             remoteDataIds = (remoteDataIds - sourceId) + id
             refreshSidebarState(id)
         }
@@ -1084,11 +1213,14 @@ abstract class EditorView<T : ManagedData<T, *>>(
                 completed()
             }
             if (selected != null && selected !in editingDataMap) {
-                saveStep({ dataAccess.loadStore(selected) }, failed) { result ->
+                saveStep({ dataAccess.observeStore(selected) }, failed) { result ->
                     when (result) {
                         is StoreResult.Success -> {
-                            editingDataMap[selected] = result.value.deepCopy()
-                            originalDataMap[selected] = result.value.deepCopy()
+                            val data = result.value.first
+                            observeDocument(result.value.second)
+                            editingDataMap[selected] = data.deepCopy()
+                            originalDataMap[selected] = data.deepCopy()
+                            sourceState.saved[selected] = data.deepCopy()
                             display()
                         }
                         is StoreResult.Failure -> error("表示対象の取得失敗: ${result.error}")
@@ -1122,7 +1254,10 @@ abstract class EditorView<T : ManagedData<T, *>>(
         commitPendingTextEdit()
         val targets = editingDataMap.keys.filter(::hasUnsavedChanges).map { id ->
             val local = editingDataMap.getValue(id).deepCopy()
-            PreparedSave(id, pendingStoreOperations[id], originalDataMap.getValue(id).deepCopy(), local, null, local, local)
+            val operation = pendingStoreOperations[id]
+            PreparedSave(id, operation, originalDataMap.getValue(id).deepCopy(), local, null, local, local,
+                inputDrafts[documentKey(id)].orEmpty().toMap(),
+                versions(listOfNotNull(id, operation?.toRecord()?.sourceId)))
         }
         if (targets.isEmpty()) { onComplete(BatchSaveResult(SaveOutcome.NOTHING_TO_SAVE)); return }
         val prepared = mutableListOf<PreparedSave<T>>()
@@ -1254,30 +1389,16 @@ abstract class EditorView<T : ManagedData<T, *>>(
                 failed[entry.dataId] = "最新データの取得・保存準備に失敗しました。"
                 Platform.runLater { prepare(index + 1) }
             }
-            if (operation is PendingStoreOperation.Delete || !dataService.isRemote) {
-                next(SaveDataPreview(entry.localData, null))
-            } else {
-                val sourceId = (operation as? PendingStoreOperation.Rename)?.sourceId ?: entry.dataId
-                saveStep({
-                    val loaded = dataAccess.load(sourceId)
-                    val merge = loaded.first?.takeIf { loaded.second == LoadResult.SUCCESS }
-                        ?.let { dataAccess.merge(entry.original, entry.localData, it) }
-                    loaded to merge
-                }, ::fail) { (loaded, merge) ->
-                    if (loaded.second in listOf(LoadResult.FAILED, LoadResult.PROFILE_NOT_SELECTED, LoadResult.SFTP_INACTIVE)) {
-                        failed[entry.dataId] = "最新データの取得に失敗しました。接続を確認してください。"
-                        Platform.runLater { prepare(index + 1) }
-                    } else next(prepareSaveData(entry.dataId, sourceId, entry.localData, entry.original, loaded, merge))
-                }
-            }
+            next(SaveDataPreview(entry.localData, null))
+
         }
         prepare(0)
     }
 
     private fun hasUnsavedChanges(id: String): Boolean {
         val editing = editingDataMap[id] ?: return false
-        val original = originalDataMap[id] ?: return false
-        return editing != original || pendingStoreOperations[id] != null
+        val saved = sourceState.saved[id]
+        return editing != saved || pendingStoreOperations[id] != null || inputDrafts[documentKey(id)].orEmpty() != savedInputDrafts[documentKey(id)].orEmpty()
     }
 
     private fun confirmSaveChanges(prepared: PreparedSave<T>): Boolean {
@@ -1289,95 +1410,18 @@ abstract class EditorView<T : ManagedData<T, *>>(
             automaticallyMerged = prepared.automaticallyMergedData,
             finalData = prepared.previewData.takeIf { it != prepared.automaticallyMergedData },
             itemDisplayText = ::itemDisplayText
-        )
+        ) + if (inputDrafts[documentKey(prepared.dataId)].orEmpty() != savedInputDrafts[documentKey(prepared.dataId)].orEmpty())
+            listOf("入力途中の値をローカルに保持します。サーバーへは反映しません。") else emptyList()
         if (details.isEmpty()) return false
         return CustomDialog.confirmation()
             .title("変更内容を保存")
-            .header("以下の変更をストアへ反映します")
+            .header("以下の変更をローカルに保存します")
             .content(details)
             .scrollableContent()
             .okButton("保存", Color.DODGERBLUE)
             .owner(main.currentStage)
             .show()
     }
-
-    private fun prepareSaveData(
-        dataId: String,
-        sourceId: String,
-        currentEdit: T,
-        original: T,
-        loaded: Pair<T?, LoadResult>? = null,
-        preparedMerge: ThreeWayMergeResult<T>? = null
-    ): SaveDataPreview<T>? {
-        if (!dataService.isRemote) return SaveDataPreview(currentEdit.deepCopy(), null)
-        val (serverData, accessResult) = loaded ?: dataAccess.load(sourceId)
-
-        return when (accessResult) {
-            LoadResult.FAILED,
-            LoadResult.PROFILE_NOT_SELECTED,
-            LoadResult.SFTP_INACTIVE -> {
-                CustomDialog.error(ErrorType.INTERNAL_ERROR)
-                    .content(listOf(
-                        "ネットワークまたはその他の例外が発生しました。",
-                        "選択画面へ戻ります。"
-                    ))
-                    .owner(main.currentStage)
-                    .show()
-
-                if (!saveRunning) handleForceBackToSelect()
-                null
-            }
-
-            LoadResult.FILE_NOT_FOUND -> {
-                logger.info("サーバー上にファイルが存在しないため、新規ファイルとして保存します: $dataId")
-                SaveDataPreview(currentEdit.deepCopy(), null)
-            }
-
-            LoadResult.INVALID_YAML -> {
-                val confirmed = CustomDialog.confirmation()
-                    .title("データ破損警告")
-                    .header("サーバー上のYAMLデータが不正、または破損しています。")
-                    .content("このまま保存すると、サーバー上の破損データは現在の編集内容で完全に上書きされます。強制保存しますか？")
-                    .owner(main.currentStage)
-                    .show()
-
-                if (!confirmed) {
-                    logger.info("サーバーデータのYAML破損のため、ユーザーが保存を中止しました。")
-                    null
-                } else {
-                    SaveDataPreview(currentEdit.deepCopy(), null)
-                }
-            }
-
-            LoadResult.SUCCESS -> {
-                if (serverData == null) {
-                    null
-                } else {
-                    val merge = preparedMerge ?: dataAccess.merge(original, currentEdit, serverData)
-                    mergeConflicts[dataId] = merge.conflicts
-                    val automaticallyMerged = if (merge.conflicts.isEmpty()) {
-                        merge.merged
-                    } else {
-                        merge.resolveWithLocal(merge.conflicts.mapTo(linkedSetOf()) { it.path })
-                    }
-                    val finalData = if (merge.conflicts.isEmpty()) {
-                        merge.merged
-                    } else {
-                        val localPaths = MergeConflictDialog.show(
-                            owner = main.currentStage,
-                            dataId = dataId,
-                            conflicts = merge.conflicts
-                        ) ?: return null
-                        merge.resolveWithLocal(localPaths)
-                    }
-                    SaveDataPreview(finalData, automaticallyMerged)
-                }
-            }
-        }
-    }
-
-    /** 種別固有の検証・書き込みを、接続のI/O実行枠から呼び出します。 */
-    protected open fun saveStoreData(dataId: String, data: T): StoreResult<Unit> = dataAccess.saveStore(dataId, data)
 
     /** 保存が確定した削除に対する、データ種別固有のUIキャッシュ破棄処理です。 */
     protected open fun onPersistedDataDeleted(id: String) = Unit
@@ -1482,8 +1526,11 @@ abstract class EditorView<T : ManagedData<T, *>>(
         if (!closing) return
         closing = false
         main.finishOperation()
-        preloadSidebarDataForVisualStates(registeredSidebarIds)
-        startAutoSaveTimer()
+        if (restoringBackup) start()
+        else {
+            preloadSidebarDataForVisualStates(registeredSidebarIds)
+            startAutoSaveTimer()
+        }
     }
 
     /** 退避と接続終了を確認した後、JavaFXスレッドで呼び出します。 */
@@ -1504,6 +1551,7 @@ abstract class EditorView<T : ManagedData<T, *>>(
         mergeConflicts.clear()
         pendingStoreOperations.clear()
         editHistory.clear()
+        sourceStates.clear()
         registeredSidebarIds.clear()
         sidebarStates.clear()
         sidebarView?.showRows(emptyList())
@@ -1535,7 +1583,7 @@ abstract class EditorView<T : ManagedData<T, *>>(
         editingDataMap.putAll(editingCaches)
         originalDataMap.putAll(originalCaches)
         pendingStoreOperations.putAll(operations.associateBy(PendingStoreOperation::currentId))
-        restoredCacheCount = editingCaches.size
+        restoredCacheCount = editingCaches.keys.count(::hasUnsavedChanges)
     }
 
     /** 初期データの表示または空一覧の確定後に、編集用の参照一覧を背景取得します。 */
@@ -1543,10 +1591,34 @@ abstract class EditorView<T : ManagedData<T, *>>(
 
     protected abstract fun setupMainContent(selectData: T)
 
+    protected fun <F : TextInputControl> retainInputDraft(
+        id: String, fieldKey: String, field: F, valid: (String) -> Boolean
+    ): F {
+        val key = documentKey(id)
+        field.properties["retain-input-draft"] = true
+        inputDrafts[key]?.get(fieldKey)?.let { field.text = it }
+        field.properties["input-draft-invalid"] = !valid(field.text)
+        field.textProperty().addListener { _, _, value ->
+            field.properties["input-draft-invalid"] = !valid(value)
+            val drafts = inputDrafts.getOrPut(key) { mutableMapOf() }
+            if (valid(value)) drafts.remove(fieldKey) else drafts[fieldKey] = value
+            refreshSidebarState(id)
+        }
+        return field
+    }
+
+    /** 一覧内の欄を削除・移動したとき、対応する未確定入力も同じ欄へ移します。 */
+    protected fun moveInputDraft(id: String, from: String, to: String?) {
+        val drafts = inputDrafts[documentKey(id)] ?: return
+        val value = drafts.remove(from) ?: return
+        if (to != null) drafts[to] = value
+        refreshSidebarState(id)
+    }
+
     /** 指定したデータIDの選択、変更、検証状態をサイドバーへ反映します。 */
     protected open fun refreshSidebarState(id: String) {
         editingDataMap[id]?.let { data ->
-            editHistory.initialize(id, data)
+            editHistory.initialize(documentKey(id), historySnapshot(id, data))
             if (main.mainContentContainer.scene?.focusOwner !is TextInputControl) {
                 recordHistorySnapshot(id)
             }
@@ -1558,9 +1630,11 @@ abstract class EditorView<T : ManagedData<T, *>>(
         val validationErrors = if (pendingDeletion) emptyList() else data?.let(::validationErrors).orEmpty()
         val state = SidebarDataState(
             selected = id == currentSelectedDataId,
-            modified = data != originalDataMap[id] || hasPendingStoreOperation(id),
+            modified = hasUnsavedChanges(id),
+            serverTracked = dataService.isRemote,
+            unreflected = localDocumentStates[documentKey(id)]?.unreflected,
             hasWarnings = validationErrors.any(SushiEricValidationError::isWarning),
-            hasErrors = validationErrors.any(SushiEricValidationError::isError),
+            hasErrors = validationErrors.any(SushiEricValidationError::isError) || inputDrafts[documentKey(id)].orEmpty().isNotEmpty(),
             localOnly = id !in remoteDataIds,
             pendingDeletion = pendingDeletion,
             validationStatus = if (data != null) SidebarValidationStatus.CHECKED
@@ -1574,9 +1648,10 @@ abstract class EditorView<T : ManagedData<T, *>>(
 
     /** フォーカス状態にかかわらず、現在の編集内容を履歴へ記録します。 */
     protected fun recordHistorySnapshot(id: String) {
+        if (main.shortcutRoot.scene?.let(ShortcutManager::isComposing) == true) return
         editingDataMap[id]?.let { data ->
-            editHistory.initialize(id, data)
-            editHistory.record(id, data)
+            editHistory.initialize(documentKey(id), historySnapshot(id, data))
+            editHistory.record(documentKey(id), historySnapshot(id, data))
         }
     }
 
@@ -1603,7 +1678,8 @@ abstract class EditorView<T : ManagedData<T, *>>(
 
     /** 一覧取得後だけ、存在するIDと復元済み編集キャッシュへタブを接続します。 */
     protected fun restoreDocumentTabs(ids: List<String>, preferred: String?): String? {
-        val saved = if (!documentsRestored) WorkspaceManager.current?.tabs(main.shortcutRoot) else documentState
+        val saved = if (!documentsRestored) (WorkspaceManager.current?.tabs(main.shortcutRoot, dataService.cacheIdentity)
+            ?: WorkspaceManager.current?.tabs(main.shortcutRoot).takeIf { dataService === connectedService }) else documentState
         documentsRestored = true
         val requested = preferred?.removeSuffix(".yml")?.takeIf { it in ids }
         val retained = saved?.ids.orEmpty().filter { it in ids }
@@ -1615,8 +1691,8 @@ abstract class EditorView<T : ManagedData<T, *>>(
     }
 
     private fun updateDocumentTabs() {
-        idTabs.show(documentState) { id -> editingDataMap[id] != originalDataMap[id] || hasPendingStoreOperation(id) }
-        WorkspaceManager.current?.tabs(main.shortcutRoot, documentState)
+        idTabs.show(documentState, ::hasUnsavedChanges)
+        WorkspaceManager.current?.tabs(main.shortcutRoot, documentState, dataService.cacheIdentity)
     }
 
     private fun closeDocument(id: String) {
@@ -1647,30 +1723,32 @@ abstract class EditorView<T : ManagedData<T, *>>(
 
     /** 現在選択中のデータを1段階前の編集状態へ戻します。 */
     fun onUndo(): Boolean {
-        if (storeOperationBlocked) return false
+        if (storeOperationBlocked || main.shortcutRoot.scene?.let(ShortcutManager::isComposing) == true) return false
         val id = currentSelectedDataId ?: return false
         val current = editingDataMap[id] ?: return false
-        editHistory.record(id, current)
-        val restored = editHistory.undo(id, current) ?: return false
+        editHistory.record(documentKey(id), historySnapshot(id, current))
+        val restored = editHistory.undo(documentKey(id), historySnapshot(id, current)) ?: return false
         applyHistoryData(id, restored, "元に戻しました")
         return true
     }
 
     /** 現在選択中のデータで、直前に元へ戻した編集をやり直します。 */
     fun onRedo(): Boolean {
-        if (storeOperationBlocked) return false
+        if (storeOperationBlocked || main.shortcutRoot.scene?.let(ShortcutManager::isComposing) == true) return false
         val id = currentSelectedDataId ?: return false
         val current = editingDataMap[id] ?: return false
-        editHistory.record(id, current)
-        val restored = editHistory.redo(id, current) ?: return false
+        editHistory.record(documentKey(id), historySnapshot(id, current))
+        val restored = editHistory.redo(documentKey(id), historySnapshot(id, current)) ?: return false
         applyHistoryData(id, restored, "やり直しました")
         return true
     }
 
-    private fun applyHistoryData(id: String, restored: T, notification: String) {
-        editingDataMap[id] = restored
+    private fun applyHistoryData(id: String, restored: EditingSnapshot<T>, notification: String) {
+        val data = restored.data.deepCopy().apply { this.id = id }
+        editingDataMap[id] = data
+        inputDrafts[documentKey(id)] = restored.raw.toMutableMap()
         onHistoryDataRestored(id)
-        setupMainContent(restored)
+        setupMainContent(data)
         refreshSidebarState(id)
         main.showTimedTopLabel("$id: $notification", Color.GREENYELLOW)
     }
@@ -1743,8 +1821,8 @@ abstract class EditorView<T : ManagedData<T, *>>(
         saveMenuItem?.isDisable = selectedId == null || !hasUnsavedChanges(selectedId)
         saveAllMenuItem?.isDisable = editingDataMap.keys.none(::hasUnsavedChanges)
         val textInput = main.shortcutRoot.scene?.focusOwner as? TextInputControl
-        undoMenuItem?.isDisable = if (textInput != null) !textInput.isUndoable else selectedId == null || !editHistory.canUndo(selectedId)
-        redoMenuItem?.isDisable = if (textInput != null) !textInput.isRedoable else selectedId == null || !editHistory.canRedo(selectedId)
+        undoMenuItem?.isDisable = if (textInput != null) !textInput.isUndoable else selectedId == null || !editHistory.canUndo(documentKey(selectedId))
+        redoMenuItem?.isDisable = if (textInput != null) !textInput.isRedoable else selectedId == null || !editHistory.canRedo(documentKey(selectedId))
         repairWarningsMenuItem?.isDisable = selectedErrors.none { it.isWarning }
         repairErrorsMenuItem?.isDisable = selectedErrors.none { it.isError }
         repairAllWarningsMenuItem?.isDisable = allErrors.none { it.isWarning }
@@ -1933,7 +2011,7 @@ abstract class EditorView<T : ManagedData<T, *>>(
      * 既に編集キャッシュが存在するデータは上書きしません。
      */
     protected fun preloadSidebarDataForVisualStates(ids: Collection<String>, retryFailed: Boolean = false) {
-        if (closed || closing || !dataService.store.isAvailable || (sessionBound && EditorSession.dataService !== dataService)) return
+        if (closed || closing || !dataService.store.isAvailable || (sessionBound && EditorSession.dataService !== connectedService)) return
         if (main.loadingRunning) {
             pendingPreloadIds = ids.toList()
             return
@@ -1946,7 +2024,7 @@ abstract class EditorView<T : ManagedData<T, *>>(
         var loaded = 0
         var finished = 0
         fun accepts() = !closed && !closing && generation == sidebarPreloadGeneration &&
-            dataService.store.isAvailable && (!sessionBound || EditorSession.dataService === dataService)
+            dataService.store.isAvailable && (!sessionBound || EditorSession.dataService === connectedService)
         fun progress() {
             val failed = registeredSidebarIds.count { sidebarValidation[it] == SidebarValidationStatus.FAILED && it !in editingDataMap }
             main.showSidebarStatus("検証用データ取得 $loaded / $total 件" +
@@ -1968,15 +2046,18 @@ abstract class EditorView<T : ManagedData<T, *>>(
         fun loadNext(index: Int) {
             if (!accepts() || index >= total) return
             val id = missingIds[index]
-            fun apply(result: StoreResult<T>) {
+            fun apply(result: StoreResult<Pair<T, LocalDocumentRecord>>) {
                 if (!accepts()) return
                 finished++
                 when (result) {
                     is StoreResult.Success -> {
                         loaded++
                         if (id in registeredSidebarIds && id !in editingDataMap && !isPendingStoreDeletion(id)) {
-                            editingDataMap[id] = result.value.deepCopy()
-                            originalDataMap[id] = result.value.deepCopy()
+                            val data = result.value.first
+                            observeDocument(result.value.second)
+                            editingDataMap[id] = data.deepCopy()
+                            originalDataMap[id] = data.deepCopy()
+                            sourceState.saved[id] = data.deepCopy()
                         }
                         sidebarValidation[id] = SidebarValidationStatus.CHECKED
                     }
@@ -1989,8 +2070,8 @@ abstract class EditorView<T : ManagedData<T, *>>(
                 progress()
                 loadNext(index + 1)
             }
-            val task = object : Task<StoreResult<T>>() {
-                override fun call(): StoreResult<T> = dataAccess.loadStore(id)
+            val task = object : Task<StoreResult<Pair<T, LocalDocumentRecord>>>() {
+                override fun call(): StoreResult<Pair<T, LocalDocumentRecord>> = dataAccess.observeStore(id)
             }
             task.setOnSucceeded { apply(task.value) }
             task.setOnFailed { apply(StoreResult.Failure(StoreError(StoreErrorCode.IO_ERROR, id, cause = task.exception))) }
@@ -2041,12 +2122,14 @@ abstract class EditorView<T : ManagedData<T, *>>(
         }
         val entries = editingDataMap.mapNotNull { (id, editing) ->
             val original = originalDataMap[id] ?: return@mapNotNull null
-            if (editing == original && !hasPendingStoreOperation(id)) return@mapNotNull null
+            if (!hasUnsavedChanges(id)) return@mapNotNull null
             id to (editing.deepCopy() to original.deepCopy())
         }.toMap()
         val removed = removedBackupIds + (editingDataMap.keys - entries.keys)
         val snapshot = LocalBackupSnapshot(++backupGeneration, entries, removed,
-            pendingStoreOperations.values.map(PendingStoreOperation::toRecord))
+            pendingStoreOperations.values.map(PendingStoreOperation::toRecord),
+            entries.keys.associateWith { inputDrafts[documentKey(it)].orEmpty().toMap() },
+            versions(entries.keys + removed))
         if (!saveRunning) main.showBackupStatus("ローカルバックアップを更新しています")
         dataAccess.persistBackup(snapshot).whenComplete { success, error ->
             Platform.runLater {
@@ -2054,13 +2137,12 @@ abstract class EditorView<T : ManagedData<T, *>>(
                 if (error != null) logger.error("ローカル退避に失敗しました", error)
                 if (snapshot.generation == backupGeneration && !closed) {
                     if (saved) removedBackupIds.removeAll(snapshot.removedIds)
-                    val currentIds = editingDataMap.keys.filterTo(mutableSetOf()) {
-                        hasPendingStoreOperation(it) || editingDataMap[it] != originalDataMap[it]
-                    }
+                    val currentIds = editingDataMap.keys.filterTo(mutableSetOf(), ::hasUnsavedChanges)
                     val current = snapshot.entries.keys == currentIds &&
                         snapshot.entries.all { (id, pair) ->
                             editingDataMap[id] == pair.first && originalDataMap[id] == pair.second
-                        } && snapshot.pending == pendingStoreOperations.values.map(PendingStoreOperation::toRecord)
+                        } && snapshot.entries.keys.all { inputDrafts[documentKey(it)].orEmpty() == snapshot.raw[it].orEmpty() } &&
+                        snapshot.pending == pendingStoreOperations.values.map(PendingStoreOperation::toRecord)
                     if (!saveRunning) main.showBackupStatus(
                         when {
                             !saved -> "バックアップに失敗しました。編集内容は保持されています。"
@@ -2102,188 +2184,152 @@ abstract class EditorView<T : ManagedData<T, *>>(
     }
 
     private fun synchronizeSelected() {
-        val dataId = currentSelectedDataId ?: return
-        if (hasPendingStoreOperation(dataId)) return
-        val hasUnsavedChanges = editingDataMap[dataId] != originalDataMap[dataId]
-        if (hasUnsavedChanges) {
-            val confirmed = CustomDialog.confirmation()
-                .title("同期の確認")
-                .header("$dataId の未保存変更を破棄しますか？")
-                .content("サーバー上の最新データで編集中データを完全に置き換えます。")
-                .owner(main.currentStage)
-                .show()
-            if (!confirmed) return
-        }
-
-        setSyncBusy(true)
-        dataService.beginSave()
-        main.showOperation("同期対象を取得しています: ${dataId}")
-        val task = object : Task<StoreResult<T>>() {
-            override fun call(): StoreResult<T> = syncService.fetchOne(dataId)
-        }
-        task.setOnSucceeded {
-            if (closed || !syncBusy || currentSelectedDataId != dataId) {
-                finishSync("選択が変わったため同期結果を適用しませんでした。", Color.ORANGE)
-                return@setOnSucceeded
-            }
-            when (val result = task.value) {
-                is StoreResult.Success -> {
-                    val latest = result.value
-                    persistSyncBackup(setOf(dataId)) { backedUp ->
-                        if (!syncBusy || closed || currentSelectedDataId != dataId) {
-                            finishSync("選択が変わったため同期結果を適用しませんでした。", Color.ORANGE)
-                            return@persistSyncBackup
-                        }
-                        if (!backedUp) {
-                            finishSync("$dataId の同期後にバックアップを整理できませんでした。編集中データを保持しています。", Color.ORANGERED)
-                            return@persistSyncBackup
-                        }
-                        try {
-                            editingDataMap[dataId] = latest.deepCopy()
-                            originalDataMap[dataId] = latest.deepCopy()
-                            editHistory.reset(dataId, latest)
-                            mergeConflicts.remove(dataId)
-                            setupMainContent(editingDataMap.getValue(dataId))
-                            refreshSidebarState(dataId)
-                            finishSync("$dataId を同期しました", Color.GREENYELLOW)
-                        } catch (error: Exception) {
-                            logger.error("$dataId の同期結果を画面へ反映できませんでした", error)
-                            finishSync("$dataId の同期データは取得しましたが、画面への反映に失敗しました。", Color.ORANGERED)
-                        }
-                    }
-                }
-                is StoreResult.Failure -> {
-                    finishSync()
-                    showSyncFailure(dataId, result)
-                }
-                null -> finishSync("$dataId の同期に失敗しました", Color.ORANGERED)
-            }
-        }
-        task.setOnFailed {
-            logger.error("$dataId の同期に失敗しました", task.exception)
-            finishSync("$dataId の同期に失敗しました", Color.ORANGERED)
-        }
-        dataService.executeIo(task)
+        val id = currentSelectedDataId ?: return
+        if (hasPendingStoreOperation(id)) return
+        fetchAndApply(id)
     }
 
     private fun synchronizeAll() {
         if (pendingStoreOperations.isNotEmpty()) return
+        fetchAndApply(null)
+    }
+
+    private fun fetchAndApply(selectedId: String?) {
+        commitPendingTextEdit()
         setSyncBusy(true)
         dataService.beginSave()
-        main.showOperation("すべて同期の一覧を取得しています")
-        val task = object : Task<StoreResult<EditorSyncSnapshot<T>>>() {
-            override fun call(): StoreResult<EditorSyncSnapshot<T>> = syncService.fetchAll { completed, total, id ->
-                val target = id?.let { ": $it" }.orEmpty()
-                updateMessage("すべて同期のデータを取得しています ($completed/$total)$target")
+        main.showOperation("取得基準を確認しています")
+        val task = object : Task<StoreResult<Pair<EditorSyncSnapshot<T>, LocalDocumentSnapshot>>>() {
+            override fun call(): StoreResult<Pair<EditorSyncSnapshot<T>, LocalDocumentSnapshot>> {
+                val records = when (val loaded = dataService.documents.read()) {
+                    is StoreResult.Success -> loaded.value
+                    is StoreResult.Failure -> return loaded
+                }
+                val fetched = if (selectedId == null) syncService.fetchAll()
+                else when (val loaded = syncService.fetchOne(selectedId)) {
+                    is StoreResult.Success -> StoreResult.Success(EditorSyncSnapshot(emptyList(), emptyList(), mapOf(selectedId to loaded.value)))
+                    is StoreResult.Failure -> if (loaded.error.code == StoreErrorCode.FILE_NOT_FOUND)
+                        StoreResult.Success(EditorSyncSnapshot(emptyList(), emptyList(), emptyMap())) else loaded
+                }
+                return when (fetched) {
+                    is StoreResult.Success -> StoreResult.Success(fetched.value to records)
+                    is StoreResult.Failure -> fetched
+                }
             }
-        }
-        task.messageProperty().addListener { _, _, message ->
-            if (syncBusy && task.isRunning && !closed) main.showOperation(message)
         }
         task.setOnSucceeded {
             if (closed || !syncBusy) return@setOnSucceeded
             when (val result = task.value) {
+                is StoreResult.Success -> confirmFetched(result.value.first, result.value.second, selectedId)
                 is StoreResult.Failure -> {
                     finishSync()
-                    showSyncFailure(dataAccess.displayName, result)
+                    showSyncFailure(selectedId ?: dataAccess.displayName, result)
                 }
-                is StoreResult.Success -> {
-                    main.showOperation("すべて同期の結果を確認しています (${result.value.data.size} 件)")
-                    try {
-                        confirmAndApplyAllSync(result.value)
-                    } catch (error: Exception) {
-                        logger.error("すべて同期の確認または反映に失敗しました", error)
-                        finishSync("すべて同期の結果を適用できませんでした。編集中データを保持しています。", Color.ORANGERED)
-                    }
-                }
-                null -> finishSync("すべて同期に失敗しました", Color.ORANGERED)
+                null -> finishSync("取得に失敗しました", Color.ORANGERED)
             }
         }
         task.setOnFailed {
-            logger.error("${dataAccess.displayName}の全同期に失敗しました", task.exception)
-            finishSync("すべて同期に失敗しました", Color.ORANGERED)
+            logger.error("取得基準の読み込みに失敗しました", task.exception)
+            finishSync("取得に失敗しました。ローカル文書を保持しています。", Color.ORANGERED)
         }
         dataService.executeIo(task)
     }
 
-    private fun confirmAndApplyAllSync(snapshot: EditorSyncSnapshot<T>) {
-        val remoteData = snapshot.data
-        val replacedIds = remoteDataIds + remoteData.keys
-        val unsavedCount = editingDataMap.count { (id, data) -> id in remoteDataIds && data != originalDataMap[id] }
-        val missingCacheCount = editingDataMap.keys.count { it in remoteDataIds && it !in remoteData }
+    private fun confirmFetched(
+        snapshot: EditorSyncSnapshot<T>,
+        records: LocalDocumentSnapshot,
+        selectedId: String?
+    ) {
+        val previous = records.documents.filter { it.key.category == dataAccess.dataType.categoryDirName && it.movedTo == null }.associateBy { it.key.id }
+        val ids = selectedId?.let(::setOf) ?: (previous.keys + snapshot.data.keys)
         val confirmed = CustomDialog.confirmation()
-            .title("すべて同期の確認")
-            .header("${dataAccess.displayName}データ ${remoteData.size} 件をサーバーと同じ状態にします")
-            .content(
-                listOf(
-                    "破棄される未保存変更: $unsavedCount 件",
-                    "サーバーに存在しないオンラインキャッシュ: $missingCacheCount 件",
-                    "この操作は元に戻せません。",
-                    "オフラインデータには影響しません。"
-                )
-            )
-            .owner(main.currentStage)
-            .show()
+            .title("取得の確認")
+            .header("最後に取得したサーバー基準を更新します")
+            .content("ローカル保存済みの未送信内容は保持し、編集中データは取得結果と比較します。競合がある場合は内容を確認します。キャンセルすると現在の文書を保持します。")
+            .owner(main.currentStage).show()
         if (!confirmed) {
-            finishSync("すべて同期をキャンセルしました。編集中データを保持しています。", Color.WHITE)
+            finishSync("取得をキャンセルしました", Color.WHITE)
             return
         }
-
-        val previousSelection = currentSelectedDataId
-        main.showOperation("すべて同期のバックアップを整理しています (${remoteData.size} 件)")
-        persistSyncBackup(replacedIds) { backedUp ->
-            if (!syncBusy || closed) return@persistSyncBackup
-            if (!backedUp) {
-                finishSync("バックアップを整理できず、同期結果を適用しませんでした。編集中データを保持しています。", Color.ORANGERED)
-                return@persistSyncBackup
+        val editing = linkedMapOf<String, T>()
+        for (id in ids) {
+            val record = previous[id]
+            val current = editingDataMap[id] ?: record?.editing?.let { dataAccess.decodeDocument(id, it) }
+            val latest = snapshot.data[id]
+            val base = record?.baseline?.let { dataAccess.decodeDocument(id, it) }
+            val selected = when {
+                current == null -> latest
+                latest == null -> {
+                    val changed = record == null || !record.baselineKnown ||
+                        record.unreflected == true || hasUnsavedChanges(id)
+                    if (changed) current else null
+                }
+                base == null -> {
+                    if (record?.saved != null && current != latest) {
+                        val keep = CustomDialog.confirmation().title("取得基準がない文書")
+                            .header(id + " のローカル内容を保持して基準だけ取得しますか？")
+                            .content("比較元がないため自動統合しません。キャンセルすると取得結果を適用しません。")
+                            .owner(main.currentStage).show()
+                        if (!keep) { finishSync("取得をキャンセルしました", Color.WHITE); return }
+                        current
+                    } else latest
+                }
+                else -> {
+                    val merged = dataAccess.merge(base, current, latest)
+                    val selectedPaths = MergeConflictDialog.show(main.currentStage, id, merged.conflicts)
+                        ?: run { finishSync("取得をキャンセルしました", Color.WHITE); return }
+                    merged.resolveWithLocal(selectedPaths)
+                }
             }
-            try {
-                replacedIds.forEach { id ->
-                    editingDataMap.remove(id)
-                    originalDataMap.remove(id)
-                    editHistory.remove(id)
+            if (selected != null) editing[id] = selected.deepCopy()
+        }
+        main.showOperation("確認した取得基準をローカルへ保持しています")
+        dataService.submitIo {
+            when (val accepted = dataAccess.acceptFetched(records, snapshot.data, editing, ids,
+                snapshot.directories.takeIf { selectedId == null })) {
+                is StoreResult.Failure -> accepted
+                is StoreResult.Success -> StoreResult.Success(accepted.value to accepted.value.mapNotNull { record ->
+                    record.saved?.let { record.key.id to dataAccess.decodeDocument(record.key.id, it) }
+                }.toMap())
+            }
+        }.whenComplete { result, error ->
+            Platform.runLater {
+                if (closed || !syncBusy) return@runLater
+                if (error != null || result is StoreResult.Failure) {
+                    logger.error("取得基準の保存に失敗しました", error)
+                    finishSync("取得基準を保存できませんでした。ローカル文書を保持しています。", Color.ORANGERED)
+                    return@runLater
+                }
+                val accepted = when (result) {
+                    is StoreResult.Success -> result.value
+                    else -> { finishSync("取得基準を保存できませんでした", Color.ORANGERED); return@runLater }
+                }
+                val (stored, savedData) = accepted
+                stored.forEach { record ->
+                    val id = record.key.id
+                    observeDocument(record)
+                    savedInputDrafts[record.key] = record.savedRaw
+                    val value = editing[id]
+                    if (value == null) {
+                        editingDataMap.remove(id)
+                        originalDataMap.remove(id)
+                        sourceState.saved.remove(id)
+                        editHistory.remove(record.key)
+                    } else {
+                        editingDataMap[id] = value.deepCopy()
+                        originalDataMap[id] = savedData[id]?.deepCopy() ?: value.deepCopy()
+                        savedData[id]?.let { sourceState.saved[id] = it }
+                            ?: sourceState.saved.remove(id)
+                        editHistory.reset(record.key, EditingSnapshot(value, record.raw))
+                    }
                     mergeConflicts.remove(id)
                 }
-                remoteData.forEach { (id, data) ->
-                    editingDataMap[id] = data.deepCopy()
-                    originalDataMap[id] = data.deepCopy()
-                    editHistory.reset(id, data)
-                }
-                remoteDataIds = remoteData.keys
-                val localIds = editingDataMap.keys - remoteDataIds
-                val selected = previousSelection?.takeIf { it in remoteDataIds || it in localIds }
-                sidebarRefresh = snapshot.resources to snapshot.directories
-                try { setupSidebar(main.sidebarContainer, selected) }
-                finally { sidebarRefresh = null }
-                if (selected == null && remoteData.isEmpty()) main.mainContentContainer.children.clear()
-                finishSync("${dataAccess.displayName}データ ${remoteData.size} 件を同期しました", Color.GREENYELLOW)
-            } catch (error: Exception) {
-                logger.error("すべて同期の結果を画面へ反映できませんでした", error)
-                finishSync("同期データを反映しましたが、画面の更新に失敗しました。", Color.ORANGERED)
-            }
-        }
-    }
-
-    private fun persistSyncBackup(removingIds: Set<String>, onComplete: (Boolean) -> Unit) {
-        val entries = editingDataMap.mapNotNull { (id, editing) ->
-            if (id in removingIds) return@mapNotNull null
-            val original = originalDataMap[id] ?: return@mapNotNull null
-            if (editing == original && !hasPendingStoreOperation(id)) return@mapNotNull null
-            id to (editing.deepCopy() to original.deepCopy())
-        }.toMap()
-        val removed = removedBackupIds + removingIds + (editingDataMap.keys - entries.keys)
-        val snapshot = LocalBackupSnapshot(
-            ++backupGeneration, entries, removed,
-            pendingStoreOperations.values.map(PendingStoreOperation::toRecord)
-        )
-        dataAccess.persistBackup(snapshot).whenComplete { success, error ->
-            Platform.runLater {
-                val saved = error == null && success == true
-                if (error != null) logger.error("同期前のローカルバックアップ整理に失敗しました", error)
-                if (snapshot.generation == backupGeneration && !closed && saved) {
-                    removedBackupIds.removeAll(snapshot.removedIds)
-                }
-                onComplete(saved && snapshot.generation == backupGeneration && !closed)
+                if (selectedId == null) remoteDataIds = snapshot.data.keys
+                else if (selectedId in snapshot.data) remoteDataIds = remoteDataIds + selectedId
+                else remoteDataIds = remoteDataIds - selectedId
+                setupSidebar(main.sidebarContainer, currentSelectedDataId?.takeIf { it in editingDataMap })
+                currentSelectedDataId?.let { id -> editingDataMap[id]?.let(::setupMainContent) }
+                finishSync("取得基準を更新しました。ローカル保存とアップロードは別操作です。", Color.GREENYELLOW)
             }
         }
     }
@@ -2305,15 +2351,15 @@ abstract class EditorView<T : ManagedData<T, *>>(
 
     private fun showSyncFailure(target: String, failure: StoreResult.Failure) {
         logger.error(
-            "{}の同期に失敗しました: code={}, detail={}",
+            "{}の取得に失敗しました: code={}, detail={}",
             target,
             failure.error.code,
             failure.error.detail,
             failure.error.cause
         )
         CustomDialog.error()
-            .title("同期エラー")
-            .header("$target を同期できませんでした")
+            .title("取得エラー")
+            .header("$target を取得できませんでした")
             .content("${failure.error.code}: ${failure.error.detail.orEmpty()}\n編集中データは維持されています。")
             .owner(main.currentStage)
             .show()
@@ -2367,8 +2413,8 @@ abstract class EditorView<T : ManagedData<T, *>>(
                 .title("ディレクトリを削除")
                 .header(if (localOnly) "ローカルの編集内容を破棄します" else "配下のデータも削除されます")
                 .content((listOf("ディレクトリ: $directory", "",
-                    if (localOnly) "サーバー上のファイルは削除せず、配下の編集内容と自動保存を破棄します。"
-                    else "サーバー上のディレクトリと配下のデータを削除します。", "", "削除対象:") +
+                    if (localOnly) "配下の未保存編集を破棄します。サーバーへは書き込みません。"
+                    else "ローカル作業コピーのディレクトリと配下の保存済みデータを削除します。サーバーへの反映は別操作です。", "", "削除対象:") +
                     (storedAffected + affected).sorted()).joinToString("\n"))
                 .okButton("削除", Color.RED).owner(main.currentStage).show()
             if (!confirmed || storeOperationBlocked) return@runStoreOperation
@@ -2380,10 +2426,11 @@ abstract class EditorView<T : ManagedData<T, *>>(
                 return@runStoreOperation
             }
             runStoreOperation("$directory を削除しています", {
-                val deletion = dataAccess.deleteDirectory(directory)
+                val deletion = dataAccess.deleteDirectoryObserved(directory)
                 showStorePhase("削除結果と一覧を確認しています")
                 StoreResult.Success(deletion to readSidebarSnapshot())
             }) { (deletion, after) ->
+                if (deletion is StoreResult.Success) deletion.value.forEach(::observeDocument)
                 if (after is StoreResult.Success) {
                     val remaining = after.value.first.map { it.id }.toSet()
                     val deleted = storedAffected - remaining
@@ -2417,9 +2464,10 @@ abstract class EditorView<T : ManagedData<T, *>>(
         ids.forEach { id ->
             editingDataMap.remove(id)
             originalDataMap.remove(id)
+            sourceState.saved.remove(id)
             pendingStoreOperations.remove(id)
             mergeConflicts.remove(id)
-            editHistory.remove(id)
+            editHistory.remove(documentKey(id))
             removedBackupIds.add(id)
             onDiscarded(id)
         }
@@ -2446,7 +2494,7 @@ abstract class EditorView<T : ManagedData<T, *>>(
             originalDataMap[fullId] = prepared.deepCopy()
             stageDataCreation(fullId)
             refreshLocalSidebar(fullId)
-            main.showTimedTopLabel("$fullId の追加を保留しました。保存すると反映されます", Color.GREENYELLOW)
+            main.showTimedTopLabel("$fullId の追加を保留しました。ローカル保存で確定します", Color.GREENYELLOW)
         }
     }
 
@@ -2511,19 +2559,20 @@ abstract class EditorView<T : ManagedData<T, *>>(
                         StoreResult.Failure(StoreError(StoreErrorCode.ALREADY_EXISTS, newId, "重複した名称です"))
                     } else {
                         val source = when {
-                            cachedSource != null -> StoreResult.Success(cachedSource)
-                            sourceId != null -> dataAccess.loadStore(sourceId)
-                            else -> StoreResult.Success(dataAccess.createDefault(newId))
+                            cachedSource != null -> StoreResult.Success(cachedSource to null)
+                            sourceId != null -> dataAccess.observeStore(sourceId)
+                            else -> StoreResult.Success(dataAccess.createDefault(newId) to null)
                         }
                         when (source) {
                             is StoreResult.Failure -> source
-                            is StoreResult.Success -> StoreResult.Success(snapshot.value to source.value)
+                            is StoreResult.Success -> StoreResult.Success(Triple(snapshot.value, source.value.first, source.value.second))
                         }
                     }
                 }
             }
-        }) { (snapshot, data) ->
+        }) { (snapshot, data, observed) ->
             sidebarSnapshot = snapshot
+            observed?.let(::observeDocument)
             onReady(data)
         }
     }

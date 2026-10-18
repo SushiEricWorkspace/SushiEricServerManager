@@ -2,7 +2,13 @@ package io.github.sushiericworkspace.sushiericservermanager.config
 
 import kotlinx.serialization.Serializable
 import org.slf4j.LoggerFactory
+import io.github.sushiericworkspace.sushiericservermanager.editor.service.EditorDocumentSource
 import java.io.File
+import java.nio.file.Files
+import java.nio.file.StandardCopyOption
+import java.util.UUID
+import kotlinx.serialization.encodeToString
+import kotlinx.serialization.json.Json
 
 @Serializable
 data class ServerConfig(
@@ -42,8 +48,17 @@ data class ServerProfile(
      * 画面で選んだ値を保持し、次にコンソールを開いたときへ引き継ぎます。
      * レベルの解釈は表示側が行うため、ここでは文字列のまま保持します。
      */
-    val consoleLogLevel: String = DEFAULT_CONSOLE_LOG_LEVEL
+    val consoleLogLevel: String = DEFAULT_CONSOLE_LOG_LEVEL,
+
+    /** ローカル文書の保存元を識別します。既存profileは読み込み時に採番・保存します。 */
+    val profileId: String = ""
 ) {
+    /** 名前・鍵・接続runを含めず、確定したprofileと接続先/rootへ文書を束縛します。 */
+    fun documentSource(): EditorDocumentSource.Server {
+        check(profileId.isNotEmpty()) { "文書を開く前にprofile識別子を保存してください。" }
+        return EditorDocumentSource.Server(profileId, listOf(host.lowercase(), port.toString(), user, path).joinToString("\u0000"))
+    }
+
     fun resolvedAuthenticationType(): AuthenticationType =
         AuthenticationType.fromStoredValue(authenticationType)
 
@@ -88,10 +103,17 @@ object SettingConfigManager : JsonFileHandler<ServerConfig>(
      */
     fun loadRepaired(): ServerConfig {
         val loaded = load()
+        val identified = assignProfileIds(loaded)
+        if (identified != loaded) {
+            val original = FilePath.SERVER_PROFILES.toFile()
+            if (original.isFile) Files.copy(original.toPath(),
+                original.parentFile.resolve(original.name + ".before-document-ids-" + UUID.randomUUID()).toPath())
+            check(saveAndVerify(identified)) { "サーバー設定の識別子を保存できません。元設定を保持しました。" }
+        }
 
         val repaired =
             GeneratedKeyPathRepair.repair(
-                config = loaded,
+                config = identified,
                 legacyDirectory =
                     File(
                         OS.dataConfigBase,
@@ -101,19 +123,41 @@ object SettingConfigManager : JsonFileHandler<ServerConfig>(
                     File(OS.dataConfigBase, FilePath.DIRECTORY_NAME)
             )
 
-        if (repaired == loaded) {
-            return loaded
+        if (repaired == identified) {
+            return identified
         }
 
         logger.info("生成鍵のパスを新しい設定ディレクトリへ更新しました。")
-        save(repaired)
+        check(saveAndVerify(repaired)) { "サーバー設定を保存できません。" }
 
         return repaired
     }
 
     /** 保存後に再読み込みし、書き込んだ内容と一致することを確認します。 */
     fun saveAndVerify(config: ServerConfig): Boolean {
-        save(config)
-        return load() == config
+        val file = FilePath.SERVER_PROFILES.toFile()
+        var temporary: File? = null
+        return try {
+            val identified = assignProfileIds(config)
+            file.parentFile.mkdirs()
+            temporary = Files.createTempFile(file.parentFile.toPath(), ".profiles-", ".json").toFile()
+            temporary.writeText(Json { prettyPrint = true; encodeDefaults = true }.encodeToString(identified))
+            Files.move(temporary.toPath(), file.toPath(), StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING)
+            load() == identified
+        } catch (error: Exception) {
+            logger.error("サーバー設定を保存できませんでした。", error)
+            false
+        } finally {
+            temporary?.delete()
+        }
     }
+}
+
+/** 欠落IDだけを採番し、確定済みIDとprofileの順序を維持します。 */
+internal fun assignProfileIds(config: ServerConfig): ServerConfig {
+    val profiles = config.list.map { profile ->
+        if (profile.profileId.isEmpty()) profile.copy(profileId = UUID.randomUUID().toString()) else profile
+    }
+    require(profiles.map { it.profileId }.toSet().size == profiles.size) { "サーバー設定の識別子が重複しています。" }
+    return config.copy(list = profiles)
 }

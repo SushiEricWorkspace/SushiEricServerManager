@@ -207,12 +207,13 @@ class ItemReferenceEditorsTest {
     fun `背景失敗をモーダル通知せず再表示で自動再試行しない`() {
         val reads = AtomicInteger()
         val memory = InMemoryEditorDataStore()
+        val directory = createTempDirectory("item-reference-failure").toFile()
         val service = EditorDataService(object : EditorDataStore by memory {
             override fun <T : ManagedData<T, *>> list(descriptor: EditorDataDescriptor<T>): StoreResult<List<StoreResource>> {
                 reads.incrementAndGet()
                 return StoreResult.Failure(StoreError(StoreErrorCode.IO_ERROR))
             }
-        })
+        }, directory)
         var failures = 0
         lateinit var binding: ItemReferenceBinding
         try {
@@ -221,7 +222,7 @@ class ItemReferenceEditorsTest {
             onFxThread { assertEquals(0, failures); binding.load(); assertEquals(1, reads.get()); binding.load(force = true) }
             service.submitIo {}.get(10, TimeUnit.SECONDS)
             onFxThread { assertEquals(1, failures); assertEquals(2, reads.get()); binding.close() }
-        } finally { service.itemReferences.close(); service.closeIo() }
+        } finally { service.itemReferences.close(); service.closeIo(); directory.deleteRecursively() }
     }
 
     private fun onFxThread(action: () -> Unit) {

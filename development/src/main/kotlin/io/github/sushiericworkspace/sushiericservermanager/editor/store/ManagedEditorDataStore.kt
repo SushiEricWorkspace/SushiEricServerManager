@@ -4,6 +4,9 @@ import io.github.sushiericworkspace.sushiericdatamodel.data.core.ManagedData
 import io.github.sushiericworkspace.sushiericdatamodel.data.core.identity.PublicId
 import io.github.sushiericworkspace.sushiericdatamodel.data.item.model.ItemInternalId
 import io.github.sushiericworkspace.sushiericservermanager.communication.managed.ManagedSession
+import io.github.sushiericworkspace.sushiericservermanager.communication.managed.ManagedTarget
+import io.github.sushiericworkspace.sushiericservermanager.editor.service.EditorDocumentSource
+import java.util.UUID
 import io.github.sushiericworkspace.sushiericservermanager.communication.managed.SupervisorFailure
 import io.github.sushiericworkspace.sushiericservermanager.update.ManagerCompatibility
 import kotlinx.serialization.json.*
@@ -13,6 +16,19 @@ import java.nio.file.Files
 class ManagedEditorDataStore(val session: ManagedSession, private val compatibility: ManagerCompatibility) : EditorDataStore {
     override val kind = EditorDataStoreKind.REMOTE
     override val identity = "managed-${session.identity}"
+    override val documentSource: EditorDocumentSource.Server = when (val target = session.profile.target) {
+        is ManagedTarget.Local -> EditorDocumentSource.Server(
+            UUID.nameUUIDFromBytes(target.identity.toByteArray(Charsets.UTF_8)).toString(),
+            target.root.toString() + "\u0000" + session.profile.instanceId)
+        is ManagedTarget.Ssh -> {
+            val profile = target.profile
+            EditorDocumentSource.Server(profile.id,
+                listOf("ssh", profile.json.getValue("host").jsonPrimitive.content,
+                    profile.json.getValue("sshUser").jsonPrimitive.content,
+                    profile.json.getValue("managementRoot").jsonPrimitive.content,
+                    session.profile.instanceId).joinToString("\u0000"))
+        }
+    }
     override val offlineDirectory get() = session.offlineDirectory
     override val isAvailable get() = session.state == ManagedSession.State.OPEN
 

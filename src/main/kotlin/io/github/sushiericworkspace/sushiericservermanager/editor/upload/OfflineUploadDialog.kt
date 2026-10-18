@@ -93,7 +93,7 @@ object OfflineUploadDialog {
         val dialog = Dialog<OfflineUploadSelection>().apply {
             title = if (forEditing) "ローカルデータを読み込む" else "ローカルデータをアップロード"
             headerText = if (forEditing) {
-                "読み込み先: $profileName（${category.displayName}）。サーバーへの反映は保存時に行います"
+                "読み込み先: $profileName（${category.displayName}）。編集内容はローカルの作業コピーに保存します。"
             } else {
                 "アップロード先: $profileName（${category.displayName}）"
             }

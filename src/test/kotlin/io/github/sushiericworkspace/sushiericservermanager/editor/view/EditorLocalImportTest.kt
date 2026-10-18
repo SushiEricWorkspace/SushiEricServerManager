@@ -6,6 +6,7 @@ import io.github.sushiericworkspace.sushiericdatamodel.data.ore.model.mutable.Mu
 import io.github.sushiericworkspace.sushiericservermanager.app.AppScreen
 import io.github.sushiericworkspace.sushiericservermanager.editor.controller.MainController
 import io.github.sushiericworkspace.sushiericservermanager.editor.service.EditorDataService
+import io.github.sushiericworkspace.sushiericservermanager.editor.service.EditorDocumentSource
 import io.github.sushiericworkspace.sushiericservermanager.editor.store.*
 import javafx.animation.KeyFrame
 import javafx.animation.Timeline
@@ -30,7 +31,7 @@ class EditorLocalImportTest {
     fun `遅い走査中も編集でき終了後の画面へ結果を反映しない`() = fixture { f ->
         val entered = CountDownLatch(1)
         val release = CountDownLatch(1)
-        f.store.beforeList = { entered.countDown(); assertTrue(release.await(10, TimeUnit.SECONDS)) }
+        f.service.localService.submitIo { entered.countDown(); assertTrue(release.await(10, TimeUnit.SECONDS)) }
         try {
             fx { f.startImport() }
             assertTrue(entered.await(10, TimeUnit.SECONDS))
@@ -42,8 +43,9 @@ class EditorLocalImportTest {
             }
             val closed = CompletableFuture<Boolean>()
             fx { f.view.onClose { closed.complete(it) } }
-            assertTrue(closed.get(10, TimeUnit.SECONDS))
+            assertFalse(closed.isDone)
             release.countDown()
+            assertTrue(closed.get(10, TimeUnit.SECONDS))
             f.service.submitIo {}.get(10, TimeUnit.SECONDS)
             fx { assertNull(f.view.cached()); assertFalse(f.status().isVisible) }
         } finally { release.countDown() }
@@ -59,7 +61,7 @@ class EditorLocalImportTest {
         f.approveChanges = approve
         val entered = CountDownLatch(1)
         val release = CountDownLatch(1)
-        f.store.beforeLoad = { entered.countDown(); assertTrue(release.await(10, TimeUnit.SECONDS)) }
+        f.beforeRead = { entered.countDown(); assertTrue(release.await(10, TimeUnit.SECONDS)) }
         try {
             fx { f.startImport() }
             assertTrue(entered.await(10, TimeUnit.SECONDS))
@@ -75,7 +77,7 @@ class EditorLocalImportTest {
                 f.store.memory.load(EditorDataDescriptors.ore, "one")).value.hardness)
             assertEquals(0, f.store.saves)
             if (approve) {
-                assertEquals(2, f.store.lists)
+                assertEquals(0, f.store.saves)
                 val restored = f.service.ores.loadBackupPair("one")
                 assertEquals(7.0, restored?.first?.hardness)
             }
@@ -86,10 +88,10 @@ class EditorLocalImportTest {
     fun `適用後の退避待ちは表示を維持し編集を再開する`() = fixture { f ->
         val entered = CountDownLatch(1)
         val release = CountDownLatch(1)
-        val queued = f.service.submitBackupIo { entered.countDown(); assertTrue(release.await(10, TimeUnit.SECONDS)) }
-        assertTrue(entered.await(10, TimeUnit.SECONDS))
+        f.beforeBackup = { entered.countDown(); assertTrue(release.await(10, TimeUnit.SECONDS)) }
         try {
             fx { f.startImport() }
+            assertTrue(entered.await(10, TimeUnit.SECONDS))
             awaitFx { f.status().text.contains("退避") }
             fx {
                 assertFalse(f.main.mainContentContainer.isDisabled)
@@ -97,7 +99,6 @@ class EditorLocalImportTest {
                 f.view.change(12.0)
             }
             release.countDown()
-            queued.get(10, TimeUnit.SECONDS)
             awaitFx { !f.status().isVisible }
             fx { assertFalse(f.main.operationRunning); assertFalse(f.main.mainContentContainer.isDisabled); assertEquals(12.0, f.view.cached()?.hardness) }
             assertEquals(0, f.store.saves)
@@ -108,14 +109,15 @@ class EditorLocalImportTest {
     fun `読み込み中に終了すると戻った結果を破棄する`() = fixture { f ->
         val entered = CountDownLatch(1)
         val release = CountDownLatch(1)
-        f.store.beforeLoad = { entered.countDown(); assertTrue(release.await(10, TimeUnit.SECONDS)) }
+        f.beforeRead = { entered.countDown(); assertTrue(release.await(10, TimeUnit.SECONDS)) }
         try {
             fx { f.startImport() }
             assertTrue(entered.await(10, TimeUnit.SECONDS))
             val closed = CompletableFuture<Boolean>()
             fx { f.view.onClose { closed.complete(it) } }
-            assertTrue(closed.get(10, TimeUnit.SECONDS))
+            assertFalse(closed.isDone)
             release.countDown()
+            assertTrue(closed.get(10, TimeUnit.SECONDS))
             f.service.submitIo {}.get(10, TimeUnit.SECONDS)
             fx { assertNull(f.view.cached()); assertFalse(f.status().isVisible) }
         } finally { release.countDown() }
@@ -125,7 +127,7 @@ class EditorLocalImportTest {
     fun `取り込み中に競合するストア操作を要求してもFXスレッドで待機しない`() = fixture { f ->
         val entered = CountDownLatch(1)
         val release = CountDownLatch(1)
-        f.store.beforeLoad = { entered.countDown(); assertTrue(release.await(10, TimeUnit.SECONDS)) }
+        f.beforeRead = { entered.countDown(); assertTrue(release.await(10, TimeUnit.SECONDS)) }
         var completed = false
         try {
             fx { f.startImport() }
@@ -146,10 +148,10 @@ class EditorLocalImportTest {
     fun `取り込み後の退避待ちで終了すると最新編集を退避してから閉じる`() = fixture { f ->
         val entered = CountDownLatch(1)
         val release = CountDownLatch(1)
-        f.service.submitBackupIo { entered.countDown(); assertTrue(release.await(10, TimeUnit.SECONDS)) }
-        assertTrue(entered.await(10, TimeUnit.SECONDS))
+        f.beforeBackup = { entered.countDown(); assertTrue(release.await(10, TimeUnit.SECONDS)) }
         try {
             fx { f.startImport() }
+            assertTrue(entered.await(10, TimeUnit.SECONDS))
             awaitFx { f.status().text.contains("退避") }
             val closed = CompletableFuture<Boolean>()
             fx { f.view.change(12.0); f.view.onClose { closed.complete(it) } }
@@ -179,15 +181,30 @@ class EditorLocalImportTest {
         assertIs<StoreResult.Success<Unit>>(LocalEditorDataStore(local).save(
             EditorDataDescriptors.ore, "one", MutableOreBaseData(id = "one", blockId = VanillaBlockId("iron_ore"), hardness = 7.0)))
         val backup = File(directory, "backup")
-        if (backupFailure) backup.writeText("書き込み不可の退避先")
-        val service = EditorDataService(store, backup)
-        val f = fx {
+        val service = EditorDataService(store, backup, localDirectory = local)
+        val armed = java.util.concurrent.atomic.AtomicBoolean(false)
+        lateinit var f: Fixture
+        val descriptor = EditorDataDescriptors.ore
+        val testDescriptor = EditorDataDescriptor(
+            descriptor.dataType, descriptor.load, descriptor.save, descriptor.validate, descriptor.merger,
+            loadBackup = { file, parent ->
+                if (armed.get()) f.beforeRead?.invoke()
+                descriptor.loadBackup(file, parent)
+            },
+            saveBackup = { file, data ->
+                if (armed.get()) {
+                    f.beforeBackup?.invoke()
+                    check(!f.failBackup) { "取込退避のcodec失敗" }
+                }
+                descriptor.saveBackup(file, data)
+            },
+            validateInStore = descriptor.validateInStore, storesIdInFile = descriptor.storesIdInFile)
+        f = fx {
             val loader = FXMLLoader(javaClass.getResource(AppScreen.BASE.fxml!!))
             val root = loader.load<Parent>()
             val main = loader.getController<MainController>()
             val stage = Stage().apply { scene = Scene(root, 1100.0, 700.0); show() }
-            Fixture(store, service, main, root, stage, TestView(main, service)).also {
-                it.view.seed()
+            Fixture(store, service, main, root, stage, TestView(main, service, testDescriptor)).also {
                 it.view.setupActions(main.actionButtonContainer)
             }
         }
@@ -208,10 +225,20 @@ class EditorLocalImportTest {
                 }
             })).apply { cycleCount = Timeline.INDEFINITE; play() }
         }
-        fx { f.view.setupSidebar(f.main.sidebarContainer, "one") }
+        fx {
+            f.view.start()
+        }
         awaitFx { !f.main.loadingRunning && f.view.selected != null }
+        fx {
+            mainSourceMenu(f).items.single { it.text == "サーバーの作業コピー" }.fire()
+        }
+        awaitFx { !f.main.loadingRunning && !f.main.operationRunning && f.view.remoteSource }
+        armed.set(true)
+        f.failBackup = backupFailure
         try { block(f) } finally {
-            if (backup.isFile) backup.delete()
+            f.failBackup = false
+            f.beforeRead = null
+            f.beforeBackup = null
             val closed = CompletableFuture<Boolean>()
             fx { f.view.onClose { closed.complete(it) } }
             assertTrue(closed.get(10, TimeUnit.SECONDS))
@@ -227,6 +254,9 @@ class EditorLocalImportTest {
         val store: DelayedStore, val service: EditorDataService, val main: MainController,
         val root: Parent, val stage: Stage, val view: TestView
     ) {
+        var beforeRead: (() -> Unit)? = null
+        var beforeBackup: (() -> Unit)? = null
+        var failBackup = false
         var approveChanges = true
         var confirmations = 0
         var backupFailureBusy: Boolean? = null
@@ -238,12 +268,11 @@ class EditorLocalImportTest {
         }
     }
 
-    private class TestView(main: MainController, service: EditorDataService) :
-        ManagedDataEditorView<MutableOreBaseData>(main, service, service.ores) {
-        fun seed() {
-            originalDataMap["one"] = MutableOreBaseData(id = "one")
-            editingDataMap["one"] = originalDataMap.getValue("one").deepCopy()
-        }
+    private fun mainSourceMenu(f: Fixture) = f.main.actionButtonContainer.children.filterIsInstance<MenuButton>().last()
+
+    private class TestView(main: MainController, service: EditorDataService, descriptor: EditorDataDescriptor<MutableOreBaseData>) :
+        ManagedDataEditorView<MutableOreBaseData>(main, service, service.DataAccess(descriptor)) {
+        val remoteSource get() = dataService.isRemote
         fun change(hardness: Double) { editingDataMap.getValue("one").hardness = hardness }
         val selected get() = currentSelectedDataId
         fun cached() = editingDataMap["one"]
@@ -261,19 +290,14 @@ class EditorLocalImportTest {
         val memory = InMemoryEditorDataStore("import-test")
         override val identity = "import-test"
         override val kind = EditorDataStoreKind.REMOTE
-        var beforeList: (() -> Unit)? = null
-        var beforeLoad: (() -> Unit)? = null
-        var lists = 0
+        override val documentSource = EditorDocumentSource.Server("import-fixture", "declared/root")
         var saves = 0
         override fun <T : ManagedData<T, *>> list(descriptor: EditorDataDescriptor<T>): StoreResult<List<StoreResource>> {
             assertFalse(Platform.isFxApplicationThread())
-            lists++
-            beforeList?.invoke()
             return memory.list(descriptor)
         }
         override fun <T : ManagedData<T, *>> load(descriptor: EditorDataDescriptor<T>, id: String): StoreResult<T> {
             assertFalse(Platform.isFxApplicationThread())
-            beforeLoad?.invoke()
             return memory.load(descriptor, id)
         }
         override fun <T : ManagedData<T, *>> save(descriptor: EditorDataDescriptor<T>, id: String, data: T): StoreResult<Unit> {

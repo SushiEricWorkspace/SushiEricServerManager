@@ -158,8 +158,10 @@ internal class AppFrame(private val screen: AppScreen, content: Parent) : Border
 
     /** 同じMenuItemを保持し、選択中の機能の操作と実行条件へ切り替えます。 */
     fun useEditorMenus(container: HBox, refreshActions: () -> Unit) {
-        val menus = container.properties[editorMenusKey] as? EditorMenus ?: run {
-            val buttons = container.children.filterIsInstance<MenuButton>()
+        val buttons = container.children.filterIsInstance<MenuButton>().filter { "editor-menu-button" in it.styleClass }
+        val menus = if (buttons.isEmpty()) {
+            requireNotNull(container.properties[editorMenusKey] as? EditorMenus) { "Editorのファイル・編集メニューが必要です。" }
+        } else {
             require(buttons.size == 2) { "Editorのファイル・編集メニューが必要です。" }
             val cached = EditorMenus(buttons[0].items.toList(), buttons[1].items.toList())
             buttons.forEach { it.items.clear() }

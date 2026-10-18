@@ -1,11 +1,14 @@
 package io.github.sushiericworkspace.sushiericservermanager.app
 
 import io.github.sushiericworkspace.sushiericdatamodel.data.item.model.mutable.MutableItemBaseData
+import io.github.sushiericworkspace.sushiericdatamodel.data.ore.model.mutable.MutableOreBaseData
 import io.github.sushiericworkspace.sushiericdatamodel.data.core.ManagedData
 import io.github.sushiericworkspace.sushiericservermanager.editor.upload.UploadDataCategory
 import io.github.sushiericworkspace.sushiericservermanager.communication.SshManager
 import io.github.sushiericworkspace.sushiericservermanager.editor.controller.MainController
 import io.github.sushiericworkspace.sushiericservermanager.editor.service.EditorDataService
+import io.github.sushiericworkspace.sushiericservermanager.editor.service.LocalDocumentSnapshot
+import io.github.sushiericworkspace.sushiericservermanager.editor.service.EditorDocumentSource
 import io.github.sushiericworkspace.sushiericservermanager.editor.session.EditorConnection
 import io.github.sushiericworkspace.sushiericservermanager.editor.session.EditorSession
 import io.github.sushiericworkspace.sushiericservermanager.editor.store.*
@@ -42,7 +45,7 @@ class ConnectionCloseFlowTest {
         val backupEntered = CountDownLatch(1)
         val close = CountDownLatch(1)
         val closeEntered = CountDownLatch(1)
-        f.writeBackup = { backupEntered.countDown(); assertTrue(backup.await(10, TimeUnit.SECONDS)) }
+        f.writeBackup = { _, _ -> backupEntered.countDown(); assertTrue(backup.await(10, TimeUnit.SECONDS)) }
         f.connection.beforeClose = { closeEntered.countDown(); assertTrue(close.await(10, TimeUnit.SECONDS)) }
         fx { f.service.beginSave() }
         f.service.submitIo { assertTrue(operation.await(10, TimeUnit.SECONDS)) }
@@ -76,7 +79,7 @@ class ConnectionCloseFlowTest {
     @Test fun `HOMEなし配置復元後もnativecloseは退避を待ち終了失敗で画面と入力を保全する`() = fixture(withoutHome = true) { f ->
         val backup = CountDownLatch(1)
         val entered = CountDownLatch(1)
-        f.writeBackup = { entered.countDown(); assertTrue(backup.await(10, TimeUnit.SECONDS)) }
+        f.writeBackup = { _, _ -> entered.countDown(); assertTrue(backup.await(10, TimeUnit.SECONDS)) }
         f.connection.fail = true
         try {
             fx {
@@ -137,30 +140,37 @@ class ConnectionCloseFlowTest {
 
     @Test fun `ローカル取込の走査と確認と反映完了を待ってから退避する`() = fixture { f ->
         val descriptor = EditorDataDescriptors.item
-        LocalEditorDataStore(f.remote.offlineDirectory).save(descriptor, "imported",
-            descriptor.createDefault("imported").apply { editorMeta.comment.add("取込") })
+        val local = f.service.localService
+        assertIs<StoreResult.Success<*>>(local.items.saveLocalDocument("imported",
+            descriptor.createDefault("imported").apply { editorMeta.comment.add("取込") }, emptyMap()))
+        assertIs<StoreResult.Success<*>>(local.items.listStoreResources())
+        fx { f.views.first().selectServerSource() }
+        awaitFx { f.views.first().serverSourceReady() }
+        val localBefore = assertIs<StoreResult.Success<LocalDocumentSnapshot>>(local.documents.read()).value
         val scanEntered = CountDownLatch(1)
         val scanRelease = CountDownLatch(1)
         val loadEntered = CountDownLatch(1)
         val loadRelease = CountDownLatch(1)
-        f.remote.beforeList = { scanEntered.countDown(); assertTrue(scanRelease.await(10, TimeUnit.SECONDS)) }
-        f.remote.beforeLoad = { loadEntered.countDown(); assertTrue(loadRelease.await(10, TimeUnit.SECONDS)) }
+        f.service.submitIo { scanEntered.countDown(); assertTrue(scanRelease.await(10, TimeUnit.SECONDS)) }
+        assertTrue(scanEntered.await(10, TimeUnit.SECONDS))
         val done = CompletableFuture<Unit>()
         try {
             fx {
                 EditorView::class.java.getDeclaredMethod("onUploadLocalData", UploadDataCategory::class.java)
                     .apply { isAccessible = true }.invoke(f.views.first(), UploadDataCategory.ITEM)
             }
-            assertTrue(scanEntered.await(10, TimeUnit.SECONDS))
             fx { Utility.closeConnection { done.complete(Unit) }; assertEquals("処理の完了を待っています", status()) }
             scanRelease.countDown()
             awaitFx { dialog() != null }
+            f.service.submitIo { loadEntered.countDown(); assertTrue(loadRelease.await(10, TimeUnit.SECONDS)) }
+            assertTrue(loadEntered.await(10, TimeUnit.SECONDS))
             fx {
                 val pane = dialog()!!
                 assertTrue(f.views.first().closeBusy)
+                pane.lookupAll(".check-box").filterIsInstance<javafx.scene.control.CheckBox>()
+                    .filter { !it.text.contains("imported") }.forEach { it.isSelected = false }
                 (pane.lookupButton(pane.buttonTypes.first { it.buttonData == ButtonBar.ButtonData.OK_DONE }) as Button).fire()
             }
-            assertTrue(loadEntered.await(10, TimeUnit.SECONDS))
             fx { assertEquals("処理の完了を待っています", status()); assertEquals(0, f.connection.closed) }
             loadRelease.countDown()
             awaitFx { dialog() != null && f.views.first().imported() }
@@ -171,6 +181,11 @@ class ConnectionCloseFlowTest {
             }
             done.get(10, TimeUnit.SECONDS)
             assertEquals(listOf("取込"), assertNotNull(f.service.items.loadBackupPair("imported")).first.editorMeta.comment)
+            val localAfter = assertIs<StoreResult.Success<LocalDocumentSnapshot>>(local.documents.read()).value
+            assertEquals(localBefore.documents.single { it.key.id == "imported" },
+                localAfter.documents.single { it.key.id == "imported" })
+            assertEquals(localBefore.documents.associate { it.key to listOf(it.saved, it.savedRaw, it.savedPending, it.savedDeleted) },
+                localAfter.documents.associate { it.key to listOf(it.saved, it.savedRaw, it.savedPending, it.savedDeleted) })
         } finally {
             scanRelease.countDown(); loadRelease.countDown()
             fx { dialog()?.let { (it.lookupButton(it.buttonTypes.last()) as Button).fire() } }
@@ -178,7 +193,7 @@ class ConnectionCloseFlowTest {
     }
 
     @Test fun `二画面目の退避失敗では全画面を保持して切断せず再試行する`() = fixture { f ->
-        f.writeBackup = { file -> if (file.name.startsWith(".second-")) error("退避失敗") }
+        f.writeBackup = { _, id -> if (id == "second") error("退避失敗") }
         val done = CompletableFuture<Unit>()
         fx { Utility.closeConnection { done.complete(Unit) } }
         awaitFx { !ApplicationFlow.closingConnection }
@@ -190,7 +205,7 @@ class ConnectionCloseFlowTest {
         }
         assertEquals(0, f.connection.closed)
         assertFalse(done.isDone)
-        f.writeBackup = {}
+        f.writeBackup = { _, _ -> }
         fx { Utility.closeConnection { done.complete(Unit) } }
         done.get(10, TimeUnit.SECONDS)
         assertEquals(1, f.connection.closed)
@@ -283,61 +298,69 @@ class ConnectionCloseFlowTest {
         val f = Fixture(service, connection, remote)
         val settings = AppSettingsManager.load()
         val layoutKey = "close-without-home-test"
-        val descriptor = EditorDataDescriptors.item
-        fun access() = service.DataAccess(EditorDataDescriptor(
+        fun <T : ManagedData<T, *>> access(descriptor: EditorDataDescriptor<T>) = service.DataAccess(EditorDataDescriptor(
             descriptor.dataType, descriptor.load, descriptor.save, descriptor.validate, descriptor.merger,
             loadBackup = descriptor.loadBackup,
-            saveBackup = { file, data -> f.writeBackup(file); descriptor.saveBackup(file, data) },
+            saveBackup = { file, data -> f.writeBackup(file, data.id); descriptor.saveBackup(file, data) },
             validateInStore = descriptor.validateInStore, storesIdInFile = descriptor.storesIdInFile
         ))
-        for (id in listOf("first", "second")) memory.save(descriptor, id, descriptor.createDefault(id))
+        val item = EditorDataDescriptors.item.createDefault("first")
+        val ore = EditorDataDescriptors.ore.createDefault("second")
+        assertIs<StoreResult.Success<*>>(memory.save(EditorDataDescriptors.item, item.id, item))
+        assertIs<StoreResult.Success<*>>(memory.save(EditorDataDescriptors.ore, ore.id, ore))
+        assertIs<StoreResult.Success<*>>(service.localService.items.saveLocalDocument(item.id, item, emptyMap()))
+        assertIs<StoreResult.Success<*>>(service.localService.ores.saveLocalDocument(ore.id, ore, emptyMap()))
         fx {
             EditorSession.startConnection(connection)
             if (withoutHome) AppSettingsManager.save(settings.copy(workspaceLayouts = settings.workspaceLayouts +
                 (layoutKey to WorkspaceLayout(root = WorkspaceNode.Feature(WorkspaceFeature.ITEM_EDITOR), active = WorkspaceFeature.ITEM_EDITOR))))
             f.home = workspaceStage(if (withoutHome) layoutKey else null)
-            for ((index, id) in listOf("first", "second").withIndex()) {
-                val feature = if (index == 0) WorkspaceFeature.ITEM_EDITOR else WorkspaceFeature.ORE_EDITOR
+            fun <T : ManagedData<T, *>> open(feature: WorkspaceFeature, id: String, descriptor: EditorDataDescriptor<T>) {
                 EditorWindowManager.openEditor(feature, id, FXMLLoader(javaClass.getResource(AppScreen.BASE.fxml!!))) { main ->
-                    View(main, service, access(), id).also { f.views += it }
+                    View(main, service, access(descriptor), id).also { f.views += it }
                 }
             }
+            open(WorkspaceFeature.ITEM_EDITOR, item.id, EditorDataDescriptors.item)
+            open(WorkspaceFeature.ORE_EDITOR, ore.id, EditorDataDescriptors.ore)
         }
         awaitFx { f.views.all { !it.controller.loadingRunning } }
+        var primary: Throwable? = null
         try { action(f) }
-        finally {
-            fx { Platform.setImplicitExit(false) }
-            connection.beforeClose = {}
-            connection.fail = false
-            f.writeBackup = {}
-            awaitFx { !ApplicationFlow.closingConnection }
-            val closed = CompletableFuture<Boolean>()
-            fx { EditorWindowManager.closeAll { closed.complete(it) } }
-            assertTrue(closed.get(10, TimeUnit.SECONDS))
-            EditorSession.resetMode()
-            fx { Stage.getWindows().toList().filterIsInstance<Stage>().forEach { it.close() } }
-            if (withoutHome) AppSettingsManager.save(settings)
-            directory.deleteRecursively()
+        catch (error: Throwable) {
+            primary = error
+            throw error
+        } finally {
+            try {
+                fx { Platform.setImplicitExit(false) }
+                connection.beforeClose = {}
+                connection.fail = false
+                f.writeBackup = { _, _ -> }
+                awaitFx { !ApplicationFlow.closingConnection }
+                val closed = CompletableFuture<Boolean>()
+                fx { EditorWindowManager.closeAll { closed.complete(it) } }
+                val closedSuccessfully = closed.get(10, TimeUnit.SECONDS)
+                val records = (service.documents.read() as? StoreResult.Success)?.value?.documents
+                    ?.map { Triple(it.key.category, it.key.id, it.revision) }
+                assertTrue(closedSuccessfully, "正常退避終了=$closedSuccessfully / 文書revision=$records")
+                EditorSession.resetMode()
+                fx { Stage.getWindows().toList().filterIsInstance<Stage>().forEach { it.close() } }
+                if (withoutHome) AppSettingsManager.save(settings)
+                directory.deleteRecursively()
+            } catch (error: Throwable) {
+                if (primary == null) throw error
+                primary.addSuppressed(error)
+            }
         }
     }
 
     private class Fixture(val service: EditorDataService, val connection: Connection, val remote: RemoteStore) {
         lateinit var home: Stage
-        val views = mutableListOf<View>()
-        var writeBackup: (java.io.File) -> Unit = {}
+        val views = mutableListOf<View<*>>()
+        var writeBackup: (java.io.File, String) -> Unit = { _, _ -> }
     }
     private class RemoteStore(val memory: InMemoryEditorDataStore, override val offlineDirectory: java.io.File) : EditorDataStore by memory {
         override val kind = EditorDataStoreKind.REMOTE
-        var beforeList: () -> Unit = {}
-        var beforeLoad: () -> Unit = {}
-        override fun <T : ManagedData<T, *>> list(descriptor: EditorDataDescriptor<T>): StoreResult<List<StoreResource>> {
-            beforeList()
-            return memory.list(descriptor)
-        }
-        override fun <T : ManagedData<T, *>> load(descriptor: EditorDataDescriptor<T>, id: String): StoreResult<T> {
-            beforeLoad()
-            return memory.load(descriptor, id)
-        }
+        override val documentSource = EditorDocumentSource.Server("connection-close-fixture", offlineDirectory.parentFile.absolutePath)
     }
     private class Connection(private val service: EditorDataService) : EditorConnection {
         override val contextName = "管理接続の代替"
@@ -354,19 +377,28 @@ class ConnectionCloseFlowTest {
         }
         override fun abort() = Unit
     }
-    private class View(val controller: MainController, service: EditorDataService, access: EditorDataService.DataAccess<MutableItemBaseData>, val id: String) :
-        EditorView<MutableItemBaseData>(controller, service, access) {
-        fun retained() = editingDataMap[id]?.editorMeta?.comment == listOf("編集内容")
-        fun imported() = editingDataMap["imported"]?.editorMeta?.comment == listOf("取込")
+    private class View<T : ManagedData<T, *>>(val controller: MainController, service: EditorDataService,
+        access: EditorDataService.DataAccess<T>, val id: String) : EditorView<T>(controller, service, access) {
+        private fun meta(data: ManagedData<*, *>) = when (data) {
+            is MutableItemBaseData -> data.editorMeta
+            is MutableOreBaseData -> data.editorMeta
+            else -> error("接続終了試験はItem/Oreを使用します")
+        }
+        fun retained() = editingDataMap[id]?.let { meta(it).comment == listOf("編集内容") } == true
+        fun imported() = (editingDataMap["imported"] as? MutableItemBaseData)?.editorMeta?.comment == listOf("取込")
+        fun selectServerSource() {
+            controller.actionButtonContainer.children.filterIsInstance<javafx.scene.control.MenuButton>()
+                .singleOrNull { it.text == "ローカル" }?.items?.get(1)?.fire()
+        }
+        fun serverSourceReady() = dataService.isRemote && !controller.loadingRunning && !closeBusy
         override fun setupSidebar(container: VBox, selectId: String?) {
-            val original = EditorDataDescriptors.item.createDefault(id)
-            originalDataMap[id] = original
-            editingDataMap[id] = original.deepCopy().apply { editorMeta.comment.add("編集内容") }
+            val original = originalDataMap.getValue(id)
+            editingDataMap[id] = original.deepCopy().apply { meta(this).comment.add("編集内容") }
             currentSelectedDataId = id
             main.finishLoading()
         }
-        override fun setupMainContent(selectData: MutableItemBaseData) = Unit
-        override fun resolveSaveConflict(dataId: String, originalData: MutableItemBaseData, currentData: MutableItemBaseData, serverData: MutableItemBaseData) = currentData
+        override fun setupMainContent(selectData: T) = Unit
+        override fun resolveSaveConflict(dataId: String, originalData: T, currentData: T, serverData: T) = currentData
     }
     companion object {
         private fun startFx() {

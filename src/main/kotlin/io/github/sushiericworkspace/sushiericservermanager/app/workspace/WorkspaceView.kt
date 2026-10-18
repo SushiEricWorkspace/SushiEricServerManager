@@ -210,6 +210,23 @@ internal class WorkspaceView(
         changed()
     }
 
+    internal fun tabs(root: Node, source: String): IdTabsState? =
+        feature(root)?.let { layout.sourceDocuments[it.name + ":" + source] }
+
+    internal fun tabs(root: Node, state: IdTabsState, source: String) {
+        val feature = feature(root) ?: return
+        layout = layout.copy(sourceDocuments = layout.sourceDocuments + (feature.name + ":" + source to state))
+        changed()
+    }
+
+    internal fun documentSource(root: Node): String? = feature(root)?.let { layout.documentSources[it] }
+
+    internal fun documentSource(root: Node, source: String) {
+        val feature = feature(root) ?: return
+        layout = layout.copy(documentSources = layout.documentSources + (feature to source))
+        changed()
+    }
+
     fun move(feature: WorkspaceFeature, target: WorkspaceFeature, side: DockSide): Boolean {
         if (feature !in features || target !in features || feature == target || scene?.let(ShortcutManager::isComposing) == true) return false
         layout = layout.copy(root = layout.root?.dock(feature, target, side))

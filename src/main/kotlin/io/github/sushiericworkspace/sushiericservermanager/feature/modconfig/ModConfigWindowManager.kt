@@ -17,7 +17,7 @@ object ModConfigWindowManager {
         val root = loader.load<Parent>()
         val controller = loader.getController<ModConfigController>()
         controller.initData(dataService)
-        workspace.show(WorkspaceFeature.MOD_CONFIG, root, close = { completed -> completed(controller.canClose) }, dispose = { controller.dispose() })
+        workspace.show(WorkspaceFeature.MOD_CONFIG, root, close = { completed -> controller.prepareClose(completed) }, dispose = { controller.dispose() })
     }
 
     /** 表示中の機能を、workspaceの終了経路で閉じます。 */

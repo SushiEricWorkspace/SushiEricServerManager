@@ -33,7 +33,6 @@ import javafx.scene.control.CheckBox
 import javafx.scene.control.ComboBox
 import javafx.scene.control.Label
 import javafx.scene.control.TextField
-import javafx.scene.control.TextFormatter
 import javafx.scene.layout.GridPane
 import javafx.scene.layout.HBox
 import javafx.scene.layout.Priority
@@ -41,8 +40,8 @@ import javafx.scene.layout.VBox
 import javafx.util.StringConverter
 
 /** 材料盤と解放条件の入力を担当し、階層・履歴・自動保存は共通エディターへ委譲します。 */
-internal class RecipeEditorLogic(main: MainController, dataService: EditorDataService) :
-    ManagedDataEditorView<MutableRecipeData>(main, dataService, dataService.recipes) {
+internal class RecipeEditorLogic(main: MainController, service: EditorDataService) :
+    ManagedDataEditorView<MutableRecipeData>(main, service, service.recipes) {
     private var catalog: RecipeEditorCatalog? = null
     private var catalogTask: Task<RecipeEditorCatalog>? = null
     private var catalogFailed = false
@@ -54,7 +53,9 @@ internal class RecipeEditorLogic(main: MainController, dataService: EditorDataSe
 
     private val availableItems get() = dataService.itemReferences.snapshot.items
     private val itemsLoaded get() = dataService.itemReferences.snapshot.status == ItemReferenceStatus.READY
-    private val itemBinding = ItemReferenceBinding(dataService.itemReferences, {
+    private var itemBinding = createItemBinding()
+
+    private fun createItemBinding() = ItemReferenceBinding(dataService.itemReferences, {
         refreshItemButtons()
         registeredSidebarIds.forEach(::refreshSidebarState)
         refreshContent?.invoke()
@@ -65,6 +66,17 @@ internal class RecipeEditorLogic(main: MainController, dataService: EditorDataSe
             .content("一覧を読み込めませんでした。接続状態とデータを確認してください。")
             .owner(main.currentStage).show()
     })
+
+    override fun onSourceChanged() {
+        itemBinding.close()
+        itemBinding = createItemBinding()
+        catalogTask?.cancel()
+        catalogTask = null
+        catalog = null
+        catalogFailed = false
+        refreshContent = null
+        itemButtons.clear()
+    }
 
     override fun loadEditorReferences() {
         if (catalog == null && catalogTask == null) loadCatalog()
@@ -117,6 +129,7 @@ internal class RecipeEditorLogic(main: MainController, dataService: EditorDataSe
         }
         val result = itemButton({ selectData.resultItemInternalId }) { selectData.resultItemInternalId = it; refresh() }.apply { id = "recipe-result" }
         val count = integerField(selectData.resultCount) { selectData.resultCount = it ?: 0; refresh() }.apply { id = "recipe-count" }
+        retainInputDraft(selectData.id, "resultCount", count) { it.isEmpty() || it.toIntOrNull() != null }
         val header = GridPane().apply {
             hgap = 12.0; vgap = 12.0
             add(Label("レシピID:"), 0, 0)
@@ -161,6 +174,7 @@ internal class RecipeEditorLogic(main: MainController, dataService: EditorDataSe
                     if (level == null) selectData.skillLevelRequirements.remove(skill) else selectData.skillLevelRequirements[skill] = level
                     refresh()
                 }.apply { promptText = "空欄: 条件なし" }
+                retainInputDraft(selectData.id, "skillLevelRequirements." + skill.name, field) { it.isEmpty() || it.toIntOrNull() != null }
                 add(Label(skill.display), 0, index); add(field, 1, index)
             }
         }
@@ -224,10 +238,7 @@ internal class RecipeEditorLogic(main: MainController, dataService: EditorDataSe
     }
 
     private fun integerField(initial: Int?, changed: (Int?) -> Unit): TextField = TextField(initial?.toString().orEmpty()).apply {
-        textFormatter = TextFormatter<String> { change ->
-            change.takeIf { it.controlNewText.isEmpty() || it.controlNewText.toIntOrNull() != null }
-        }
-        textProperty().addListener { _, _, value -> changed(value.toIntOrNull()) }
+        textProperty().addListener { _, _, value -> if (value.isEmpty() || value.toIntOrNull() != null) changed(value.toIntOrNull()) }
     }
 
     override fun validationErrors(data: MutableRecipeData): List<SushiEricValidationError> {
@@ -258,26 +269,21 @@ internal class RecipeEditorLogic(main: MainController, dataService: EditorDataSe
         return result.resolveWithLocal(choices)
     }
 
-    override fun saveStoreData(dataId: String, data: MutableRecipeData): StoreResult<Unit> =
-        if (Platform.isFxApplicationThread()) {
-            RecipeSaveProgressDialog.save(main.currentStage, dataId, dataService::executeIo) { dataAccess.saveStore(dataId, data) }
-        } else {
-            dataAccess.saveStore(dataId, data)
-        }
 
     internal override val closeBusy: Boolean get() = super.closeBusy || catalogTask != null
 
     private fun loadCatalog(force: Boolean = false) {
         if (catalogTask != null || disposed || (!force && catalogFailed)) return
         catalogFailed = false
-        val items = dataService.itemReferences.load(force)
+        val service = dataService
+        val items = service.itemReferences.load(force)
         val task = object : Task<RecipeEditorCatalog>() {
             override fun call(): RecipeEditorCatalog {
                 val cachedItems = when (val result = items.get()) {
                     is StoreResult.Success -> result.value
                     is StoreResult.Failure -> error("参照アイテムを読み込めません: ${result.error.code}")
                 }
-                return when (val result = dataService.submitIo { RecipeEditorCatalog.load(dataService.store, cachedItems) }.get()) {
+                return when (val result = service.submitIo { RecipeEditorCatalog.load(service.store, cachedItems) }.get()) {
                     is StoreResult.Success -> result.value
                     is StoreResult.Failure -> error("参照一覧を読み込めません: ${result.error.code} ${result.error.dataId}")
                 }
@@ -286,10 +292,12 @@ internal class RecipeEditorLogic(main: MainController, dataService: EditorDataSe
         catalogTask = task
         refreshContent?.invoke()
         task.setOnSucceeded {
+            if (catalogTask !== task || dataService !== service) return@setOnSucceeded
             catalogTask = null
             if (!disposed) { catalog = task.value; refreshContent?.invoke() }
         }
         task.setOnFailed {
+            if (catalogTask !== task || dataService !== service) return@setOnFailed
             catalogTask = null
             if (!disposed) {
                 catalogFailed = true

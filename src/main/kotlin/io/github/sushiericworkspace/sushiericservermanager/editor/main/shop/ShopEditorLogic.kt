@@ -18,7 +18,6 @@ import javafx.scene.Node
 import javafx.scene.control.CheckBox
 import javafx.scene.control.Label
 import javafx.scene.control.TextField
-import javafx.scene.control.TextFormatter
 import javafx.scene.layout.GridPane
 import javafx.scene.layout.VBox
 import javafx.scene.layout.HBox
@@ -29,8 +28,8 @@ import io.github.sushiericworkspace.sushiericservermanager.editor.component.Sear
 import io.github.sushiericworkspace.sushiericservermanager.app.AppScreen
 
 /** 商品入力と参照アイテムの検証を提供し、階層・保存・履歴は共通基盤へ委譲します。 */
-internal class ShopEditorLogic(main: MainController, dataService: EditorDataService) :
-    ManagedDataEditorView<MutableShopProductData>(main, dataService, dataService.shops) {
+internal class ShopEditorLogic(main: MainController, service: EditorDataService) :
+    ManagedDataEditorView<MutableShopProductData>(main, service, service.shops) {
     private val itemIds get() = dataService.itemReferences.snapshot.byInternalId.keys
     private val catalogLoaded get() = dataService.itemReferences.snapshot.status == ItemReferenceStatus.READY
     private val catalogFailed get() = dataService.itemReferences.snapshot.status == ItemReferenceStatus.FAILED
@@ -39,7 +38,9 @@ internal class ShopEditorLogic(main: MainController, dataService: EditorDataServ
     private var refreshValidation: (() -> Unit)? = null
     private val focusTargets = mutableMapOf<String, Node>()
 
-    private val itemBinding = ItemReferenceBinding(dataService.itemReferences, {
+    private var itemBinding = createItemBinding()
+
+    private fun createItemBinding() = ItemReferenceBinding(dataService.itemReferences, {
         itemSelectionButton?.isDisable = catalogLoading
         registeredSidebarIds.forEach(::refreshSidebarState)
         refreshValidation?.invoke()
@@ -50,6 +51,13 @@ internal class ShopEditorLogic(main: MainController, dataService: EditorDataServ
             .content("アイテム一覧を読み込めませんでした。接続状態とデータを確認してください。")
             .owner(main.currentStage).show()
     })
+
+    override fun onSourceChanged() {
+        itemBinding.close()
+        itemBinding = createItemBinding()
+        refreshValidation = null
+        itemSelectionButton = null
+    }
 
     override fun loadEditorReferences() {
         itemBinding.load()
@@ -112,6 +120,10 @@ internal class ShopEditorLogic(main: MainController, dataService: EditorDataServ
         val sale = priceField(selectData.salePrice) { selectData.salePrice = it; refresh() }
         val stock = integerField(selectData.stock, "空欄: 無限在庫") { selectData.stock = it; refresh() }
         val order = integerField(selectData.displayOrder, "表示順（空欄: 0）") { selectData.displayOrder = it ?: 0; refresh() }
+        retainInputDraft(selectData.id, "purchasePrice", purchase) { it.isEmpty() || it.toLongOrNull() != null }
+        retainInputDraft(selectData.id, "salePrice", sale) { it.isEmpty() || it.toLongOrNull() != null }
+        retainInputDraft(selectData.id, "stock", stock) { it.isEmpty() || it.toIntOrNull() != null }
+        retainInputDraft(selectData.id, "displayOrder", order) { it.isEmpty() || it.toIntOrNull() != null }
         val increaseStock = CheckBox("プレイヤーの販売時に有限在庫を増やす").apply {
             isSelected = selectData.increaseStockOnSale
             selectedProperty().addListener { _, _, value -> selectData.increaseStockOnSale = value; refresh() }
@@ -141,18 +153,12 @@ internal class ShopEditorLogic(main: MainController, dataService: EditorDataServ
 
     private fun priceField(initial: Long?, changed: (Long?) -> Unit): TextField = TextField(initial?.toString().orEmpty()).apply {
         promptText = "空欄: この売買を許可しない"
-        textFormatter = TextFormatter<String> { change ->
-            change.takeIf { it.controlNewText.isEmpty() || it.controlNewText.toLongOrNull() != null }
-        }
-        textProperty().addListener { _, _, value -> changed(value.toLongOrNull()) }
+        textProperty().addListener { _, _, value -> if (value.isEmpty() || value.toLongOrNull() != null) changed(value.toLongOrNull()) }
     }
 
     private fun integerField(initial: Int?, prompt: String, changed: (Int?) -> Unit): TextField = TextField(initial?.toString().orEmpty()).apply {
         promptText = prompt
-        textFormatter = TextFormatter<String> { change ->
-            change.takeIf { it.controlNewText.isEmpty() || it.controlNewText.toIntOrNull() != null }
-        }
-        textProperty().addListener { _, _, value -> changed(value.toIntOrNull()) }
+        textProperty().addListener { _, _, value -> if (value.isEmpty() || value.toIntOrNull() != null) changed(value.toIntOrNull()) }
     }
 
     override fun availableItemInternalIds(): Set<ItemInternalId> = itemIds

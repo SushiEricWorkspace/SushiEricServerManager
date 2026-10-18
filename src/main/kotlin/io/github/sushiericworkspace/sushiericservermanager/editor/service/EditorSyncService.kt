@@ -4,7 +4,7 @@ import io.github.sushiericworkspace.sushiericdatamodel.data.core.ManagedData
 import io.github.sushiericworkspace.sushiericservermanager.editor.store.StoreResult
 import io.github.sushiericworkspace.sushiericservermanager.editor.store.StoreResource
 
-/** 全同期で取得した編集データと、サイドバー表示に使うストア一覧です。 */
+/** 明示取得で受け取ったデータとサーバー側の一覧です。 */
 data class EditorSyncSnapshot<T>(
     val resources: List<StoreResource>,
     val directories: List<String>,
@@ -14,25 +14,25 @@ data class EditorSyncSnapshot<T>(
 class EditorSyncService<T : ManagedData<T, *>>(
     private val dataAccess: EditorDataService.DataAccess<T>
 ) {
-    fun fetchOne(id: String): StoreResult<T> = dataAccess.loadStore(id)
+    fun fetchOne(id: String): StoreResult<T> = dataAccess.fetchSource(id)
 
     /**
      * データ一覧、ディレクトリ、各データを順に取得します。
      * [onProgress]はI/O実行スレッドから、一覧確定時と各データ取得成功後に呼び出します。
      */
     fun fetchAll(onProgress: (completed: Int, total: Int, id: String?) -> Unit = { _, _, _ -> }): StoreResult<EditorSyncSnapshot<T>> {
-        val resources = when (val listed = dataAccess.listStoreResources()) {
+        val resources = when (val listed = dataAccess.listSourceResources()) {
             is StoreResult.Success -> listed.value
             is StoreResult.Failure -> return listed
         }
-        val directories = when (val listed = dataAccess.listDirectories()) {
+        val directories = when (val listed = dataAccess.listSourceDirectories()) {
             is StoreResult.Success -> listed.value
             is StoreResult.Failure -> return listed
         }
         onProgress(0, resources.size, null)
         val loaded = linkedMapOf<String, T>()
         resources.forEach { resource ->
-            when (val result = dataAccess.loadStore(resource.id)) {
+            when (val result = dataAccess.fetchSource(resource.id)) {
                 is StoreResult.Success -> {
                     loaded[resource.id] = result.value
                     onProgress(loaded.size, resources.size, resource.id)

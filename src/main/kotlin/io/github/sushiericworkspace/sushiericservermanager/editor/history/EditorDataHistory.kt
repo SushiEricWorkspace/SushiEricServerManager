@@ -1,6 +1,8 @@
 package io.github.sushiericworkspace.sushiericservermanager.editor.history
 
-/** データIDごとに、起動中だけ保持する元に戻す・やり直し履歴です。 */
+import io.github.sushiericworkspace.sushiericservermanager.editor.service.EditorDocumentKey
+
+/** 保存元・種別・公開IDごとに、起動中だけ保持する元に戻す・やり直し履歴です。 */
 internal class EditorDataHistory<T>(
     private val copy: (T) -> T,
     private val maxEntries: Int = 100
@@ -11,13 +13,13 @@ internal class EditorDataHistory<T>(
         val redo: ArrayDeque<T> = ArrayDeque()
     )
 
-    private val states = mutableMapOf<String, State<T>>()
+    private val states = mutableMapOf<EditorDocumentKey, State<T>>()
 
-    fun initialize(id: String, value: T) {
+    fun initialize(id: EditorDocumentKey, value: T) {
         states.putIfAbsent(id, State(current = copy(value)))
     }
 
-    fun record(id: String, value: T) {
+    fun record(id: EditorDocumentKey, value: T) {
         val state = states[id]
         if (state == null) {
             initialize(id, value)
@@ -30,7 +32,7 @@ internal class EditorDataHistory<T>(
         state.redo.clear()
     }
 
-    fun undo(id: String, current: T): T? {
+    fun undo(id: EditorDocumentKey, current: T): T? {
         val state = states[id] ?: return null
         val previous = state.undo.removeLastOrNull() ?: return null
         state.redo.addLast(copy(current))
@@ -38,7 +40,7 @@ internal class EditorDataHistory<T>(
         return copy(previous)
     }
 
-    fun redo(id: String, current: T): T? {
+    fun redo(id: EditorDocumentKey, current: T): T? {
         val state = states[id] ?: return null
         val next = state.redo.removeLastOrNull() ?: return null
         state.undo.addLast(copy(current))
@@ -46,19 +48,19 @@ internal class EditorDataHistory<T>(
         return copy(next)
     }
 
-    fun canUndo(id: String): Boolean = states[id]?.undo?.isNotEmpty() == true
+    fun canUndo(id: EditorDocumentKey): Boolean = states[id]?.undo?.isNotEmpty() == true
 
-    fun canRedo(id: String): Boolean = states[id]?.redo?.isNotEmpty() == true
+    fun canRedo(id: EditorDocumentKey): Boolean = states[id]?.redo?.isNotEmpty() == true
 
-    fun reset(id: String, value: T) {
+    fun reset(id: EditorDocumentKey, value: T) {
         states[id] = State(current = copy(value))
     }
 
-    fun rename(oldId: String, newId: String) {
+    fun rename(oldId: EditorDocumentKey, newId: EditorDocumentKey) {
         states.remove(oldId)?.let { states[newId] = it }
     }
 
-    fun remove(id: String) {
+    fun remove(id: EditorDocumentKey) {
         states.remove(id)
     }
 
