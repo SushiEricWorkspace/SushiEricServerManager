@@ -32,6 +32,11 @@ import kotlinx.serialization.json.Json
 import org.slf4j.LoggerFactory
 import java.util.concurrent.CompletableFuture
 import java.util.concurrent.Executors
+import javafx.application.Platform
+import io.github.sushiericworkspace.sushiericservermanager.editor.upload.SavedUploadPublication
+import javafx.beans.property.ReadOnlyObjectWrapper
+import javafx.collections.FXCollections
+import javafx.collections.ObservableSet
 import javafx.beans.property.ReadOnlyIntegerProperty
 import javafx.beans.property.ReadOnlyIntegerWrapper
 import java.io.File
@@ -70,6 +75,32 @@ class EditorDataService(
     private val saves = ReadOnlyIntegerWrapper(0)
     val activeSaves: Int get() = saves.get()
     internal val activeSavesProperty: ReadOnlyIntegerProperty get() = saves.readOnlyProperty
+
+    /** 接続内の画面が共有する対象文書。変更はJavaFXスレッドだけで行います。 */
+    internal val uploadingDocuments: ObservableSet<EditorDocumentKey> = FXCollections.observableSet()
+    internal val unresolvedUploadDocuments: ObservableSet<EditorDocumentKey> = FXCollections.observableSet()
+    private val uploadResult = ReadOnlyObjectWrapper<SavedUploadPublication>()
+    internal val uploadResultProperty get() = uploadResult.readOnlyProperty
+
+    internal fun publishUploadResult(publication: SavedUploadPublication) {
+        updateUploadState(publication.snapshot)
+        uploadResult.set(publication)
+    }
+
+    internal fun updateUploadState(snapshot: LocalDocumentSnapshot) {
+        check(snapshot.source == documentSource)
+        val unresolved = snapshot.uploads.filter { it.needsReadback }.flatMap { operation ->
+            operation.inputs.map { it.key } + operation.targetRevisions.map { it.key }
+        }.toSet()
+        unresolvedUploadDocuments.retainAll(unresolved)
+        unresolvedUploadDocuments.addAll(unresolved)
+    }
+
+    internal fun refreshUploadState() {
+        submitIo { documents.read() }.thenAccept { result ->
+            if (result is StoreResult.Success) Platform.runLater { updateUploadState(result.value) }
+        }
+    }
 
     internal fun beginSave() { saves.set(activeSaves + 1) }
     internal fun endSave() { saves.set(activeSaves - 1) }
@@ -220,10 +251,11 @@ class EditorDataService(
         /** 確認済みの取得だけを適用し、未送信の保存済み本文と編集中の本文は保持します。 */
         internal fun acceptFetched(version: LocalDocumentVersion, latest: String?, editing: String): StoreResult<LocalDocumentRecord> =
             publishText(version) { previous ->
-                val replaceSaved = previous.saved == null || (previous.baselineKnown && previous.saved == previous.baseline)
+                val replaceSaved = previous.saved == null || (previous.baselineKnown && previous.unreflected == false)
                 val saved = if (replaceSaved) latest else previous.saved
                 val nextEditing = if (replaceSaved && editing == previous.saved.orEmpty()) latest.orEmpty() else editing
-                previous.copy(editing = nextEditing, original = saved, saved = saved, baseline = latest, baselineKnown = true)
+                previous.copy(editing = nextEditing, original = saved, saved = saved, baseline = latest, baselineKnown = true,
+                    reflectedSavedHash = null)
             }
 
         private fun publishText(version: LocalDocumentVersion,
@@ -408,15 +440,14 @@ class EditorDataService(
             val changes = ids.map { id ->
                 val old = records[id] ?: LocalDocumentRecord(documentKey(id))
                 val latest = fetched[id]?.let(::encodeDocument)
-                val cleanSaved = old.baselineKnown && old.saved == old.baseline &&
-                    old.savedRaw.isEmpty() && old.savedPending == null && !old.savedDeleted
+                val cleanSaved = old.baselineKnown && old.unreflected == false
                 val replaceSaved = cleanSaved || old.saved == null
                 if (replaceSaved && dataType == SushiEricDataType.Item) {
                     referenceChanges[id] = fetched[id] as? MutableItemBaseData
                 }
                 val saved = if (replaceSaved) latest else old.saved
                 val nextEditing = editing[id]?.let(::encodeDocument)
-                old.copy(baseline = latest, baselineKnown = true,
+                old.copy(baseline = latest, baselineKnown = true, reflectedSavedHash = null,
                     saved = saved, original = saved, editing = nextEditing,
                     savedDeleted = if (replaceSaved) latest == null else old.savedDeleted,
                     deleted = nextEditing == null,

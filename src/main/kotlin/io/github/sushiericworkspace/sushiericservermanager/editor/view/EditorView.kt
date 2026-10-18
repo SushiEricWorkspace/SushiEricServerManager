@@ -14,6 +14,10 @@ import io.github.sushiericworkspace.sushiericservermanager.editor.result.dataser
 import io.github.sushiericworkspace.sushiericservermanager.editor.result.dataservice.RenameResult
 import io.github.sushiericworkspace.sushiericservermanager.editor.service.EditorDataService
 import io.github.sushiericworkspace.sushiericservermanager.editor.session.EditorSession
+import io.github.sushiericworkspace.sushiericservermanager.editor.upload.SavedUploadAction
+import io.github.sushiericworkspace.sushiericservermanager.editor.upload.SavedUploadSelection
+import io.github.sushiericworkspace.sushiericservermanager.editor.upload.SavedUploadPublication
+import javafx.collections.SetChangeListener
 import io.github.sushiericworkspace.sushiericservermanager.editor.upload.LocalDataUploader
 import io.github.sushiericworkspace.sushiericservermanager.editor.upload.UploadDataCategory
 import io.github.sushiericworkspace.sushiericservermanager.editor.service.EditorSyncService
@@ -267,21 +271,83 @@ abstract class EditorView<T : ManagedData<T, *>>(
     private var repairErrorsMenuItem: MenuItem? = null
     private var repairAllErrorsMenuItem: MenuItem? = null
     private var uploadMenuItem: MenuItem? = null
+    private var savedUploadMenuItem: MenuItem? = null
+    private var uploadAction: SavedUploadAction? = null
+    private val uploadDocumentsListener = SetChangeListener<EditorDocumentKey> { refreshUploadUi() }
+    private val uploadResultListener = ChangeListener<SavedUploadPublication> { _, _, publication ->
+        if (publication != null) acceptUploadPublication(publication)
+    }
+    private val categoryUploading: Boolean get() = connectedService.uploadingDocuments.any {
+        it.category == dataAccess.dataType.categoryDirName
+    }
+    protected fun isUploadFrozen(id: String): Boolean = documentKey(id).let {
+        it in connectedService.uploadingDocuments || it in connectedService.unresolvedUploadDocuments
+    }
+
+    private fun refreshUploadUi() {
+        if (closed) return
+        refreshActionMenuState()
+        main.documentFrozen = currentSelectedDataId?.let(::isUploadFrozen) == true
+        main.mainContentContainer.isDisable = main.documentFrozen ||
+            storeOperationBlocked || main.operationRunning || main.loadingRunning
+    }
+
+    private fun acceptUploadPublication(publication: SavedUploadPublication) {
+        val final = publication.operation.targetRevisions.associate { it.key to it.revision }
+        publication.snapshot.documents.filter { it.key.category == dataAccess.dataType.categoryDirName }.forEach { record ->
+            val version = documentVersions[record.key] ?: return@forEach
+            if (version.revision != publication.observed[record.key] || record.revision != final[record.key]) return@forEach
+            val input = publication.operation.inputs.firstOrNull { it.key == record.key }
+            val state = sourceStates[record.key.source]
+            if (record.pending == null && input != null && state?.pending?.get(record.key.id)?.toRecord() == input.pending)
+                state?.pending?.remove(record.key.id)
+            observeDocument(record)
+            if (record.key.source == dataService.documentSource) refreshSidebarState(record.key.id)
+        }
+        refreshUploadUi()
+    }
+
+    fun onUploadSaved(all: Boolean = false, readback: Boolean = false) {
+        if (closed || closing || uploadAction?.busy == true || storeOperationBlocked || syncBusy || repairBusy || saveRunning) return
+        val id = currentSelectedDataId
+        if (!all && id == null) return
+        if (!readback && id != null && isUploadFrozen(id) && !all) return
+        main.mainContentContainer.requestFocus()
+        commitPendingTextEdit()
+        val origin = dataService
+        val action = SavedUploadAction(origin, connectedService, main.currentStage,
+            isActive = { !closed && !closing && dataService === origin },
+            prepare = { complete -> requestBackup(onComplete = complete) },
+            onIdle = { uploadAction = null; refreshUploadUi() })
+        uploadAction = action
+        if (all) action.startCategory(dataAccess.dataType.categoryDirName, readback)
+        else {
+            val selections = listOf(SavedUploadSelection(documentKey(requireNotNull(id))))
+            if (readback) action.readback(selections) else action.start(selections)
+        }
+        refreshUploadUi()
+    }
+
     private var importBusy = false
     private var importApplying = false
     private var importGeneration = 0
     private var repairBusy = false
     private var syncBusy = false
     val saveRunning: Boolean get() = main.operationRunning
-    internal open val closeBusy: Boolean get() = switchingSource || saveRunning || main.loadingRunning || dataService.activeSaves > 0 || syncBusy || repairBusy || importBusy || closing
+    internal open val closeBusy: Boolean get() = uploadAction?.busy == true || categoryUploading || switchingSource || saveRunning || main.loadingRunning || dataService.activeSaves > 0 || syncBusy || repairBusy || importBusy || closing
     internal val storeOperationBlocked: Boolean get() = dataService.activeSaves > 0 || main.loadingRunning || repairBusy || closing || closed || EditorWindowManager.isClosing
     private val saveListener = ChangeListener<Number> { _, _, count ->
         main.actionButtonContainer.isDisable = count.toInt() > 0 || main.loadingRunning || main.operationRunning || closing
         main.sidebarContainer.isDisable = count.toInt() > 0 || main.operationRunning || closing
+        refreshUploadUi()
     }
 
     init {
         dataService.activeSavesProperty.addListener(saveListener)
+        connectedService.uploadingDocuments.addListener(uploadDocumentsListener)
+        connectedService.unresolvedUploadDocuments.addListener(uploadDocumentsListener)
+        connectedService.uploadResultProperty.addListener(uploadResultListener)
+        if (connectedService.isRemote) connectedService.refreshUploadState()
         main.shortcutRoot.sceneProperty().addListener(historySceneListener)
         main.actionButtonContainer.isDisable = storeOperationBlocked
         main.sidebarContainer.isDisable = storeOperationBlocked
@@ -752,6 +818,12 @@ abstract class EditorView<T : ManagedData<T, *>>(
             fileItems += uploadMenuItem!!
         }
 
+        fileItems += SeparatorMenuItem()
+        savedUploadMenuItem = actionMenuItem(EditorShortcut.UPLOAD.displayName, EditorShortcut.UPLOAD) { onUploadSaved() }
+        fileItems += savedUploadMenuItem!!
+        fileItems += MenuItem("保存済み差分をまとめてアップロード…").apply { setOnAction { onUploadSaved(all = true) } }
+        fileItems += MenuItem("アップロード結果を確認・読戻し…").apply { setOnAction { onUploadSaved(all = true, readback = true) } }
+
         undoMenuItem = actionMenuItem("元に戻す", EditorShortcut.UNDO) { onUndo() }
         redoMenuItem = actionMenuItem("やり直す", EditorShortcut.REDO) { onRedo() }
         ShortcutManager.register(main.shortcutRoot, ShortcutScope.EDITOR, EditorShortcut.REDO_ALTERNATIVE) {
@@ -1028,6 +1100,7 @@ abstract class EditorView<T : ManagedData<T, *>>(
         editHistory.initialize(documentKey(targetId), historySnapshot(targetId, editing))
         setupMainContent(editing)
         installHistoryCommitFilter()
+        refreshUploadUi()
         loadEditorReferences()
         showRestoredCount()
         startPendingPreload()
@@ -1056,6 +1129,7 @@ abstract class EditorView<T : ManagedData<T, *>>(
         main.mainContentContainer.requestFocus()
         commitPendingTextEdit()
         val dataId = targetDataId ?: currentSelectedDataId
+        if (dataId != null && isUploadFrozen(dataId)) { onComplete(SaveOutcome.BUSY); return }
         if (dataId == null || !hasUnsavedChanges(dataId)) {
             onComplete(SaveOutcome.NOTHING_TO_SAVE)
             return
@@ -1252,7 +1326,7 @@ abstract class EditorView<T : ManagedData<T, *>>(
         }
         main.mainContentContainer.requestFocus()
         commitPendingTextEdit()
-        val targets = editingDataMap.keys.filter(::hasUnsavedChanges).map { id ->
+        val targets = editingDataMap.keys.filter { hasUnsavedChanges(it) && !isUploadFrozen(it) }.map { id ->
             val local = editingDataMap.getValue(id).deepCopy()
             val operation = pendingStoreOperations[id]
             PreparedSave(id, operation, originalDataMap.getValue(id).deepCopy(), local, null, local, local,
@@ -1497,7 +1571,7 @@ abstract class EditorView<T : ManagedData<T, *>>(
     /** 接続終了前の退避だけを行い、終了証明が得られるまで編集キャッシュを保持します。 */
     internal fun prepareClose(onComplete: (Boolean) -> Unit) {
         if (closed) { onComplete(true); return }
-        if (saveRunning || dataService.activeSaves > 0 || syncBusy || repairBusy || importApplying || closing) { onComplete(false); return }
+        if (uploadAction?.busy == true || categoryUploading || saveRunning || dataService.activeSaves > 0 || syncBusy || repairBusy || importApplying || closing) { onComplete(false); return }
         main.mainContentContainer.requestFocus()
         commitPendingTextEdit()
         closing = true
@@ -1541,6 +1615,9 @@ abstract class EditorView<T : ManagedData<T, *>>(
         closing = false
         dataService.activeSavesProperty.removeListener(saveListener)
         main.shortcutRoot.sceneProperty().removeListener(historySceneListener)
+        connectedService.uploadingDocuments.removeListener(uploadDocumentsListener)
+        connectedService.unresolvedUploadDocuments.removeListener(uploadDocumentsListener)
+        connectedService.uploadResultProperty.removeListener(uploadResultListener)
         detachHistoryFilters()
         idTabs.dispose()
         main.clearTopLabelTimer()
@@ -1725,6 +1802,7 @@ abstract class EditorView<T : ManagedData<T, *>>(
     fun onUndo(): Boolean {
         if (storeOperationBlocked || main.shortcutRoot.scene?.let(ShortcutManager::isComposing) == true) return false
         val id = currentSelectedDataId ?: return false
+        if (isUploadFrozen(id)) return false
         val current = editingDataMap[id] ?: return false
         editHistory.record(documentKey(id), historySnapshot(id, current))
         val restored = editHistory.undo(documentKey(id), historySnapshot(id, current)) ?: return false
@@ -1736,6 +1814,7 @@ abstract class EditorView<T : ManagedData<T, *>>(
     fun onRedo(): Boolean {
         if (storeOperationBlocked || main.shortcutRoot.scene?.let(ShortcutManager::isComposing) == true) return false
         val id = currentSelectedDataId ?: return false
+        if (isUploadFrozen(id)) return false
         val current = editingDataMap[id] ?: return false
         editHistory.record(documentKey(id), historySnapshot(id, current))
         val restored = editHistory.redo(documentKey(id), historySnapshot(id, current)) ?: return false
@@ -1816,28 +1895,30 @@ abstract class EditorView<T : ManagedData<T, *>>(
             ?.let(editingDataMap::get)
             ?.let(::validationErrors)
             .orEmpty()
-        val allErrors = editingDataMap.values.flatMap(::validationErrors)
+        val allErrors = editingDataMap.filterKeys { !isUploadFrozen(it) }.values.flatMap(::validationErrors)
+        val frozen = selectedId?.let(::isUploadFrozen) == true
 
-        saveMenuItem?.isDisable = selectedId == null || !hasUnsavedChanges(selectedId)
-        saveAllMenuItem?.isDisable = editingDataMap.keys.none(::hasUnsavedChanges)
+        saveMenuItem?.isDisable = frozen || selectedId == null || !hasUnsavedChanges(selectedId)
+        saveAllMenuItem?.isDisable = editingDataMap.keys.none { hasUnsavedChanges(it) && !isUploadFrozen(it) }
+        savedUploadMenuItem?.isDisable = frozen || selectedId == null || !connectedService.isRemote || uploadAction?.busy == true
         val textInput = main.shortcutRoot.scene?.focusOwner as? TextInputControl
-        undoMenuItem?.isDisable = if (textInput != null) !textInput.isUndoable else selectedId == null || !editHistory.canUndo(documentKey(selectedId))
-        redoMenuItem?.isDisable = if (textInput != null) !textInput.isRedoable else selectedId == null || !editHistory.canRedo(documentKey(selectedId))
-        repairWarningsMenuItem?.isDisable = selectedErrors.none { it.isWarning }
-        repairErrorsMenuItem?.isDisable = selectedErrors.none { it.isError }
+        undoMenuItem?.isDisable = frozen || if (textInput != null) !textInput.isUndoable else selectedId == null || !editHistory.canUndo(documentKey(selectedId))
+        redoMenuItem?.isDisable = frozen || if (textInput != null) !textInput.isRedoable else selectedId == null || !editHistory.canRedo(documentKey(selectedId))
+        repairWarningsMenuItem?.isDisable = frozen || selectedErrors.none { it.isWarning }
+        repairErrorsMenuItem?.isDisable = frozen || selectedErrors.none { it.isError }
         repairAllWarningsMenuItem?.isDisable = allErrors.none { it.isWarning }
         repairAllErrorsMenuItem?.isDisable = allErrors.none { it.isError }
 
-        syncMenuItem?.isDisable = !dataService.isRemote || syncBusy || selectedId == null ||
+        syncMenuItem?.isDisable = frozen || !dataService.isRemote || syncBusy || selectedId == null ||
             selectedId?.let(::hasPendingStoreOperation) == true
-        syncAllMenuItem?.isDisable = !dataService.isRemote || syncBusy || pendingStoreOperations.isNotEmpty()
+        syncAllMenuItem?.isDisable = !dataService.isRemote || editingDataMap.keys.any(::isUploadFrozen) || syncBusy || pendingStoreOperations.isNotEmpty()
     }
 
     private fun repairWarnings(ids: Collection<String>, confirmBatch: Boolean) {
         if (storeOperationBlocked || syncBusy || saveRunning) return
         main.mainContentContainer.requestFocus()
         commitPendingTextEdit()
-        val targets = ids.mapNotNull { id ->
+        val targets = ids.filterNot(::isUploadFrozen).mapNotNull { id ->
             val data = editingDataMap[id] ?: return@mapNotNull null
             val warnings = validationErrors(data).filter { it.isWarning }
             warnings.takeIf { it.isNotEmpty() }?.let { Triple(id, data.deepCopy(), it) }
@@ -2185,12 +2266,12 @@ abstract class EditorView<T : ManagedData<T, *>>(
 
     private fun synchronizeSelected() {
         val id = currentSelectedDataId ?: return
-        if (hasPendingStoreOperation(id)) return
+        if (isUploadFrozen(id) || hasPendingStoreOperation(id)) return
         fetchAndApply(id)
     }
 
     private fun synchronizeAll() {
-        if (pendingStoreOperations.isNotEmpty()) return
+        if (pendingStoreOperations.isNotEmpty() || editingDataMap.keys.any(::isUploadFrozen)) return
         fetchAndApply(null)
     }
 
@@ -2254,11 +2335,13 @@ abstract class EditorView<T : ManagedData<T, *>>(
         val editing = linkedMapOf<String, T>()
         for (id in ids) {
             val record = previous[id]
-            val current = editingDataMap[id] ?: record?.editing?.let { dataAccess.decodeDocument(id, it) }
+            val current = if (record?.deleted == true) null
+                else editingDataMap[id] ?: record?.editing?.let { dataAccess.decodeDocument(id, it) }
             val latest = snapshot.data[id]
-            val base = record?.baseline?.let { dataAccess.decodeDocument(id, it) }
+            val baseText = if (record?.reflectedSavedHash != null && record.unreflected == false) record.saved else record?.baseline
+            val base = baseText?.let { dataAccess.decodeDocument(id, it) }
             val selected = when {
-                current == null -> latest
+                current == null -> if (record?.deleted == true && record.unsaved) null else latest
                 latest == null -> {
                     val changed = record == null || !record.baselineKnown ||
                         record.unreflected == true || hasUnsavedChanges(id)
@@ -2402,6 +2485,10 @@ abstract class EditorView<T : ManagedData<T, *>>(
 
     /** 最新の削除対象を表示して承認を受け、確認できた削除だけ編集キャッシュへ反映します。 */
     protected fun requestDeleteDirectory(directory: String, onDiscarded: (String) -> Unit) {
+        if ((connectedService.uploadingDocuments + connectedService.unresolvedUploadDocuments).any {
+            it.source == dataService.documentSource && it.category == dataAccess.dataType.categoryDirName &&
+                (it.id == directory || it.id.startsWith(directory + "."))
+        }) return
         if (storeOperationBlocked || syncBusy || repairBusy || saveRunning) return
         runStoreOperation("$directory の削除対象を確認しています", ::readSidebarSnapshot) { before ->
             val storedIds = before.first.map { it.id }.toSet()
@@ -2417,7 +2504,7 @@ abstract class EditorView<T : ManagedData<T, *>>(
                     else "ローカル作業コピーのディレクトリと配下の保存済みデータを削除します。サーバーへの反映は別操作です。", "", "削除対象:") +
                     (storedAffected + affected).sorted()).joinToString("\n"))
                 .okButton("削除", Color.RED).owner(main.currentStage).show()
-            if (!confirmed || storeOperationBlocked) return@runStoreOperation
+            if (!confirmed || storeOperationBlocked || affected.any(::isUploadFrozen)) return@runStoreOperation
             if (localOnly) {
                 discardDirectoryData(affected, onDiscarded)
                 sidebarSnapshot = before
@@ -2525,7 +2612,7 @@ abstract class EditorView<T : ManagedData<T, *>>(
 
     /** 最新一覧で移動先を確認し、ID変更を保存まで保留します。戻り値は操作を受け付けたかを表します。 */
     protected fun renameData(id: String, newId: String, onRenamed: () -> Unit): Boolean {
-        if (storeOperationBlocked || syncBusy || repairBusy || saveRunning || newId == id) return false
+        if (isUploadFrozen(id) || isUploadFrozen(newId) || storeOperationBlocked || syncBusy || repairBusy || saveRunning || newId == id) return false
         if (!dataAccess.descriptor.isValidId(newId)) {
             showStoreOperationError(StoreError(StoreErrorCode.INVALID_ID, newId, "商品はタブ配下へ配置してください"))
             return false
@@ -2544,6 +2631,7 @@ abstract class EditorView<T : ManagedData<T, *>>(
     }
 
     private fun withAvailableId(newId: String, sourceId: String? = null, onReady: (T) -> Unit) {
+        if (isUploadFrozen(newId) || sourceId?.let(::isUploadFrozen) == true) return
         if (storeOperationBlocked || syncBusy || repairBusy || saveRunning) return
         if (newId in editingDataMap) {
             showStoreOperationError(StoreError(StoreErrorCode.ALREADY_EXISTS, newId, "重複した名称です"))

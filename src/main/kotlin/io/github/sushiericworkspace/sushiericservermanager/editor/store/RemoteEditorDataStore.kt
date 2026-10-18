@@ -27,6 +27,7 @@ class RemoteEditorDataStore(
 
     override val isAvailable: Boolean
         get() = ssh.isSftpActive && ssh.currentProfile != null
+    override val isWritable: Boolean get() = isAvailable && ssh.compatibility.writable
 
     override fun readText(relativePath: String): StoreResult<String> {
         val remotePath = resolveRemotePath(relativePath)

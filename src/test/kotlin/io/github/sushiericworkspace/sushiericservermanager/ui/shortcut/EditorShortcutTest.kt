@@ -43,7 +43,9 @@ class EditorShortcutTest {
     @Test fun `文字入力と標準編集と入力方式のキーを予約する`() {
         assertNotNull(ShortcutBindings.problem(EditorShortcut.SAVE, KeyCodeCombination(KeyCode.A), emptyMap(), false))
         for (code in listOf(KeyCode.C, KeyCode.Z, KeyCode.SPACE)) assertNotNull(ShortcutBindings.problem(EditorShortcut.SAVE, KeyCodeCombination(code, KeyCombination.SHORTCUT_DOWN), emptyMap(), false))
-        assertNotNull(ShortcutBindings.problem(EditorShortcut.UPLOAD, KeyCodeCombination(KeyCode.F6), emptyMap(), false))
+        assertTrue(EditorShortcut.UPLOAD.available)
+        assertNull(EditorShortcut.UPLOAD.combination)
+        assertNull(ShortcutBindings.problem(EditorShortcut.UPLOAD, KeyCodeCombination(KeyCode.F6), emptyMap(), false))
     }
 
     @Test fun `既存設定の既定値と他項目を保持してキー差分を保存する`() {

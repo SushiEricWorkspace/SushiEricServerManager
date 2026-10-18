@@ -1,6 +1,7 @@
 package io.github.sushiericworkspace.sushiericservermanager.feature.modconfig
 
 import io.github.sushiericworkspace.sushiericservermanager.editor.service.EditorDataService
+import io.github.sushiericworkspace.sushiericservermanager.editor.service.EditorDocumentKey
 import io.github.sushiericworkspace.sushiericservermanager.editor.service.LocalDocumentVersion
 import io.github.sushiericworkspace.sushiericservermanager.editor.store.StoreError
 import io.github.sushiericworkspace.sushiericservermanager.editor.store.StoreErrorCode
@@ -10,6 +11,11 @@ import io.github.sushiericworkspace.sushiericservermanager.ui.shortcut.EditorSho
 import io.github.sushiericworkspace.sushiericservermanager.ui.shortcut.ShortcutManager
 import io.github.sushiericworkspace.sushiericservermanager.ui.shortcut.ShortcutScope
 import io.github.sushiericworkspace.sushiericservermanager.app.ApplicationFlow
+import io.github.sushiericworkspace.sushiericservermanager.editor.upload.SavedUploadAction
+import io.github.sushiericworkspace.sushiericservermanager.editor.upload.SavedUploadSelection
+import io.github.sushiericworkspace.sushiericservermanager.editor.upload.SavedUploadPublication
+import javafx.beans.value.ChangeListener
+import javafx.collections.SetChangeListener
 import javafx.application.Platform
 import javafx.animation.PauseTransition
 import javafx.util.Duration
@@ -46,17 +52,42 @@ class ModConfigController : Initializable {
     @FXML private lateinit var reloadButton: Button
     @FXML private lateinit var fetchButton: Button
     @FXML private lateinit var saveButton: Button
+    @FXML private lateinit var uploadButton: Button
+    @FXML private lateinit var readbackButton: Button
 
     private val logger = LoggerFactory.getLogger(javaClass)
 
     private var dataService: EditorDataService? = null
+    private var connectedService: EditorDataService? = null
+    private var uploadAction: SavedUploadAction? = null
+    private var disposed = false
+    private val uploadDocumentsListener = SetChangeListener<EditorDocumentKey> { refreshControls() }
+    private val uploadResultListener = ChangeListener<SavedUploadPublication> { _, _, publication ->
+        val service = dataService
+        val version = documentVersion
+        if (publication != null && service != null && version != null) {
+            val record = publication.snapshot.documents.firstOrNull { it.key == version.key }
+            val final = publication.operation.targetRevisions.firstOrNull { it.key == version.key }?.revision
+            if (record != null && version.revision == publication.observed[record.key] && record.revision == final) {
+                version.accepted(record)
+                savedText = record.saved
+                unreflected = record.unreflected
+                showDocumentState()
+            }
+        }
+    }
+
+    private val uploadFrozen: Boolean get() {
+        val key = documentVersion?.key ?: return false
+        val connected = connectedService ?: return false
+        return key in connected.uploadingDocuments || key in connected.unresolvedUploadDocuments
+    }
 
     /** 読み込みまたは保存の実行中かを表します。終わるまで次の操作を受け付けません。 */
     private var busy = false
     private var displaying = false
     private var savedText: String? = null
-    private var baselineText: String? = null
-    private var baselineKnown = false
+    private var unreflected: Boolean? = null
     private var documentVersion: LocalDocumentVersion? = null
     private val backupDelay = PauseTransition(Duration.millis(500.0)).apply {
         setOnFinished { backupEditing() }
@@ -82,10 +113,13 @@ class ModConfigController : Initializable {
 
     private fun installShortcutsWhenSceneReady() {
         ShortcutManager.register(rootPane, ShortcutScope.MOD_CONFIG, EditorShortcut.SAVE) {
-            if (busy || !contentArea.isEditable) false else { save(); true }
+            if (busy || uploadFrozen || !contentArea.isEditable) false else { save(); true }
         }
         ShortcutManager.register(rootPane, ShortcutScope.MOD_CONFIG, EditorShortcut.RELOAD) {
-            if (busy) false else { reload(); true }
+            if (busy || uploadFrozen) false else { reload(); true }
+        }
+        ShortcutManager.register(rootPane, ShortcutScope.MOD_CONFIG, EditorShortcut.UPLOAD) {
+            if (busy || uploadFrozen || uploadAction?.busy == true) false else { handleUpload(); true }
         }
     }
 
@@ -95,6 +129,11 @@ class ModConfigController : Initializable {
      * @param service 保存先に依存せずファイルを読み書きするデータサービス。
      */
     fun initData(service: EditorDataService) {
+        connectedService = service
+        service.uploadingDocuments.addListener(uploadDocumentsListener)
+        service.unresolvedUploadDocuments.addListener(uploadDocumentsListener)
+        service.uploadResultProperty.addListener(uploadResultListener)
+        if (service.isRemote) service.refreshUploadState()
         sourceMenu.items.setAll(MenuItem("ローカル").apply {
             setOnAction { switchSource(service.localService) }
         })
@@ -110,7 +149,7 @@ class ModConfigController : Initializable {
     }
 
     private fun switchSource(next: EditorDataService) {
-        if (busy || next === dataService || rootPane.scene?.let(ShortcutManager::isComposing) == true) return
+        if (busy || uploadAction?.busy == true || next === dataService || rootPane.scene?.let(ShortcutManager::isComposing) == true) return
         backupDelay.stop()
         setBusy(true)
         contentArea.isDisable = true
@@ -142,7 +181,7 @@ class ModConfigController : Initializable {
     fun handleReload() { ShortcutManager.execute(rootPane, EditorShortcut.RELOAD) }
 
     private fun reload() {
-        if (busy) return
+        if (busy || uploadFrozen) return
 
         if (contentArea.isEditable && contentArea.text.isNotEmpty()) {
             val confirmed = CustomDialog.confirmation()
@@ -165,7 +204,7 @@ class ModConfigController : Initializable {
 
     private fun save() {
         val service = dataService ?: return
-        if (busy) return
+        if (busy || uploadFrozen) return
 
         backupDelay.stop()
         val text = contentArea.text
@@ -174,8 +213,9 @@ class ModConfigController : Initializable {
         runInBackground(
             statusText = "保存しています…",
             action = { service.modConfig.saveObserved(text, version) },
-            onSuccess = {
-                savedText = text
+            onSuccess = { state ->
+                savedText = state.saved
+                unreflected = state.unreflected
                 showDocumentState()
             },
             onFailure = { error ->
@@ -195,8 +235,7 @@ class ModConfigController : Initializable {
             onSuccess = { state ->
                 documentVersion = LocalDocumentVersion(state.key, state.revision)
                 savedText = state.saved
-                baselineText = state.baseline
-                baselineKnown = state.baselineKnown
+                unreflected = state.unreflected
                 displaying = true
                 try { contentArea.text = if (restoreEditing) state.editing ?: state.saved.orEmpty() else state.saved.orEmpty() }
                 finally { displaying = false }
@@ -216,7 +255,7 @@ class ModConfigController : Initializable {
     fun handleFetch() {
         val service = dataService ?: return
         val version = documentVersion ?: return
-        if (busy || !service.isRemote) return
+        if (busy || uploadFrozen || !service.isRemote) return
         backupDelay.stop()
         val editing = contentArea.text
         contentArea.isDisable = true
@@ -236,8 +275,7 @@ class ModConfigController : Initializable {
                     action = { service.modConfig.acceptFetched(version, latest, editing) },
                     onSuccess = { state ->
                         savedText = state.saved
-                        baselineText = state.baseline
-                        baselineKnown = state.baselineKnown
+                        unreflected = state.unreflected
                         displaying = true
                         try { contentArea.text = state.editing.orEmpty() } finally { displaying = false }
                         contentArea.isDisable = false
@@ -254,12 +292,36 @@ class ModConfigController : Initializable {
             })
     }
 
+    @FXML
+    @Suppress("unused")
+    fun handleUpload() { uploadSaved(readback = false) }
+
+    @FXML
+    @Suppress("unused")
+    fun handleReadback() { uploadSaved(readback = true) }
+
+    private fun uploadSaved(readback: Boolean) {
+        val origin = dataService ?: return
+        val target = connectedService ?: return
+        val version = documentVersion ?: return
+        if (busy || uploadAction?.busy == true || (!readback && uploadFrozen)) return
+        backupDelay.stop()
+        val action = SavedUploadAction(origin, target, currentStage(),
+            isActive = { !disposed && dataService === origin },
+            prepare = { complete -> backupEditing(complete) },
+            onIdle = { uploadAction = null; refreshControls() })
+        uploadAction = action
+        val selections = listOf(SavedUploadSelection(version.key))
+        if (readback) action.readback(selections) else action.start(selections)
+        refreshControls()
+    }
+
     private fun showDocumentState() {
         val local = if (contentArea.text == savedText) "ローカル保存済み" else "未保存"
-        val remote = when {
-            !baselineKnown -> "サーバー基準未取得"
-            savedText != baselineText -> "未アップロード"
-            else -> "取得基準と一致"
+        val remote = when (unreflected) {
+            null -> "サーバー基準未取得"
+            true -> "未アップロード"
+            false -> "反映確認済み"
         }
         setStatus("$local / $remote")
     }
@@ -323,9 +385,9 @@ class ModConfigController : Initializable {
         service.executeIo(task)
     }
 
-    internal val canClose: Boolean get() = !busy
+    internal val canClose: Boolean get() = !busy && uploadAction?.busy != true
     internal fun prepareClose(completed: (Boolean) -> Unit) {
-        if (busy) { completed(false); return }
+        if (busy || uploadAction?.busy == true) { completed(false); return }
         if (!contentArea.isEditable) { completed(true); return }
         backupDelay.stop()
         setBusy(true)
@@ -338,7 +400,11 @@ class ModConfigController : Initializable {
     }
 
     internal fun dispose() {
+        disposed = true
         backupDelay.stop()
+        connectedService?.uploadingDocuments?.removeListener(uploadDocumentsListener)
+        connectedService?.unresolvedUploadDocuments?.removeListener(uploadDocumentsListener)
+        connectedService?.uploadResultProperty?.removeListener(uploadResultListener)
         ShortcutManager.unregister(rootPane)
     }
 
@@ -348,12 +414,19 @@ class ModConfigController : Initializable {
     }
 
     private fun refreshControls() {
-        sourceMenu.isDisable = busy
+        sourceMenu.isDisable = busy || uploadAction?.busy == true
         fetchButton.isVisible = dataService?.isRemote == true
         fetchButton.isManaged = fetchButton.isVisible
-        fetchButton.isDisable = busy || !contentArea.isEditable
-        reloadButton.isDisable = busy
-        saveButton.isDisable = busy || !contentArea.isEditable
+        fetchButton.isDisable = busy || uploadFrozen || !contentArea.isEditable
+        reloadButton.isDisable = busy || uploadFrozen
+        saveButton.isDisable = busy || uploadFrozen || !contentArea.isEditable
+        uploadButton.isVisible = connectedService?.isRemote == true
+        uploadButton.isManaged = uploadButton.isVisible
+        uploadButton.isDisable = busy || uploadFrozen || uploadAction?.busy == true || !contentArea.isEditable
+        readbackButton.isVisible = uploadButton.isVisible
+        readbackButton.isManaged = readbackButton.isVisible
+        readbackButton.isDisable = busy || uploadAction?.busy == true
+        contentArea.isDisable = busy || uploadFrozen
     }
 
     private fun setStatus(text: String) {

@@ -432,6 +432,7 @@ class ItemEditorLogic(
     }
 
     private fun requestDelete(id: String) {
+        if (isUploadFrozen(id)) return
         if (storeOperationBlocked) return
         val localOnly = isLocalOnlyData(id, remoteDataIds) && !pendingOperationHasStoredSource(id)
         val confirmed = CustomDialog.confirmation()
@@ -456,7 +457,7 @@ class ItemEditorLogic(
             .okButton("削除", Color.RED)
             .owner(main.currentStage)
             .show()
-        if (!confirmed || storeOperationBlocked) return
+        if (!confirmed || storeOperationBlocked || isUploadFrozen(id)) return
 
         if (stageDataDeletion(id)) {
             removeCachedData(id)
