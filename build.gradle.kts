@@ -1,3 +1,6 @@
+import org.gradle.api.artifacts.component.ModuleComponentIdentifier
+import java.security.MessageDigest
+import java.util.Properties
 import java.nio.file.Path
 import java.nio.file.Files
 import java.net.URI
@@ -48,8 +51,18 @@ val dataModelDependency = dataModelDevelopmentCoordinate ?: if (dataModelRelease
     "io.github.sushiericworkspace:sushieric-datamodel:$dataModelReleaseVersion"
 }
 
+val minecraftTextMetadata by configurations.creating {
+    isCanBeConsumed = false
+    isTransitive = false
+}
+val minecraftTextModule = libs.minecraft.text.get()
+val minecraftTextCoordinate = "${minecraftTextModule.module}:${minecraftTextModule.versionConstraint.requiredVersion}"
+
 dependencies {
+    add(minecraftTextMetadata.name, "$minecraftTextCoordinate@pom")
+    add(minecraftTextMetadata.name, "$minecraftTextCoordinate@module")
     api(dataModelDependency)
+    implementation(libs.minecraft.text)
 
     // GUI 関連ライブラリ
     implementation("org.controlsfx:controlsfx:11.2.1")
@@ -70,6 +83,38 @@ dependencies {
     testImplementation(kotlin("test"))
     testImplementation("org.mockito:mockito-core:5.18.0")
 }
+
+/** 固定code-only artifactの出典とhashを、コンパイルより前に照合する。 */
+val verifyMinecraftText by tasks.registering {
+    group = "verification"
+    inputs.file("gradle/minecraft-text.properties")
+    doLast {
+        val lock = Properties().apply {
+            file("gradle/minecraft-text.properties").inputStream().use { load(it) }
+        }
+        check(minecraftTextCoordinate == lock.getProperty("coordinate")) {
+            "minecraft-textの固定座標が一致しません"
+        }
+        val runtime = configurations.runtimeClasspath.get().incoming.artifacts.artifacts
+        check(runtime.none {
+            val id = it.id.componentIdentifier as? ModuleComponentIdentifier
+            id?.group == "com.github.minecraft-library" && id.module == "text"
+        }) { "元JitPack版minecraft-textが混在しています" }
+        val jar = runtime.single {
+            val id = it.id.componentIdentifier as? ModuleComponentIdentifier
+            id?.group == "io.github.sushiericworkspace.thirdparty" && id.module == "minecraft-text"
+        }.file
+        val files = mapOf("jar" to jar) + minecraftTextMetadata.files.associateBy { it.extension }
+        listOf("jar", "pom", "module").forEach { extension ->
+            val actual = MessageDigest.getInstance("SHA-256").digest(files.getValue(extension).readBytes())
+                .joinToString("") { "%02x".format(it) }
+            check(actual == lock.getProperty("$extension.sha256")) {
+                "minecraft-textの$extension hashが一致しません"
+            }
+        }
+    }
+}
+tasks.named("compileKotlin") { dependsOn(verifyMinecraftText) }
 
 configurations.configureEach {
     resolutionStrategy.cacheDynamicVersionsFor(0, "seconds")
