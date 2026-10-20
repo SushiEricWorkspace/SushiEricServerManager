@@ -28,6 +28,23 @@ dependencyResolutionManagement {
                 )
             }
         }
+        exclusiveContent {
+            forRepository {
+                maven {
+                    name = "managerMinecraftText"
+                    url = uri(providers.gradleProperty("minecraftTextRepository")
+                        .orElse("build/minecraft-text/repository").get())
+                }
+            }
+            filter { includeModule("io.github.sushiericworkspace.thirdparty", "minecraft-text") }
+        }
         mavenCentral()
+        maven {
+            name = "minecraftText"
+            url = uri("https://jitpack.io")
+            content {
+                includeGroup("com.github.simplified-dev")
+            }
+        }
     }
 }
