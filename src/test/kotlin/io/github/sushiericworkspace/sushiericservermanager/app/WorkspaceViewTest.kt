@@ -18,6 +18,7 @@ import javafx.scene.input.PickResult
 import javafx.scene.layout.HBox
 import javafx.scene.layout.VBox
 import javafx.stage.Stage
+import javafx.stage.Screen
 import java.nio.file.Path
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.FutureTask
@@ -200,7 +201,11 @@ class WorkspaceViewTest {
                 }
                 val panes = workspace.lookupAll(".workspace-feature").filterIsInstance<javafx.scene.layout.BorderPane>()
                 assertEquals(4, panes.size)
-                assertTrue(panes.all { it.width >= 630.0 && it.height >= 210.0 })
+                assertTrue(panes.all { it.width >= 630.0 && it.height >= 210.0 },
+                    "stage=${stage.width}x${stage.height} showing=${stage.isShowing} focused=${stage.isFocused} " +
+                        "scene=${stage.scene.width}x${stage.scene.height} scale=${stage.outputScaleX}x${stage.outputScaleY} " +
+                        "panes=${panes.map { it.width to it.height }} " +
+                        "screens=${Screen.getScreensForRectangle(stage.x, stage.y, stage.width, stage.height).map { it.bounds to it.visualBounds }}")
                 for (root in roots) {
                     assertTrue((root.lookup("#sidebarContainer") as VBox).width >= 410.0)
                     assertTrue((root.lookup("#mainScroll") as ScrollPane).width > 100.0)

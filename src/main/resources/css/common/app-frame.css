@@ -8,3 +8,10 @@
 .connection-status-row { -fx-padding: 6 10 6 10; -fx-background-color: -fx-bg-elevated; }
 #connectionStatus { -fx-text-fill: -fx-text-color; }
 .application-navigation { -fx-padding: 0 10 6 10; }
+
+#applicationNotifications { -fx-padding: 0 10 6 10; }
+.notification-row { -fx-padding: 6 8; -fx-background-color: -fx-bg-elevated; }
+.notification-row .label { -fx-text-fill: -fx-text-color; }
+.notification-success .label { -fx-text-fill: -fx-success-color; }
+.notification-warning .label { -fx-text-fill: -fx-warning-color; }
+.notification-error .label { -fx-text-fill: -fx-danger-color; }

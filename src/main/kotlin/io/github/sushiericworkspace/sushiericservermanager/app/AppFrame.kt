@@ -9,6 +9,7 @@ import io.github.sushiericworkspace.sushiericservermanager.ui.dialog.CustomDialo
 import io.github.sushiericworkspace.sushiericservermanager.update.AppVersion
 import io.github.sushiericworkspace.sushiericservermanager.util.Utility
 import io.github.sushiericworkspace.sushiericservermanager.app.workspace.WorkspaceManager
+import javafx.application.Platform
 import javafx.beans.value.ChangeListener
 import javafx.stage.Window
 import javafx.animation.KeyFrame
@@ -30,6 +31,8 @@ import javafx.util.Duration
 
 /** 主要画面をOS標準ボタン付きの共通枠で包みます。ダイアログの装飾は変更しません。 */
 internal class AppFrame(private val screen: AppScreen, content: Parent) : BorderPane() {
+    private val notices = VBox(4.0).apply { id = "applicationNotifications" }
+    private var removeNotificationListener: (() -> Unit)? = null
     private val status = Label().apply { id = "connectionStatus"; isWrapText = true; minWidth = 0.0 }
     private val menuBar = MenuBar().apply { id = "applicationMenu"; isUseSystemMenuBar = isMac }
     private val header = HeaderBar().apply { id = "applicationHeader" }
@@ -81,7 +84,7 @@ internal class AppFrame(private val screen: AppScreen, content: Parent) : Border
         val navigation = HBox(8.0, back, disconnect, mode).apply { styleClass.add("application-navigation") }
         top = VBox().apply {
             if (isMac) children.add(menuBar)
-            children.addAll(header, stateRow, navigation)
+            children.addAll(header, stateRow, navigation, notices)
         }
         center = content
         buildMenus()
@@ -97,6 +100,8 @@ internal class AppFrame(private val screen: AppScreen, content: Parent) : Border
     private fun observeStage(owner: Stage?) {
         observedStage?.showingProperty()?.removeListener(showingListener)
         refresh.stop()
+        removeNotificationListener?.invoke()
+        removeNotificationListener = null
         observedStage = owner
         if (owner == null) return
         if (!owner.isShowing) owner.initStyle(StageStyle.EXTENDED)
@@ -108,9 +113,20 @@ internal class AppFrame(private val screen: AppScreen, content: Parent) : Border
     private fun updateRefresh() {
         val owner = observedStage
         if (owner?.isShowing == true && owner.scene === scene) {
+            if (removeNotificationListener == null) {
+                removeNotificationListener = EditorSession.notifications.observe {
+                    if (Platform.isFxApplicationThread()) renderNotifications()
+                    else Platform.runLater { if (observedStage?.isShowing == true) renderNotifications() }
+                }
+            }
             updateStatus()
+            renderNotifications()
             refresh.play()
-        } else refresh.stop()
+        } else {
+            refresh.stop()
+            removeNotificationListener?.invoke()
+            removeNotificationListener = null
+        }
     }
 
     private fun buildMenus() {
@@ -209,12 +225,46 @@ internal class AppFrame(private val screen: AppScreen, content: Parent) : Border
     private fun updateStatus() {
         val snapshot = currentStatus()
         status.text = snapshot.summary
+        val notifications = EditorSession.notifications
+        notifications.expire()
+        if (EditorSession.dataService != null && EditorSession.mode == AppMode.ONLINE) {
+            val scope = notifications.scope("接続", "接続状態")
+            val connected = EditorSession.dataService?.sourceStore?.isAvailable == true
+            notifications.condition(scope, "connection", if (!connected) "接続が切断されました。ローカル保存は引き続き利用できます。" else null)
+            if (!connected) notifications.interruptRemote()
+            val compatibility = EditorSession.connection?.compatibility ?: EditorSession.sshManager.compatibility
+            notifications.condition(scope, "compatibility", if (!compatibility.writable)
+                "サーバーは読取専用です。ローカル保存は利用できます。" else null)
+            val failure = EditorSession.managementClient.state as? ServerManagementState.Failed
+            notifications.condition(scope, "management", failure?.let { "管理API: ${it.reason}" })
+        }
         EditorSession.sshManager.currentProfile?.let { ServerStatusHistory.record(it, snapshot) }
         back.text = if (screen == AppScreen.SERVER_SELECT) "動作モード選択へ戻る" else "ホームへ戻る"
         back.isVisible = screen in homeChildren || screen == AppScreen.SERVER_SELECT
         back.isManaged = back.isVisible
         disconnect.isDisable = preparing || !hasSession()
         mode.isDisable = preparing || screen == AppScreen.MODE_SELECT
+    }
+
+    private fun renderNotifications() {
+        notices.children.setAll(EditorSession.notifications.snapshot().map { notice ->
+            val target = listOf(notice.scope.connection, when {
+                notice.scope.source == "local" -> "ローカル"
+                notice.scope.source.startsWith("server-") -> "接続先"
+                notice.scope.source.startsWith("local → server-") -> "ローカル → 接続先"
+                else -> notice.scope.source
+            }, notice.scope.feature, notice.scope.target)
+                .filter { it.isNotBlank() }.joinToString(" / ")
+            HBox(8.0).apply {
+                styleClass.addAll("notification-row", "notification-${notice.severity.name.lowercase()}")
+                val label = Label("$target: ${notice.text}").apply { isWrapText = true; maxWidth = Double.MAX_VALUE }
+                HBox.setHgrow(label, Priority.ALWAYS)
+                notice.progress?.let { children.add(ProgressIndicator(it).apply { prefWidth = 22.0; prefHeight = 22.0 }) }
+                children.add(label)
+            }
+        })
+        notices.isVisible = notices.children.isNotEmpty()
+        notices.isManaged = notices.isVisible
     }
 
     private fun showDetails() {

@@ -1,16 +1,20 @@
 package io.github.sushiericworkspace.sushiericservermanager.editor.upload
 
 import io.github.sushiericworkspace.sushiericservermanager.app.AppScreen
+import io.github.sushiericworkspace.sushiericservermanager.app.NotificationState
+import io.github.sushiericworkspace.sushiericservermanager.editor.session.EditorSession
 import io.github.sushiericworkspace.sushiericservermanager.editor.merge.ConflictValueFormatter
 import io.github.sushiericworkspace.sushiericservermanager.editor.merge.DataFieldPath
 import io.github.sushiericworkspace.sushiericservermanager.editor.service.EditorDocumentKey
 import javafx.beans.binding.Bindings
 import javafx.event.ActionEvent
+import javafx.event.EventHandler
 import javafx.geometry.Insets
 import javafx.scene.control.*
 import javafx.scene.layout.VBox
 import javafx.stage.Modality
 import javafx.stage.Stage
+import javafx.stage.WindowEvent
 
 internal data class SavedUploadConfirmation(
     val localPaths: Map<EditorDocumentKey, Set<DataFieldPath>>,
@@ -60,7 +64,15 @@ internal object SavedUploadDialog {
         }
         if (unknown) rows.children += unknownChoice
         rows.children += Label("確認後のサーバー変更を完全に排除するものではありません。結果不明の工程は再送せず、読戻しで確認します。").apply { isWrapText = true }
-        return Dialog<SavedUploadConfirmation>().apply {
+        val notifications = EditorSession.notifications
+        val conflictScope = notifications.scope(
+            preview.candidates.map { it.input.key.source.directory }.distinct().sorted().joinToString(",") + " → " +
+                preview.candidates.map { it.targetKey.source.directory }.distinct().sorted().joinToString(","),
+            "アップロード競合", preview.candidates.map { it.targetKey.category + "/" + it.targetKey.id }.sorted().joinToString(","))
+        val hasConflict = groups.isNotEmpty() || unknown
+        if (hasConflict) notifications.condition(conflictScope, "conflict", "保存済み内容とサーバーの比較を確認してください。")
+        else notifications.resolve(conflictScope, "conflict")
+        val confirmation = Dialog<SavedUploadConfirmation>().apply {
             title = "アップロードの確認"
             initModality(Modality.NONE)
             owner?.let(::initOwner)
@@ -85,15 +97,32 @@ internal object SavedUploadDialog {
                     }, unknownChoice.isSelected)
             }
         }.showAndWait().orElse(null)
+        if (confirmation != null) notifications.resolve(conflictScope, "conflict")
+        return confirmation
     }
 }
 
 /** 取消は次の未実行工程にだけ作用し、進行中の結果確認を待ちます。 */
-internal class SavedUploadProgress(owner: Stage?) {
+internal class SavedUploadProgress(owner: Stage?, source: String = "") {
+    private val notifications = EditorSession.notifications
+    private val scope = notifications.scope(source, "アップロード")
+    private var operationNotice: NotificationState.Operation? = null
+    private val requests = mutableMapOf<String, NotificationState.Operation>()
+
+    @Synchronized fun attach(operation: SavedUploadOperation) {
+        if (!running || operation.id == operationNotice?.scope?.target) return
+        operationNotice?.let(notifications::finish)
+        operationNotice = notifications.start(scope.copy(target = operation.id), "upload:${operation.id}", "反映確認中")
+        requests[operation.id] = operationNotice!!
+    }
+
     @Volatile var cancelled: Boolean = false
         private set
     private var running = true
     private val label = Label("確認した保存済み内容を反映しています…").apply { isWrapText = true }
+    private val closeRequest = EventHandler<WindowEvent> { event ->
+        if (running) { requestCancel(); event.consume() }
+    }
     private val dialog = Dialog<ButtonType>().apply {
         title = "アップロード"
         initModality(Modality.NONE)
@@ -103,23 +132,51 @@ internal class SavedUploadProgress(owner: Stage?) {
         dialogPane.prefWidth = 520.0
         dialogPane.buttonTypes += ButtonType.CANCEL
         dialogPane.lookupButton(ButtonType.CANCEL).addEventFilter(ActionEvent.ACTION) { event ->
-            cancelled = true
-            label.text = "取消を要求しました。進行中の反映確認が終わるまでお待ちください。"
+            requestCancel()
             event.consume()
         }
-        setOnCloseRequest { event -> if (running) { cancelled = true; event.consume() } }
+        setOnCloseRequest { event -> if (running) { requestCancel(); event.consume() } }
     }
 
-    fun show() = dialog.show()
+    @Synchronized private fun requestCancel() {
+        cancelled = true
+        label.text = "取消を要求しました。進行中の反映確認が終わるまでお待ちください。"
+        operationNotice?.let { notifications.update(it, "取消要求済み・進行中の反映確認を待っています") }
+    }
 
-    fun update(operation: SavedUploadOperation) {
+    fun show() {
+        dialog.show()
+        dialog.dialogPane.scene.window.apply {
+            removeEventFilter(WindowEvent.WINDOW_CLOSE_REQUEST, closeRequest)
+            addEventFilter(WindowEvent.WINDOW_CLOSE_REQUEST, closeRequest)
+        }
+    }
+
+    @Synchronized fun update(operation: SavedUploadOperation) {
+        if (!running) return
+        val notice = requests[operation.id] ?: return
         val confirmed = operation.steps.count { it.state == SavedUploadState.CONFIRMED }
+        notice.let { notifications.update(it, if (cancelled) "取消要求済み・反映確認" else "反映確認", confirmed, operation.steps.size) }
         label.text = "反映確認 " + confirmed + " / " + operation.steps.size +
             if (cancelled) "（取消要求済み）" else ""
     }
 
-    fun finish() {
+    @Synchronized fun finish(recorded: List<SavedUploadOperation> = emptyList()) {
         running = false
+        operationNotice?.let(notifications::finish)
+        requests.forEach { (id, notice) ->
+            val result = recorded.singleOrNull { it.id == id }
+            val target = scope.copy(target = id)
+            if (result?.complete == true) {
+                if (notifications.result(notice, "upload:$id", null))
+                    notifications.toast(target, "全件の反映を確認しました", NotificationState.Severity.SUCCESS)
+            } else {
+                val text = result?.steps?.joinToString("、") { "${it.key.id}: ${it.state.displayName}" }
+                    ?: "結果を確認できません。固定要求を保持し、読戻しで確認してください。"
+                notifications.result(notice, "upload:$id", text)
+            }
+        }
+        dialog.dialogPane.scene?.window?.removeEventFilter(WindowEvent.WINDOW_CLOSE_REQUEST, closeRequest)
         dialog.close()
     }
 }

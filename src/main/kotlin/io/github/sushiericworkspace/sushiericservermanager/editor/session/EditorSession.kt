@@ -17,6 +17,7 @@ import java.util.concurrent.TimeUnit
 import kotlin.properties.ReadOnlyProperty
 
 object EditorSession {
+    internal val notifications = io.github.sushiericworkspace.sushiericservermanager.app.NotificationState()
     private val logger = LoggerFactory.getLogger(EditorSession::class.java)
 
     var sshManager = SshManager()
@@ -92,6 +93,7 @@ object EditorSession {
         check(connection == null)
         mode = AppMode.ONLINE
         dataService = EditorDataService(sshManager).also { it.itemReferences.load() }
+        notifications.beginSession(sshManager.currentProfile?.name ?: "オンライン")
 
         autoReconnectEnabled = true
         reconnectPolicy.reset()
@@ -249,6 +251,7 @@ object EditorSession {
         check(connection == null)
         mode = AppMode.OFFLINE
         dataService = (prepared ?: EditorDataService(store)).also { it.itemReferences.load() }
+        notifications.beginSession("オフライン")
     }
 
     /** 受理済みI/Oと接続の終了を待ちます。UIスレッド外で呼び出し、失敗時はsessionを保持します。 */
@@ -267,6 +270,7 @@ object EditorSession {
             dataService?.itemReferences?.close()
             dataService?.closeIo()
             dataService = null
+            notifications.endSession()
             return
         }
 
@@ -291,6 +295,7 @@ object EditorSession {
         dataService?.itemReferences?.close()
         dataService?.closeIo()
         dataService = null
+        notifications.endSession()
     }
 
     fun resetMode() {
@@ -305,6 +310,7 @@ object EditorSession {
         this.connection = connection
         dataService = connection.open().also { it.itemReferences.load() }
         mode = AppMode.ONLINE
+        notifications.beginSession(connection.contextName)
         serverMonitor.start(AppSettingsManager.load().resolvedMonitorIntervalTicks())
     }
 }

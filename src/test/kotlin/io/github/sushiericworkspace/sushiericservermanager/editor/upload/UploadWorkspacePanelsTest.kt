@@ -57,13 +57,13 @@ class UploadWorkspacePanelsTest {
         fx { edit(f.view.field, "saved by reservation") }
         val before = readPlan(f)
         f.cancel = true
-        fx { reserveSelection(f, listOf("one", "folder"), "event") }
+        reserveSelection(f, listOf("one", "folder"), "event")
         idle(f)
         assertEquals(before, readPlan(f)); assertEquals(0, f.remote.writes)
         f.cancel = false
-        fx { reserveSelection(f, listOf("one", "folder"), "event") }
+        reserveSelection(f, listOf("one", "folder"), "event")
         await { readPlan(f).groups.size == 1 }; idle(f)
-        fx { reserveSelection(f, listOf("one", "folder"), "other") }
+        reserveSelection(f, listOf("one", "folder"), "other")
         await { readPlan(f).groups.size == 2 }; idle(f)
         val plan = readPlan(f)
         assertEquals(setOf("event.one", "event.two"), plan.groups.first().documents.map { it.targetId }.toSet())
@@ -81,7 +81,7 @@ class UploadWorkspacePanelsTest {
     }
 
     @Test fun `一括確認後だけ固定要求へ結合し待機中も非対象文書を編集保存できる`() = fixture { f ->
-        fx { reserveSelection(f, listOf("one"), "event") }
+        reserveSelection(f, listOf("one"), "event")
         await { readPlan(f).groups.size == 1 }; idle(f)
         val entered = CountDownLatch(1); val release = CountDownLatch(1)
         f.remote.beforeWrite = { entered.countDown(); check(release.await(15, TimeUnit.SECONDS)) }
@@ -132,9 +132,9 @@ class UploadWorkspacePanelsTest {
         }
         fx { f.stage.scene.root.lookupAll(".button").filterIsInstance<Button>().single { it.text == "一覧を更新" }.fire() }
         await { fx { nodes(tree(f, true).root).any { it.value.key.id == "longpath" } } }
-        fx { reserveSelection(f, listOf("longpath"), "event") }
+        reserveSelection(f, listOf("longpath"), "event")
         await { readPlan(f).groups.size == 1 }; idle(f)
-        fx { reserveSelection(f, listOf("one"), "other") }
+        reserveSelection(f, listOf("one"), "other")
         await { readPlan(f).groups.size == 2 }; idle(f)
         val first = readPlan(f).groups.first()
         fx {
@@ -163,7 +163,7 @@ class UploadWorkspacePanelsTest {
     }
 
     @Test fun `UNKNOWNを予約から同要求だけ読戻し再送せず保全凍結を解除する`() = fixture { f ->
-        fx { reserveSelection(f, listOf("one"), "event") }
+        reserveSelection(f, listOf("one"), "event")
         await { readPlan(f).groups.size == 1 }; idle(f)
         f.remote.unknown = true
         fx { (f.stage.scene.root.lookup("#upload-plan-apply") as Button).fire() }
@@ -239,7 +239,7 @@ class UploadWorkspacePanelsTest {
     }
 
     @Test fun `upload中の非対象保存元切替は既存queueの正規退避後に完了する`() = fixture { f ->
-        fx { reserveSelection(f, listOf("one"), "event") }
+        reserveSelection(f, listOf("one"), "event")
         await { readPlan(f).groups.size == 1 }; idle(f)
         open(f, f.service.documentSource, "other")
         val entered = CountDownLatch(1); val release = CountDownLatch(1)
@@ -547,13 +547,18 @@ class UploadWorkspacePanelsTest {
     private fun tree(f: Fixture, local: Boolean) = f.stage.scene.root.lookup(if (local) "#upload-local-tree" else "#upload-server-tree") as TreeView<UploadWorkspacePanels.Entry>
     private fun nodes(root: TreeItem<UploadWorkspacePanels.Entry>): List<TreeItem<UploadWorkspacePanels.Entry>> = root.children.flatMap { listOf(it) + nodes(it) }
     private fun reserveSelection(f: Fixture, ids: List<String>, destination: String) {
-        val local = tree(f, true); val server = tree(f, false)
-        local.selectionModel.clearSelection()
-        ids.forEach { id -> local.selectionModel.select(nodes(local.root).first { it.value.key.category == "items" && it.value.key.id == id }) }
-        server.selectionModel.select(nodes(server.root).first { it.value.key.category == "items" && it.value.directory && it.value.key.id == destination })
-        if (f.diagnostic) observe(f, "reserve-before")
-        (f.stage.scene.root.lookup("#upload-reserve-selection") as Button).fire()
-        if (f.diagnostic) observe(f, "reserve-after")
+        await { fx {
+            if (WorkspaceManager.requireWorkspace().uploadRunning || f.queuedResponses.isNotEmpty() ||
+                Window.getWindows().any { it.scene?.root is DialogPane }) return@fx false
+            val local = tree(f, true); val server = tree(f, false)
+            local.selectionModel.clearSelection()
+            ids.forEach { id -> local.selectionModel.select(nodes(local.root).first { it.value.key.category == "items" && it.value.key.id == id }) }
+            server.selectionModel.select(nodes(server.root).first { it.value.key.category == "items" && it.value.directory && it.value.key.id == destination })
+            if (f.diagnostic) observe(f, "reserve-before")
+            (f.stage.scene.root.lookup("#upload-reserve-selection") as Button).fire()
+            if (f.diagnostic) observe(f, "reserve-after")
+            true
+        } }
     }
     private fun observe(f: Fixture, phase: String) {
         if (!f.hasView()) return
