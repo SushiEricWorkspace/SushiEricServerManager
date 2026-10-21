@@ -63,6 +63,7 @@ import javafx.concurrent.Task
 import javafx.beans.value.ChangeListener
 import javafx.scene.control.Button
 import javafx.scene.control.Label
+import javafx.scene.control.CheckMenuItem
 import javafx.scene.control.ChoiceDialog
 import io.github.sushiericworkspace.sushiericservermanager.app.AppScreen
 import javafx.scene.control.MenuButton
@@ -122,12 +123,45 @@ abstract class EditorView<T : ManagedData<T, *>>(
     private val sourceState get() = sourceStates.getOrPut(this.dataService.documentSource) {
         SourceState(expanded = AppSettingsManager.load().sidebarDirectoryExpanded[sidebarStateKey].orEmpty().toMutableMap())
     }
+    private data class ExternalDocument(val key: EditorDocumentKey, val ready: (Boolean) -> Unit)
+    private var externalDocument: ExternalDocument? = null
+
+    /** 左右一覧から同じViewの保存元別編集状態へ移動します。読み込み成功後にだけ通知します。 */
+    internal fun openDocument(key: EditorDocumentKey, ready: (Boolean) -> Unit = {}) {
+        if (closed || closing || saveRunning || main.operationRunning || syncBusy || repairBusy || importBusy || switchingSource || externalDocument != null) { ready(false); return }
+        if (key.source != EditorDocumentSource.Local && key.source != connectedService.documentSource) { ready(false); return }
+        externalDocument = ExternalDocument(key, ready)
+        val next = if (key.source == connectedService.documentSource) connectedService else connectedService.localService
+        if (next !== dataService) {
+            if (!main.loadingRunning && !restoringBackup && !switchSource(next)) {
+                externalDocument = null
+                ready(false)
+            }
+        } else if (!restoringBackup && !main.loadingRunning) {
+            if (key.id !in registeredSidebarIds || !selectTab(key.id)) { externalDocument = null; ready(false) }
+        }
+    }
+
+    internal fun openDocumentIds(source: EditorDocumentSource, category: String): Set<String> {
+        if (category != dataAccess.dataType.categoryDirName) return emptySet()
+        val state = sourceStates[source] ?: return emptySet()
+        return state.editing.keys.filterTo(mutableSetOf()) { it !in state.removed && state.pending[it] !is PendingStoreOperation.Delete }
+    }
+
+    private fun refreshWorkspaceDocuments() {
+        WorkspaceManager.current?.takeIf { it.feature(main.shortcutRoot) != null }?.refreshDocuments()
+    }
+
     private var switchingSource = false
     private var initialSourceResolved = false
     private val sourceMenu = MenuButton("ローカル").apply {
         items.add(MenuItem("ローカル").apply { setOnAction { switchSource(connectedService.localService) } })
         if (connectedService.isRemote) items.add(MenuItem("サーバーの作業コピー").apply {
             setOnAction { switchSource(connectedService) }
+        })
+        if (connectedService.isRemote) items.add(CheckMenuItem("編集用一覧を表示").apply {
+            isSelected = main.sidebarContainer.isVisible
+            setOnAction { main.sidebarContainer.isVisible = isSelected; main.sidebarContainer.isManaged = isSelected }
         })
         items.add(SeparatorMenuItem())
         items.add(MenuItem("旧退避から復元…").apply { setOnAction { restoreLegacyBackup() } })
@@ -334,7 +368,8 @@ abstract class EditorView<T : ManagedData<T, *>>(
     private var repairBusy = false
     private var syncBusy = false
     val saveRunning: Boolean get() = main.operationRunning
-    internal open val closeBusy: Boolean get() = uploadAction?.busy == true || categoryUploading || switchingSource || saveRunning || main.loadingRunning || dataService.activeSaves > 0 || syncBusy || repairBusy || importBusy || closing
+    internal open val sourceSwitchBusy: Boolean get() = uploadAction?.busy == true || switchingSource || saveRunning || main.loadingRunning || dataService.activeSaves > 0 || syncBusy || repairBusy || importBusy || closing
+    internal open val closeBusy: Boolean get() = sourceSwitchBusy || categoryUploading
     internal val storeOperationBlocked: Boolean get() = dataService.activeSaves > 0 || main.loadingRunning || repairBusy || closing || closed || EditorWindowManager.isClosing
     private val saveListener = ChangeListener<Number> { _, _, count ->
         main.actionButtonContainer.isDisable = count.toInt() > 0 || main.loadingRunning || main.operationRunning || closing
@@ -364,8 +399,9 @@ abstract class EditorView<T : ManagedData<T, *>>(
     private var sidebarRefresh: Pair<List<StoreResource>, List<String>>? = null
     private var sidebarSnapshot: Pair<List<StoreResource>, List<String>>? = null
 
-    private fun switchSource(next: EditorDataService) {
-        if (next === dataService || closeBusy || switchingSource || main.shortcutRoot.scene?.let(ShortcutManager::isComposing) == true) return
+    private fun switchSource(next: EditorDataService): Boolean {
+        if (next === dataService) return true
+        if (sourceSwitchBusy || main.shortcutRoot.scene?.let(ShortcutManager::isComposing) == true) return false
         commitPendingTextEdit()
         switchingSource = true
         val previous = dataService
@@ -376,7 +412,10 @@ abstract class EditorView<T : ManagedData<T, *>>(
         requestBackup(allowDuringOperation = true) { success ->
             switchingSource = false
             main.finishOperation()
-            if (!success) return@requestBackup
+            if (!success) {
+                externalDocument?.also { externalDocument = null; it.ready(false) }
+                return@requestBackup
+            }
             previous.activeSavesProperty.removeListener(saveListener)
             dataService = next
             dataAccess = next.documentAccess(dataAccess.descriptor)
@@ -393,6 +432,7 @@ abstract class EditorView<T : ManagedData<T, *>>(
             if (sourceState.tabsRestored) setupSidebar(main.sidebarContainer, currentSelectedDataId)
             else start()
         }
+        return true
     }
 
     private fun restoreLegacyBackup() {
@@ -584,6 +624,23 @@ abstract class EditorView<T : ManagedData<T, *>>(
 
     private fun finishLoading() {
         main.finishLoading()
+        if (externalDocument != null) Platform.runLater {
+            val requested = externalDocument ?: return@runLater
+            if (restoringBackup || switchingSource || closed || closing) return@runLater
+            if (requested.key.source != dataService.documentSource) {
+                val next = if (requested.key.source == connectedService.documentSource) connectedService else connectedService.localService
+                if (!switchSource(next)) {
+                    externalDocument = null
+                    requested.ready(false)
+                }
+            } else if (requested.key.id !in registeredSidebarIds) {
+                externalDocument = null
+                requested.ready(false)
+            } else if (currentSelectedDataId != requested.key.id && !selectTab(requested.key.id)) {
+                externalDocument = null
+                requested.ready(false)
+            }
+        }
         if (dataService.activeSaves > 0) {
             main.actionButtonContainer.isDisable = true
             main.sidebarContainer.isDisable = true
@@ -591,6 +648,7 @@ abstract class EditorView<T : ManagedData<T, *>>(
     }
 
     private fun showReadFailure(target: String, error: StoreError) {
+        externalDocument?.also { externalDocument = null; it.ready(false) }
         finishLoading()
         logger.error("{}の取得に失敗しました: {}", target, error, error.cause)
         main.setTopLabel("$target の取得に失敗しました", Color.ORANGERED)
@@ -1036,10 +1094,11 @@ abstract class EditorView<T : ManagedData<T, *>>(
      * 取得中は編集を抑止しますが、別のデータの選択と画面終了は可能です。
      *
      * @param targetId 選択対象となるリソースの識別子（ID）
+     * @return 選択の受け付け。背景読み込みの成功は含みません。
      */
-    open fun selectTab(targetId: String) {
-        if (closed || closing || repairBusy || (dataService.activeSaves > 0 && sidebarRefresh == null)) return
-        if (isPendingStoreDeletion(targetId)) return
+    open fun selectTab(targetId: String): Boolean {
+        if (closed || closing || repairBusy || (dataService.activeSaves > 0 && sidebarRefresh == null)) return false
+        if (isPendingStoreDeletion(targetId)) return false
         commitPendingTextEdit()
         documentState = documentState.open(targetId)
         updateDocumentTabs()
@@ -1053,7 +1112,7 @@ abstract class EditorView<T : ManagedData<T, *>>(
         if (local != null) {
             finishLoading()
             displaySelected(targetId)
-            return
+            return true
         }
         sidebarValidation[targetId] = SidebarValidationStatus.CHECKING
         refreshSidebarState(targetId)
@@ -1090,6 +1149,7 @@ abstract class EditorView<T : ManagedData<T, *>>(
             startPendingPreload()
         }
         dataService.executeIo(task)
+        return true
     }
 
     private fun displaySelected(targetId: String) {
@@ -1104,6 +1164,10 @@ abstract class EditorView<T : ManagedData<T, *>>(
         loadEditorReferences()
         showRestoredCount()
         startPendingPreload()
+        externalDocument?.takeIf { it.key == documentKey(targetId) }?.also {
+            externalDocument = null
+            it.ready(true)
+        }
     }
 
     private fun startPendingPreload() {
@@ -1284,6 +1348,7 @@ abstract class EditorView<T : ManagedData<T, *>>(
                 sidebarRefresh = snapshot
                 try { setupSidebar(main.sidebarContainer, selected) }
                 finally { sidebarRefresh = null }
+                refreshWorkspaceDocuments()
                 completed()
             }
             if (selected != null && selected !in editingDataMap) {
@@ -1575,6 +1640,7 @@ abstract class EditorView<T : ManagedData<T, *>>(
         main.mainContentContainer.requestFocus()
         commitPendingTextEdit()
         closing = true
+        externalDocument?.also { externalDocument = null; it.ready(false) }
         importGeneration++
         importBusy = false
         uploadMenuItem?.isDisable = false
@@ -1758,7 +1824,8 @@ abstract class EditorView<T : ManagedData<T, *>>(
         val saved = if (!documentsRestored) (WorkspaceManager.current?.tabs(main.shortcutRoot, dataService.cacheIdentity)
             ?: WorkspaceManager.current?.tabs(main.shortcutRoot).takeIf { dataService === connectedService }) else documentState
         documentsRestored = true
-        val requested = preferred?.removeSuffix(".yml")?.takeIf { it in ids }
+        val requested = (externalDocument?.key?.takeIf { it.source == dataService.documentSource }?.id ?: preferred)
+            ?.removeSuffix(".yml")?.takeIf { it in ids }
         val retained = saved?.ids.orEmpty().filter { it in ids }
         val selected = requested ?: saved?.selected?.takeIf { it in retained } ?: retained.firstOrNull()
             ?: ids.firstOrNull().takeIf { saved == null }
@@ -1768,7 +1835,7 @@ abstract class EditorView<T : ManagedData<T, *>>(
     }
 
     private fun updateDocumentTabs() {
-        idTabs.show(documentState, ::hasUnsavedChanges)
+        idTabs.show(documentState, if (dataService.isRemote) "サーバー" else "ローカル", ::hasUnsavedChanges)
         WorkspaceManager.current?.tabs(main.shortcutRoot, documentState, dataService.cacheIdentity)
     }
 
@@ -2670,6 +2737,7 @@ abstract class EditorView<T : ManagedData<T, *>>(
         sidebarRefresh = sidebarSnapshot
         try { setupSidebar(main.sidebarContainer, selectId) }
         finally { sidebarRefresh = null }
+        refreshWorkspaceDocuments()
     }
 
     private fun readSidebarSnapshot(): StoreResult<Pair<List<StoreResource>, List<String>>> =

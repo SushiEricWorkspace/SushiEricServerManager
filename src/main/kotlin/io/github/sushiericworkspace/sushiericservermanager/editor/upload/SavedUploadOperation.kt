@@ -8,7 +8,7 @@ import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.Serializable
 
-/** 確認画面を開いた時点の保存済み入力です。編集中の値・raw値は送信本文に使いません。 */
+/** 確認時の元savedです。コピーだけ変換契約のhashと、その要求で変換した比較元も固定します。編集中の値は含めません。 */
 @Serializable
 internal data class SavedUploadDocument(
     val key: EditorDocumentKey,
@@ -16,7 +16,9 @@ internal data class SavedUploadDocument(
     val saved: String?,
     val deleted: Boolean,
     val raw: Map<String, String>,
-    val pending: PendingStoreOperationRecord? = null
+    val pending: PendingStoreOperationRecord? = null,
+    val projectionHash: String? = null,
+    val projectedSaved: String? = null
 )
 
 /** 一つの通信作用と読戻しを追跡します。WRITINGのまま再起動した工程は再送せず照合します。 */
@@ -37,7 +39,15 @@ internal enum class SavedUploadState {
     CONFIRMED,
     FAILED,
     UNKNOWN,
-    CANCELLED
+    CANCELLED;
+
+    val displayName: String get() = when (this) {
+        CONFIRMED -> "反映確認済み"
+        UNKNOWN, WRITING -> "結果不明（読戻しが必要）"
+        FAILED -> "未反映"
+        CANCELLED -> "未実行・取消"
+        READY -> "未実行"
+    }
 }
 
 @Serializable
@@ -59,6 +69,11 @@ internal data class SavedUploadOperation(
     /** 通信先と予約する文書が一意に対応しているかを確認します。 */
     val validKeys: Boolean get() =
         inputs.map { it.key }.toSet().size == inputs.size &&
+            inputs.all { input ->
+                if (input.projectionHash == null) input.projectedSaved == null
+                else input.key.source == EditorDocumentSource.Local && !input.deleted && input.saved != null &&
+                    input.raw.isEmpty() && input.projectedSaved != null && input.projectionHash.matches(Regex("[0-9a-f]{64}"))
+            } &&
             targetRevisions.map { it.key }.toSet().size == targetRevisions.size &&
             targetRevisions.all { it.key.source == target } &&
             steps.map { it.key }.toSet().size == steps.size &&

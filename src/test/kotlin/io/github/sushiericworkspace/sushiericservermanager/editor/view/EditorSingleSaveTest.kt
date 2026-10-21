@@ -1018,8 +1018,20 @@ class EditorSingleSaveTest {
                 }
         }
         val deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(10)
-        while (!fx { spinner.editor.requestFocus(); spinner.editor.isFocused }) {
-            assertTrue(System.nanoTime() < deadline, "入力欄へフォーカスできません")
+        var lastFocusState: String? = null
+        while (true) {
+            val focused = fx {
+                spinner.editor.requestFocus()
+                val state = "windowFocused=" + fixture.stage.isFocused + " showing=" + fixture.stage.isShowing +
+                    " attached=" + (spinner.scene === fixture.stage.scene) + " editorFocused=" + spinner.editor.isFocused +
+                    " sceneOwner=" + fixture.stage.scene.focusOwner?.javaClass?.simpleName +
+                    " dialogs=" + Window.getWindows().filter { (it as? Stage)?.owner === fixture.stage }.map { (it as? Stage)?.title }
+                if (state != lastFocusState) println("SPINNER_FOCUS " + state)
+                lastFocusState = state
+                spinner.editor.isFocused
+            }
+            if (focused) break
+            assertTrue(System.nanoTime() < deadline, "入力欄へフォーカスできません: " + lastFocusState)
             Thread.sleep(20)
         }
         fx {

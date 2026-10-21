@@ -116,7 +116,7 @@ internal class SavedUploadAction(
     }
 
     /** 既存の結果不明台帳だけをユーザー確認後に読取照合し、通信へ再送しません。 */
-    fun readback(selections: List<SavedUploadSelection>) {
+    fun readback(selections: List<SavedUploadSelection>, operationId: String? = null) {
         if (!begin(selections, freezeSelected = false)) return
         val keys = selections.mapTo(mutableSetOf()) { it.key }
         target.submitIo { target.documents.read() }.whenComplete { loaded, error ->
@@ -127,7 +127,7 @@ internal class SavedUploadAction(
                     ?: run { failed(StoreError(StoreErrorCode.IO_ERROR)); return@runLater }
                 target.updateUploadState(snapshot)
                 val operations = snapshot.uploads.filter { operation ->
-                    !operation.complete && operation.inputs.any { it.key in keys }
+                    !operation.complete && (operationId == null || operation.id == operationId) && operation.inputs.any { it.key in keys }
                 }
                 if (operations.isEmpty()) { finish(); message("読戻し", "選択文書に結果不明の操作はありません。"); return@runLater }
                 val operation = chooseOperation(operations)
@@ -135,7 +135,7 @@ internal class SavedUploadAction(
                 if (!operation.needsReadback) {
                     finish()
                     message("旧要求の結果", operation.steps.joinToString("\n") {
-                        it.key.id + ": " + stateText(it.state) + (it.detail?.let { detail -> "\n" + detail } ?: "")
+                        it.key.id + ": " + it.state.displayName + (it.detail?.let { detail -> "\n" + detail } ?: "")
                     } +
                         "\n編集中の操作が旧要求と一致しない場合、推測した別要求では再送しません。ローカル文書と台帳を保持してください。")
                     return@runLater
@@ -169,7 +169,7 @@ internal class SavedUploadAction(
             maxWidth = Double.MAX_VALUE
             items.addAll(operations.map { operation ->
                 operation.id + " / " + operation.steps.joinToString("、") {
-                    it.key.id + ": " + stateText(it.state)
+                    it.key.id + ": " + it.state.displayName
                 }
             })
         }
@@ -229,7 +229,7 @@ internal class SavedUploadAction(
                         val operation = result.value
                         finish()
                         if (isActive()) message("アップロード結果", operation.steps.joinToString("\n") { step ->
-                            step.key.id + ": " + stateText(step.state) + (step.detail?.let { "\n" + it } ?: "")
+                            step.key.id + ": " + step.state.displayName + (step.detail?.let { "\n" + it } ?: "")
                         })
                     }
                     null -> failed(StoreError(StoreErrorCode.IO_ERROR))
@@ -249,14 +249,6 @@ internal class SavedUploadAction(
         held.clear()
         busy = false
         onIdle()
-    }
-
-    private fun stateText(state: SavedUploadState): String = when (state) {
-        SavedUploadState.CONFIRMED -> "反映確認済み"
-        SavedUploadState.UNKNOWN, SavedUploadState.WRITING -> "結果不明（読戻しが必要）"
-        SavedUploadState.FAILED -> "未反映"
-        SavedUploadState.CANCELLED -> "未実行・取消"
-        SavedUploadState.READY -> "未実行"
     }
 
     private fun message(titleText: String, text: String) {

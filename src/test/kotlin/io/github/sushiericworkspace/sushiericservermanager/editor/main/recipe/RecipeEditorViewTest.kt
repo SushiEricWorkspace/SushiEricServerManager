@@ -27,6 +27,13 @@ import io.github.sushiericworkspace.sushiericservermanager.editor.view.SidebarTr
 import io.github.sushiericworkspace.sushiericservermanager.ui.dialog.ItemTreeSelectionDialog
 import io.github.sushiericworkspace.sushiericservermanager.ui.dialog.ItemTreeSelection
 import io.github.sushiericworkspace.sushiericservermanager.ui.dialog.createRecipeSaveContent
+import org.junit.jupiter.api.io.TempDir
+import java.io.File
+import javafx.concurrent.Task
+import io.github.sushiericworkspace.sushiericservermanager.editor.service.EditorDocumentSource
+import io.github.sushiericworkspace.sushiericservermanager.editor.store.EditorDataStore
+import io.github.sushiericworkspace.sushiericservermanager.editor.store.EditorDataStoreKind
+import kotlin.test.assertFalse
 import org.junit.jupiter.api.condition.EnabledOnOs
 import org.junit.jupiter.api.condition.OS
 import java.util.concurrent.CountDownLatch
@@ -42,6 +49,39 @@ import kotlin.test.assertNull
 /** WindowsのJavaFXでFXMLと入力を確認します。実サーバーやユーザーの保存データには触れません。 */
 @EnabledOnOs(OS.WINDOWS)
 class RecipeEditorViewTest {
+    @TempDir lateinit var directory: File
+
+    @Test
+    fun `参照一覧の読込中は保存元切替を拒否し終了待機を保持する`() {
+        lateinit var service: EditorDataService
+        val closed = java.util.concurrent.CompletableFuture<Boolean>()
+        onFxThread {
+            val loader = FXMLLoader(javaClass.getResource(AppScreen.BASE.fxml!!))
+            val root = loader.load<Parent>()
+            Scene(root)
+            val remote = object : EditorDataStore by InMemoryEditorDataStore() {
+                override val kind = EditorDataStoreKind.REMOTE
+                override val documentSource = EditorDocumentSource.Server("recipe-busy", "declared/root")
+            }
+            service = EditorDataService(remote, directory.resolve("app"))
+            val logic = RecipeEditorLogic(loader.getController(), service)
+            val field = RecipeEditorLogic::class.java.getDeclaredField("catalogTask").apply { isAccessible = true }
+            val task = object : Task<Unit>() { override fun call() = Unit }
+            field.set(logic, task)
+            try {
+                assertTrue(logic.closeBusy)
+                var accepted: Boolean? = null
+                logic.openDocument(service.recipes.documentKey("one")) { accepted = it }
+                assertEquals(false, accepted)
+            } finally { field.set(logic, null) }
+            assertFalse(logic.closeBusy)
+            logic.onClose { closed.complete(it) }
+        }
+        assertTrue(closed.get(10, TimeUnit.SECONDS))
+        service.closeIo()
+    }
+
+
     @Test
     fun `FXMLをロードして選択ボタンを表示し盤サイズと完成数を編集できる`() = onFxThread {
         val loader = FXMLLoader(javaClass.getResource(AppScreen.BASE.fxml!!))
