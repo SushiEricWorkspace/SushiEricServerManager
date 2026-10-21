@@ -101,7 +101,7 @@ internal class IdTabStrip(
         }
     }
 
-    fun show(next: IdTabsState, modified: (String) -> Boolean) {
+    fun show(next: IdTabsState, source: String? = null, modified: (String) -> Boolean) {
         state = next
         tabs.keys.retainAll(next.ids.toSet())
         for (id in next.ids) {
@@ -116,7 +116,7 @@ internal class IdTabStrip(
                     setOnMouseClicked { if (it.button == MouseButton.PRIMARY && !moved && !closeButton(it.target)) onSelect(id) }
                 }
             }
-            (tab.children[0] as Label).text = id + if (modified(id)) " *" else ""
+            (tab.children[0] as Label).text = (source?.let { it + " / " }.orEmpty()) + id + if (modified(id)) " *" else ""
             tab.pseudoClassStateChanged(PseudoClass.getPseudoClass("selected"), id == next.selected)
         }
         val offset = hvalue

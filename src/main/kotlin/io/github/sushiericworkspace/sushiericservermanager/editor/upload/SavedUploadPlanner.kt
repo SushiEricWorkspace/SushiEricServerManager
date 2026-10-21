@@ -10,7 +10,11 @@ import io.github.sushiericworkspace.sushiericservermanager.editor.store.*
 import java.util.UUID
 
 /** 保存元の選択と宛先IDです。編集中データは参照しません。 */
-internal data class SavedUploadSelection(val key: EditorDocumentKey, val targetId: String = key.id)
+internal data class SavedUploadSelection(
+    val key: EditorDocumentKey,
+    val targetId: String = key.id,
+    val projection: SavedUploadProjection? = null
+)
 
 internal data class SavedUploadCandidate(
     val input: SavedUploadDocument,
@@ -38,11 +42,15 @@ internal class SavedUploadPlanner(private val origin: EditorDataService, private
         val selected = selections.distinctBy { it.key }.toMutableList()
         require(selections.size == selected.size) { "同じ文書が重複しています。" }
         require(selected.all { it.key.source == source.source }) { "保存元が一致しません。" }
+        require(selected.all { it.projection == null || it.key.source == EditorDocumentSource.Local }) {
+            "コピー投影はローカル保存済み文書だけに使用できます。"
+        }
         val records = source.documents.associateBy { it.key }
         for (selection in selected.toList()) {
             val moved = records[selection.key]?.movedTo ?: continue
             selected.remove(selection)
-            val replacement = SavedUploadSelection(selection.key.copy(id = moved))
+            val replacement = if (selection.projection == null) SavedUploadSelection(selection.key.copy(id = moved))
+                else selection.copy(key = selection.key.copy(id = moved))
             if (selected.none { it.key == replacement.key }) selected += replacement
         }
         includeRequiredItems(selected, records)
@@ -60,24 +68,32 @@ internal class SavedUploadPlanner(private val origin: EditorDataService, private
                 fail(StoreErrorCode.VALIDATION_FAILED, "未確定入力をローカル保存済みのため送信できません: " + record.key.id)
             if (record.key.category == target.shops.dataType.categoryDirName)
                 fail(StoreErrorCode.UNSUPPORTED_FORMAT, "商品の反映にはDB適用経路が必要です。ローカル内容は保持しています。")
-            val input = fixed(record)
             val key = record.key.copy(source = destination.source, id = selection.targetId)
+            require(selection.projection == null || !record.savedDeleted) { "コピー予約に削除済み文書は使用できません。" }
+            val local = record.saved.takeUnless { record.savedDeleted }?.let { project(key, it, selection.projection) }
+            val input = fixed(record).let { fixed ->
+                if (selection.projection == null) fixed else fixed.copy(
+                    projectionHash = selection.projection.fingerprint(record.key, key), projectedSaved = local)
+            }
             val potential = setOfNotNull(key, input.pending?.sourceId?.let { key.copy(id = it) })
             if (destination.uploads.any { operation -> operation.needsReadback &&
                 operation.steps.any { it.key in potential || it.destination in potential } })
                 fail(StoreErrorCode.IO_ERROR, "同じ対象の結果不明操作を先に読戻しで確認してください。")
-            val previous = receipt(destination, input, key)
-            if (previous != null && savedUploadFingerprint(input.key, input.saved, input.deleted, input.raw) ==
+            val previous = receipt(destination, input, key)?.takeIf {
+                if (selection.projection == null) it.second.projectionHash == null && it.second.projectedSaved == null
+                else it.second.projectionHash == input.projectionHash && it.second.projectedSaved != null
+            }
+            if (selection.projection == null && previous != null && savedUploadFingerprint(input.key, input.saved, input.deleted, input.raw) ==
                 savedUploadFingerprint(previous.second.key, previous.second.saved, previous.second.deleted, previous.second.raw) &&
                 (input.pending == null || input.pending == previous.second.pending)) continue
             val last = lastConfirmedTouch(destination, key)
-            if (input.pending?.kind == PendingStoreOperationKind.RENAME && input.pending.sourceId == key.id &&
+            if (selection.projection == null && input.pending?.kind == PendingStoreOperationKind.RENAME && input.pending.sourceId == key.id &&
                 last != null && last.second.key == key && last.second.destination != null)
                 fail(StoreErrorCode.IO_ERROR, "部分成功した改名・移動の現在位置と保留操作が一致しません。旧要求の台帳とローカル文書を保持しています。結果を確認してから再計画してください。")
             val relocated = last != null && last.second.destination == key && last.first.inputs.any {
                 it.key == input.key && compatiblePending(input, it)
             }
-            val relocation = if (previous == null && !relocated &&
+            val relocation = if (selection.projection == null && previous == null && !relocated &&
                 record.savedPending?.kind in setOf(PendingStoreOperationKind.RENAME, PendingStoreOperationKind.DELETE)) {
                 record.savedPending?.sourceId?.let { oldId ->
                     record.key.copy(source = destination.source, id = oldId).takeUnless { it == key }
@@ -85,13 +101,16 @@ internal class SavedUploadPlanner(private val origin: EditorDataService, private
             } else null
             val before = read(relocation ?: key).value()
             val latest = before?.let { rekey(key, it) }
+            if (selection.projection != null && local != null && latest != null &&
+                !selection.projection.matchesTarget(target, key, local, latest))
+                fail(StoreErrorCode.IO_ERROR, "予約後に宛先の内部IDが変わりました。再割当てまたは再予約してください: " + key.id)
             val baseline = when {
+                previous != null && selection.projection != null -> previous.second.projectedSaved
                 previous != null -> previous.second.saved.takeUnless { previous.second.deleted }?.let { rekey(key, it) }
                 record.key == key -> record.baseline?.let { rekey(key, it) }
                 else -> null
             }
             val known = previous != null || (record.key == key && record.baselineKnown)
-            val local = record.saved.takeUnless { record.savedDeleted }?.let { rekey(key, it) }
             inputs[input.key] = input
             relocation?.let { old ->
                 val oldRecord = records[record.key.copy(id = old.id)]
@@ -201,7 +220,12 @@ internal class SavedUploadPlanner(private val origin: EditorDataService, private
                 record.key.category == target.items.dataType.categoryDirName && !record.savedDeleted &&
                     record.saved != null && origin.items.decodeDocument(record.key.id, record.saved).internalId == internalId
             } ?: fail(StoreErrorCode.VALIDATION_FAILED, "参照するアイテムの保存済み内容がありません: " + internalId.value)
-            if (selections.none { it.key == item.key }) selections += SavedUploadSelection(item.key)
+            if (selections.none { it.key == item.key }) {
+                require(selections.none { it.projection != null }) {
+                    "参照先Itemを送信予約に含めてから確認してください: " + item.key.id
+                }
+                selections += SavedUploadSelection(item.key)
+            }
         }
     }
 
@@ -263,6 +287,9 @@ internal class SavedUploadPlanner(private val origin: EditorDataService, private
             is StoreResult.Success -> StoreResult.Success(access.encodeDocument(loaded.value.apply { this.id = id }))
             is StoreResult.Failure -> if (loaded.error.code == StoreErrorCode.FILE_NOT_FOUND) StoreResult.Success(null) else loaded
         }
+
+    private fun project(key: EditorDocumentKey, body: String, projection: SavedUploadProjection?): String =
+        projection?.body(target, key, body) ?: rekey(key, body)
 
     private fun rekey(key: EditorDocumentKey, body: String): String = when (key.category) {
         target.items.dataType.categoryDirName -> rekey(target.items, key.id, body)

@@ -270,7 +270,7 @@ internal class RecipeEditorLogic(main: MainController, service: EditorDataServic
     }
 
 
-    internal override val closeBusy: Boolean get() = super.closeBusy || catalogTask != null
+    internal override val sourceSwitchBusy: Boolean get() = super.sourceSwitchBusy || catalogTask != null
 
     private fun loadCatalog(force: Boolean = false) {
         if (catalogTask != null || disposed || (!force && catalogFailed)) return

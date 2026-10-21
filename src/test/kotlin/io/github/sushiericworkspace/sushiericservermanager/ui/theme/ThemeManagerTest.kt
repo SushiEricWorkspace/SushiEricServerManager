@@ -136,6 +136,33 @@ class ThemeManagerTest {
     }
 
     @Test
+    fun `SceneのfocusOwnerだけでは未表示Windowのfocus枠を表示しない`() {
+        startFx()
+        val checkBox = fx { CheckBox("焦点の前提") }
+        val stage = fx { Stage().apply {
+            scene = Utility.createScene(AppScreen.MODE_SELECT, customRoot = VBox(checkBox))
+        } }
+        try {
+            fx {
+                checkBox.requestFocus()
+                stage.scene.root.applyCss()
+                assertSame(checkBox, stage.scene.focusOwner)
+                assertFalse(stage.isFocused)
+                assertFalse(checkBox.isFocused)
+                val box = checkBox.lookup(".box") as javafx.scene.layout.Region
+                assertEquals(1.0, box.border.strokes.last().widths.top)
+                stage.show()
+            }
+            await { stage.isFocused && checkBox.isFocused }
+            fx {
+                stage.scene.root.applyCss()
+                val box = checkBox.lookup(".box") as javafx.scene.layout.Region
+                assertEquals(2.0, box.border.strokes.last().widths.top)
+            }
+        } finally { fx { stage.close() } }
+    }
+
+    @Test
     fun `両テーマで未選択CheckBoxと確認ボタンのキーボードfocusを表示する`() {
         startFx()
         val previous = AppSettingsManager.load()
@@ -148,12 +175,12 @@ class ThemeManagerTest {
             show()
         } }
         try {
+            val button = fx { alert.dialogPane.lookupButton(ButtonType.OK) as Button }
             for (theme in listOf(AppTheme.LIGHT, AppTheme.DARK)) {
+                fx { assertTrue(ThemeManager.select(theme)); checkBox.requestFocus() }
+                await { alert.dialogPane.scene.window.isFocused && checkBox.isFocused }
                 fx {
-                    assertTrue(ThemeManager.select(theme))
                     val scene = alert.dialogPane.scene
-                    val button = alert.dialogPane.lookupButton(ButtonType.OK) as Button
-                    checkBox.requestFocus()
                     scene.root.applyCss()
                     assertSame(checkBox, scene.focusOwner)
                     assertFalse(checkBox.isSelected)
@@ -162,8 +189,12 @@ class ThemeManagerTest {
                     assertEquals(accent, box.border.strokes.last().topStroke)
                     assertEquals(2.0, box.border.strokes.last().widths.top)
                     checkBox.fireEvent(KeyEvent(KeyEvent.KEY_PRESSED, "", "", KeyCode.TAB, false, false, false, false))
-                    scene.root.applyCss()
-                    assertSame(button, scene.focusOwner)
+                }
+                await { alert.dialogPane.scene.window.isFocused && button.isFocused }
+                fx {
+                    alert.dialogPane.scene.root.applyCss()
+                    assertSame(button, alert.dialogPane.scene.focusOwner)
+                    val accent = if (theme == AppTheme.LIGHT) Color.web("#1762a2") else Color.web("#4a8cc7")
                     assertEquals(accent, button.border.strokes.last().topStroke)
                     assertEquals(2.0, button.border.strokes.last().widths.top)
                 }

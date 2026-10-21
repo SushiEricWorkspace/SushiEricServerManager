@@ -3,6 +3,8 @@ package io.github.sushiericworkspace.sushiericservermanager.app.workspace
 import io.github.sushiericworkspace.sushiericservermanager.app.AppFrame
 import io.github.sushiericworkspace.sushiericservermanager.app.AppScreen
 import io.github.sushiericworkspace.sushiericservermanager.config.*
+import io.github.sushiericworkspace.sushiericservermanager.editor.session.EditorSession
+import io.github.sushiericworkspace.sushiericservermanager.editor.upload.UploadWorkspacePanels
 import io.github.sushiericworkspace.sushiericservermanager.ui.dialog.CustomDialog
 import io.github.sushiericworkspace.sushiericservermanager.ui.shortcut.ShortcutManager
 import javafx.animation.PauseTransition
@@ -54,6 +56,7 @@ internal class WorkspaceView(
     private val focusListener = ChangeListener<Node> { _, _, node ->
         features.entries.firstOrNull { (_, value) -> contains(value.pane, node) }?.let { activate(it.key, false) }
     }
+    private var uploadPanels: UploadWorkspacePanels? = null
     private var closeStage: Stage? = null
     private val closeRequestHandler = EventHandler<WindowEvent> { event ->
         event.consume()
@@ -85,6 +88,15 @@ internal class WorkspaceView(
                 setOnAction { if (feature == WorkspaceFeature.HOME) showHome() else openFeature(feature) }
             })
         }
+        EditorSession.dataService?.takeIf { it.isRemote }?.let { service ->
+            uploadPanels = UploadWorkspacePanels(service) { scene?.window as? Stage }.also { panels ->
+                panels.localPane.prefWidthProperty().bind(widthProperty().multiply(0.16).map { it.toDouble().coerceAtMost(220.0) })
+                panels.serverPane.prefWidthProperty().bind(widthProperty().multiply(0.16).map { it.toDouble().coerceAtMost(220.0) })
+                left = HBox(6.0, left, panels.localPane)
+                right = panels.serverPane
+                bottom = panels.planPane
+            }
+        }
         showHome()
         sceneProperty().addListener { _, old, next ->
             old?.focusOwnerProperty()?.removeListener(focusListener)
@@ -98,6 +110,12 @@ internal class WorkspaceView(
             else if (old != null && next == null) dispose()
         }
     }
+
+    internal fun refreshDocuments() { uploadPanels?.refreshDocuments() }
+
+    internal val uploadRunning: Boolean get() = uploadPanels?.operationRunning == true
+
+    internal fun openDocumentFeature(feature: WorkspaceFeature) { if (!focus(feature)) openFeature(feature) }
 
     fun contains(root: Parent): Boolean = features.values.any { it.root === root }
     fun feature(root: Node): WorkspaceFeature? = features.entries.firstOrNull { contains(it.value.root, root) }?.key
@@ -323,6 +341,7 @@ internal class WorkspaceView(
     private fun dispose() {
         if (disposed) return
         saveTimer.stop()
+        uploadPanels?.dispose()
         persist()
         disposed = true
         dividerListeners.forEach { (divider, listener) -> divider.positionProperty().removeListener(listener) }
