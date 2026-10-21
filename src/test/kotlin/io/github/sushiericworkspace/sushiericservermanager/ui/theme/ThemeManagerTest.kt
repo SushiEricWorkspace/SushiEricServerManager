@@ -21,6 +21,7 @@ import javafx.scene.layout.HeaderBar
 import javafx.scene.layout.VBox
 import javafx.scene.paint.Color
 import javafx.stage.Stage
+import javafx.stage.Window
 import java.nio.file.Path
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.FutureTask
@@ -153,7 +154,10 @@ class ThemeManagerTest {
                 assertEquals(1.0, box.border.strokes.last().widths.top)
                 stage.show()
             }
-            await { stage.isFocused && checkBox.isFocused }
+            await(diagnostic = {
+                "showing=${stage.isShowing} focused=${stage.isFocused} sceneOwner=${stage.scene.focusOwner?.javaClass?.simpleName} " +
+                    "checkBoxFocused=${checkBox.isFocused} windows=${Window.getWindows().map { "${it.javaClass.simpleName}@${System.identityHashCode(it)} showing=${it.isShowing} focused=${it.isFocused}" }}"
+            }) { stage.isFocused && checkBox.isFocused }
             fx {
                 stage.scene.root.applyCss()
                 val box = checkBox.lookup(".box") as javafx.scene.layout.Region
@@ -178,7 +182,11 @@ class ThemeManagerTest {
             val button = fx { alert.dialogPane.lookupButton(ButtonType.OK) as Button }
             for (theme in listOf(AppTheme.LIGHT, AppTheme.DARK)) {
                 fx { assertTrue(ThemeManager.select(theme)); checkBox.requestFocus() }
-                await { alert.dialogPane.scene.window.isFocused && checkBox.isFocused }
+                await(diagnostic = {
+                    val window = alert.dialogPane.scene.window
+                    "showing=${window.isShowing} focused=${window.isFocused} sceneOwner=${alert.dialogPane.scene.focusOwner?.javaClass?.simpleName} " +
+                        "checkBoxFocused=${checkBox.isFocused} windows=${Window.getWindows().map { "${it.javaClass.simpleName}@${System.identityHashCode(it)} showing=${it.isShowing} focused=${it.isFocused}" }}"
+                }) { alert.dialogPane.scene.window.isFocused && checkBox.isFocused }
                 fx {
                     val scene = alert.dialogPane.scene
                     scene.root.applyCss()
@@ -231,9 +239,16 @@ class ThemeManagerTest {
         } finally { fx { stage.close(); ThemeManager.select(originalTheme); AppSettingsManager.save(previous) } }
     }
 
-    private fun await(condition: () -> Boolean) {
+    private fun await(diagnostic: (() -> String)? = null, condition: () -> Boolean) {
         val deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(5)
-        while (!fx(condition)) { assertTrue(System.nanoTime() < deadline, "画面状態の待機超過"); Thread.sleep(30) }
+        while (!fx(condition)) {
+            val withinDeadline = System.nanoTime() < deadline
+            val detail = if (withinDeadline || diagnostic == null) "" else {
+                runCatching { fx(diagnostic) }.getOrElse { "diagnosticError=${it.javaClass.simpleName}" }
+            }
+            assertTrue(withinDeadline, "画面状態の待機超過" + if (detail.isEmpty()) "" else ": $detail")
+            Thread.sleep(30)
+        }
     }
 
     private fun startFx() {

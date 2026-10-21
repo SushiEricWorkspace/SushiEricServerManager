@@ -10,6 +10,7 @@ import io.github.sushiericworkspace.sushiericdatamodel.data.core.validation.Sush
 import io.github.sushiericworkspace.sushiericservermanager.editor.validation.ValidationRepairRegistry
 import io.github.sushiericworkspace.sushiericservermanager.editor.validation.ValidationRepairResult
 import io.github.sushiericworkspace.sushiericservermanager.app.AppScreen
+import io.github.sushiericworkspace.sushiericservermanager.editor.session.EditorSession
 import io.github.sushiericworkspace.sushiericservermanager.editor.controller.MainController
 import io.github.sushiericworkspace.sushiericservermanager.editor.component.EditorSpinnerFactory
 import io.github.sushiericworkspace.sushiericservermanager.editor.service.EditorDataService
@@ -323,6 +324,65 @@ class EditorSingleSaveTest {
             assertTrue("failed" in result.failed)
             fx { assertTrue(fixture.logic.isSaved("saved")); assertFalse(fixture.logic.isSaved("failed")) }
             fail = false
+        }
+    }
+
+    @Test
+    fun `単件失敗は全保存成功した同IDだけ解決し全保存失敗IDと別保存元を保持する`() {
+        var failingId = ""
+        withFixture(EditorDataDescriptors.item, backupWriter = { file, data ->
+            if (data.id == failingId) error("対象別codec失敗")
+            EditorDataDescriptors.item.saveBackup(file, data)
+        }) { fixture ->
+            val notifications = EditorSession.notifications
+            val scope = fx { fixture.main.notificationScope().copy(target = fixture.id) }
+            val other = scope.copy(source = "fixture255-other-source")
+            try {
+                notifications.condition(other, "save", "別保存元の失敗")
+                failingId = fixture.id
+                assertEquals(EditorView.SaveOutcome.FAILED, save(fixture))
+                assertTrue(notifications.snapshot().any { it.scope == scope && it.key == "save" })
+                failingId = ""
+                val saved = saveAll(fixture)
+                assertEquals(listOf(fixture.id), saved.saved)
+                assertFalse(notifications.snapshot().any { it.scope == scope && it.key == "save" })
+                assertTrue(notifications.snapshot().any { it.scope == other && it.key == "save" })
+                addItem(fixture, "failed")
+                failingId = "failed"
+                val failed = saveAll(fixture)
+                assertEquals(setOf("failed"), failed.failed.keys)
+                assertTrue(notifications.snapshot().any {
+                    it.scope == scope.copy(target = "failed") && it.key == "save" && it.text == failed.failed["failed"]
+                })
+                assertTrue(notifications.snapshot().any { it.scope == other && it.key == "save" })
+            } finally {
+                failingId = ""
+                notifications.resolve(scope, "save")
+                notifications.resolve(scope.copy(target = "failed"), "save")
+                notifications.resolve(other, "save")
+            }
+        }
+    }
+
+    @Test
+    fun `全保存を確認取消しても既存の対象失敗Bannerを消さない`() {
+        var fail = false
+        withFixture(EditorDataDescriptors.item, backupWriter = { file, data ->
+            if (fail) error("保存codec失敗")
+            EditorDataDescriptors.item.saveBackup(file, data)
+        }) { fixture ->
+            val notifications = EditorSession.notifications
+            val scope = fx { fixture.main.notificationScope().copy(target = fixture.id) }
+            try {
+                fail = true
+                assertEquals(EditorView.SaveOutcome.FAILED, save(fixture))
+                fail = false
+                fixture.cancel = true
+                val cancelled = saveAll(fixture)
+                assertEquals(EditorView.SaveOutcome.CANCELLED, cancelled.outcome)
+                assertEquals(listOf(fixture.id), cancelled.notExecuted)
+                assertTrue(notifications.snapshot().any { it.scope == scope && it.key == "save" })
+            } finally { fail = false; notifications.resolve(scope, "save") }
         }
     }
 

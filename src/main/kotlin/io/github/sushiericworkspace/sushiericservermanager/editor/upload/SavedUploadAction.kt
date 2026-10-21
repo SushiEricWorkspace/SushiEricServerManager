@@ -96,12 +96,13 @@ internal class SavedUploadAction(
                         val choice = SavedUploadDialog.show(owner, target.currentProfileName.orEmpty(), preview)
                         if (choice == null || !isActive() || cancelled) { finish(); return@runLater }
                         observed = preview.versions.associate { it.key to it.revision }
-                        val progress = SavedUploadProgress(owner).also { it.show() }
+                        val progress = SavedUploadProgress(owner, origin.cacheIdentity + " → " + target.cacheIdentity).also { it.show() }
                         target.submitIo {
                             when (val built = planner.build(preview, choice.localPaths, choice.confirmUnknownBaseline)) {
                                 is StoreResult.Failure -> built
                                 is StoreResult.Success -> {
                                     requestId = built.value.id
+                                    progress.attach(built.value)
                                     SavedUploadExecutor(origin, target).execute(built.value,
                                         cancelled = { cancelled || progress.cancelled },
                                         onProgress = { current -> Platform.runLater { progress.update(current) } })
@@ -155,7 +156,8 @@ internal class SavedUploadAction(
                     dialogPane.buttonTypes.addAll(ButtonType("読戻しで確認", ButtonBar.ButtonData.OK_DONE), ButtonType.CANCEL)
                 }.showAndWait().orElse(ButtonType.CANCEL).buttonData == ButtonBar.ButtonData.OK_DONE
                 if (!accepted || !isActive() || cancelled) { finish(); return@runLater }
-                val progress = SavedUploadProgress(owner).also { it.show() }
+                val progress = SavedUploadProgress(owner, origin.cacheIdentity + " → " + target.cacheIdentity).also { it.show() }
+                progress.attach(operation)
                 target.submitIo { SavedUploadExecutor(origin, target).readback(operation) }
                     .whenComplete { completed, failure -> complete(completed, failure, progress) }
             }
@@ -212,7 +214,7 @@ internal class SavedUploadAction(
     ) {
         target.submitIo { target.documents.read() }.whenComplete { loaded, readError ->
             Platform.runLater {
-                progress.finish()
+                progress.finish((loaded as? StoreResult.Success)?.value?.uploads.orEmpty())
                 if (loaded is StoreResult.Success) {
                     target.updateUploadState(loaded.value)
                     loaded.value.uploads.singleOrNull { it.id == requestId }?.let { recorded ->

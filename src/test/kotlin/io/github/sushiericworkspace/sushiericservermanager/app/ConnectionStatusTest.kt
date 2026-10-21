@@ -39,7 +39,7 @@ class ConnectionStatusTest {
         assertEquals("接続中", status.api)
         assertEquals("稼働中", status.minecraft)
         assertEquals("19.80", status.tps)
-        assertEquals("読取専用", status.access)
+        assertEquals("サーバー読取専用（ローカル保存可）", status.access)
     }
 
     @Test

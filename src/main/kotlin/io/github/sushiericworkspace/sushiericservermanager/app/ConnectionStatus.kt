@@ -44,7 +44,7 @@ internal data class ConnectionStatus(
                 if (apiConnected && ticksPerSecond?.isFinite() == true) "稼働中" else "不明",
                 if (apiConnected && ticksPerSecond?.isFinite() == true) String.format(Locale.ROOT, "%.2f", ticksPerSecond) else "不明",
                 when { mode == AppMode.OFFLINE -> "ローカル書込可"; !connected -> "書込状態不明";
-                    compatibility.writable -> "書込可"; else -> "読取専用" }
+                    compatibility.writable -> "書込可"; else -> "サーバー読取専用（ローカル保存可）" }
             )
         }
     }

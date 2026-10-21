@@ -66,6 +66,7 @@ import javafx.scene.control.Label
 import javafx.scene.control.CheckMenuItem
 import javafx.scene.control.ChoiceDialog
 import io.github.sushiericworkspace.sushiericservermanager.app.AppScreen
+import io.github.sushiericworkspace.sushiericservermanager.app.NotificationState
 import javafx.scene.control.MenuButton
 import javafx.scene.control.MenuItem
 import javafx.scene.control.SeparatorMenuItem
@@ -504,6 +505,9 @@ abstract class EditorView<T : ManagedData<T, *>>(
 
     /** 画面表示後にバックアップを背景で復元し、その後に一覧を読み込みます。 */
     fun start() {
+        val noticeScope = EditorSession.notifications.scope("", dataAccess.dataType.categoryDirName)
+        main.notificationScope = { noticeScope.copy(source = dataService.cacheIdentity, target = currentSelectedDataId.orEmpty()) }
+
         if (!initialSourceResolved) {
             initialSourceResolved = true
             val savedSource = WorkspaceManager.current?.documentSource(main.shortcutRoot)
@@ -652,6 +656,7 @@ abstract class EditorView<T : ManagedData<T, *>>(
         finishLoading()
         logger.error("{}の取得に失敗しました: {}", target, error, error.cause)
         main.setTopLabel("$target の取得に失敗しました", Color.ORANGERED)
+        main.showTimedTopLabel("$target の取得に失敗しました", Color.ORANGERED)
         CustomDialog.error().header("$target の取得に失敗しました。")
             .content(error.detail.orEmpty()).owner(main.currentStage).show()
     }
@@ -1205,7 +1210,8 @@ abstract class EditorView<T : ManagedData<T, *>>(
         loadGeneration++
         cancelSidebarPreload()
         dataService.beginSave()
-        main.showOperation("ローカル保存を準備しています")
+        main.showOperation("ローカル保存を準備しています", dataId)
+        val saveNotice = main.operationToken
 
         var finished = false
         fun finish(outcome: SaveOutcome, beforeNotification: () -> Unit = {}) {
@@ -1215,6 +1221,13 @@ abstract class EditorView<T : ManagedData<T, *>>(
             dataService.endSave()
             preloadSidebarDataForVisualStates(registeredSidebarIds)
             refreshSyncButtonState()
+            val notifications = EditorSession.notifications
+            when (outcome) {
+                SaveOutcome.SAVED -> saveNotice?.let { notifications.result(it, "save", null) }
+                SaveOutcome.SAVED_WITH_ERRORS -> saveNotice?.let { notifications.result(it, "save", "ローカル保存済みですが、後処理に失敗しました。") }
+                SaveOutcome.FAILED -> saveNotice?.let { notifications.result(it, "save", "ローカル保存を完了できませんでした。編集中データを保持しています。", NotificationState.Severity.ERROR) }
+                else -> Unit
+            }
             when (outcome) {
                 SaveOutcome.SAVED -> main.showTimedTopLabel("$dataId を保存しました", Color.GREENYELLOW)
                 SaveOutcome.SAVED_WITH_ERRORS -> main.showTimedTopLabel("$dataId は保存済みですが、後処理に失敗しました", Color.ORANGE, 5.0)
@@ -1405,9 +1418,15 @@ abstract class EditorView<T : ManagedData<T, *>>(
         val cancelled = mutableListOf<String>()
         val notExecuted = mutableListOf<String>()
         val postErrors = mutableListOf<String>()
+        val postFailed = mutableSetOf<String>()
+        val notifications = EditorSession.notifications
+        val batchScope = main.notificationScope().copy(target = "")
+        val saveNotices = targets.associate { entry ->
+            entry.dataId to notifications.prepare(batchScope.copy(target = entry.dataId), "operation")
+        }
         cancelSidebarPreload()
         dataService.beginSave()
-        main.showOperation("保存準備 0/${targets.size} 件")
+        main.showOperation("保存準備 0/${targets.size} 件", "")
         var finished = false
 
         fun finish() {
@@ -1420,6 +1439,15 @@ abstract class EditorView<T : ManagedData<T, *>>(
                 else -> SaveOutcome.CANCELLED
             }
             val result = BatchSaveResult(outcome, saved.toList(), failed.toMap(), cancelled.toList(), notExecuted.toList(), postErrors.toList())
+            result.saved.forEach { id ->
+                saveNotices[id]?.let { notice -> notifications.result(notice, "save",
+                    if (id in postFailed) "ローカル保存済みですが、後処理に失敗しました。" else null) }
+            }
+            result.failed.forEach { (id, reason) ->
+                saveNotices[id]?.let { notifications.result(it, "save", reason, NotificationState.Severity.ERROR) }
+            }
+            if (result.postProcessingErrors.isNotEmpty()) notifications.condition(batchScope, "save-post", result.postProcessingErrors.joinToString("\n"))
+            else if (result.saved.isNotEmpty()) notifications.resolve(batchScope, "save-post")
             main.finishOperation()
             dataService.endSave()
             preloadSidebarDataForVisualStates(registeredSidebarIds)
@@ -1462,6 +1490,7 @@ abstract class EditorView<T : ManagedData<T, *>>(
             saveStep({ writeSingleSave(entry) }, { error ->
                 logger.error("一括保存の書き込みに失敗しました: id={}", entry.dataId, error)
                 if (entry.dataId in saved) {
+                    postFailed += entry.dataId
                     postErrors += "${entry.dataId}: 保存結果の反映に失敗しました。"
                     notExecuted += prepared.drop(index + 1).map { it.dataId }
                     refresh()
@@ -1480,6 +1509,7 @@ abstract class EditorView<T : ManagedData<T, *>>(
                         requestBackup(allowDuringOperation = true) { success ->
                             if (!success) {
                                 logger.error("一括保存のバックアップ整理に失敗しました: id={}", entry.dataId)
+                                postFailed += entry.dataId
                                 postErrors += "${entry.dataId}: バックアップ整理に失敗しました。"
                             }
                             next()
@@ -1686,7 +1716,6 @@ abstract class EditorView<T : ManagedData<T, *>>(
         connectedService.uploadResultProperty.removeListener(uploadResultListener)
         detachHistoryFilters()
         idTabs.dispose()
-        main.clearTopLabelTimer()
         main.clearShortcuts()
 
         editingDataMap.clear()
@@ -2278,7 +2307,8 @@ abstract class EditorView<T : ManagedData<T, *>>(
             pendingStoreOperations.values.map(PendingStoreOperation::toRecord),
             entries.keys.associateWith { inputDrafts[documentKey(it)].orEmpty().toMap() },
             versions(entries.keys + removed))
-        if (!saveRunning) main.showBackupStatus("ローカルバックアップを更新しています")
+        val backupNotice = main.notificationScope().copy(target = "")
+        if (!saveRunning) main.showBackupStatus("ローカルバックアップを更新しています", scope = backupNotice)
         dataAccess.persistBackup(snapshot).whenComplete { success, error ->
             Platform.runLater {
                 val saved = error == null && success == true
@@ -2297,7 +2327,8 @@ abstract class EditorView<T : ManagedData<T, *>>(
                             current -> "ローカルバックアップを更新しました"
                             else -> "退避後に編集されています。最新の変更は次回バックアップします。"
                         },
-                        if (!saved) Color.ORANGERED else if (current) Color.GREENYELLOW else Color.WHITE
+                        if (!saved) Color.ORANGERED else if (current) Color.GREENYELLOW else Color.WHITE,
+                        scope = backupNotice, saved = saved
                     )
                 }
                 onComplete(saved)
@@ -2426,8 +2457,12 @@ abstract class EditorView<T : ManagedData<T, *>>(
                 }
                 else -> {
                     val merged = dataAccess.merge(base, current, latest)
+                    val conflictScope = main.notificationScope().copy(target = id)
+                    val notifications = EditorSession.notifications
+                    if (merged.conflicts.isNotEmpty()) notifications.condition(conflictScope, "fetch-conflict", "取得した内容と編集中データの競合を確認してください。")
                     val selectedPaths = MergeConflictDialog.show(main.currentStage, id, merged.conflicts)
                         ?: run { finishSync("取得をキャンセルしました", Color.WHITE); return }
+                    notifications.resolve(conflictScope, "fetch-conflict")
                     merged.resolveWithLocal(selectedPaths)
                 }
             }

@@ -311,7 +311,7 @@ internal class UploadWorkspacePanels(private val target: EditorDataService, priv
                 if (choice == null || disposed) { finish("確認を取り消しました。通信作用はありません。"); return@runLater }
                 confirmed += Triple(group, preview, choice)
             }
-            val progress = SavedUploadProgress(owner()).also { it.show() }
+            val progress = SavedUploadProgress(owner(), target.localService.cacheIdentity + " → " + target.cacheIdentity).also { it.show() }
             val observations = previews.flatMap { it.second.versions }.associate { it.key to it.revision }
             val requests = mutableSetOf<String>()
             target.submitIo {
@@ -324,6 +324,7 @@ internal class UploadWorkspacePanels(private val target: EditorDataService, priv
                     val built = planner.build(preview, choice.localPaths, choice.confirmUnknownBaseline)
                     if (built !is StoreResult.Success) error((built as StoreResult.Failure).error.detail ?: "計画を固定できません。")
                     requests += built.value.id
+                    progress.attach(built.value)
                     when (val result = UploadPlanExecution(target).execute(loaded.value, group.id, built.value,
                         cancelled = { progress.cancelled }, progress = { current -> Platform.runLater { progress.update(current) } })) {
                         is StoreResult.Failure -> error(result.error.detail ?: result.error.code.name)
@@ -333,7 +334,7 @@ internal class UploadWorkspacePanels(private val target: EditorDataService, priv
                 completed
             }.whenComplete { completed, failure ->
                 target.submitIo { target.documents.read() }.whenComplete { snapshot, readError -> Platform.runLater {
-                    progress.finish()
+                    progress.finish((snapshot as? StoreResult.Success)?.value?.uploads.orEmpty())
                     if (snapshot is StoreResult.Success) {
                         target.updateUploadState(snapshot.value)
                         snapshot.value.uploads.filter { operation -> operation.id in requests }.forEach {

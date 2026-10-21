@@ -7,7 +7,8 @@ import io.github.sushiericworkspace.sushiericservermanager.editor.view.EditorVie
 import io.github.sushiericworkspace.sushiericservermanager.ui.dialog.ValidatedInputDialog
 import io.github.sushiericworkspace.sushiericservermanager.ui.shortcut.ShortcutManager
 import io.github.sushiericworkspace.sushiericservermanager.util.toCssHex
-import javafx.animation.PauseTransition
+import io.github.sushiericworkspace.sushiericservermanager.app.NotificationState
+import io.github.sushiericworkspace.sushiericservermanager.editor.session.EditorSession
 import javafx.fxml.FXML
 import javafx.scene.control.ProgressIndicator
 import javafx.scene.control.Button
@@ -16,7 +17,6 @@ import javafx.scene.layout.HBox
 import javafx.scene.layout.VBox
 import javafx.scene.paint.Color
 import javafx.stage.Stage
-import javafx.util.Duration
 
 class MainController {
     @FXML private lateinit var rootPane: javafx.scene.layout.BorderPane
@@ -34,6 +34,8 @@ class MainController {
 
     /** 編集を止めずにローカル取り込みの工程を表示します。負値は不定進捗です。 */
     fun showImportProgress(phase: String, progress: Double) {
+        val notice = importNotice ?: notices.start(notificationScope(), "import", phase).also { importNotice = it }
+        notices.fraction(notice, phase, progress)
         importStatus.text = phase
         importStatus.isVisible = true
         importStatus.isManaged = true
@@ -43,6 +45,8 @@ class MainController {
     }
 
     fun finishImportProgress() {
+        importNotice?.let(notices::finish)
+        importNotice = null
         importStatus.isVisible = false
         importStatus.isManaged = false
         importProgress.isVisible = false
@@ -69,8 +73,9 @@ class MainController {
     var operationRunning: Boolean = false
         private set
 
-    fun showOperation(phase: String) {
-        clearTopLabelTimer()
+    fun showOperation(phase: String, target: String? = null) {
+        operationNotice?.let { notices.update(it, phase) }
+            ?: run { operationNotice = notices.start(notificationScope().let { if (target == null) it else it.copy(target = target) }, "operation", phase) }
         operationRunning = true
         operationProgress.isVisible = true
         operationProgress.isManaged = true
@@ -81,6 +86,8 @@ class MainController {
     }
 
     fun finishOperation() {
+        operationNotice?.let(notices::finish)
+        operationNotice = null
         operationRunning = false
         operationProgress.isVisible = false
         operationProgress.isManaged = false
@@ -95,7 +102,8 @@ class MainController {
 
     /** 読み込みの工程を表示します。選択取得中もサイドバーから別のデータを選べます。 */
     fun showLoading(phase: String, lockSidebar: Boolean = false) {
-        clearTopLabelTimer()
+        loadingNotice?.let(notices::finish)
+        loadingNotice = notices.start(notificationScope(), "loading", phase)
         loadingRunning = true
         operationProgress.isVisible = true
         operationProgress.isManaged = true
@@ -106,6 +114,8 @@ class MainController {
     }
 
     fun finishLoading() {
+        loadingNotice?.let(notices::finish)
+        loadingNotice = null
         if (!loadingRunning) return
         loadingRunning = false
         operationProgress.isVisible = false
@@ -117,13 +127,27 @@ class MainController {
     }
 
     /** 背景退避の状態を非モーダルに表示し、編集中の操作を維持します。 */
-    fun showBackupStatus(text: String, color: Color = Color.WHITE) {
-        if (operationRunning || loadingRunning) return
-        clearTopLabelTimer()
-        setTopLabel(text, color)
+    internal fun showBackupStatus(text: String, color: Color = Color.WHITE,
+                                  scope: NotificationState.Scope = notificationScope().copy(target = ""), saved: Boolean? = null) {
+        if (saved == true) notices.resolve(scope, "backup")
+        if (saved == false) notices.condition(scope, "backup", text, NotificationState.Severity.ERROR)
+        if (color == Color.GREENYELLOW) notices.toast(scope, text, severity(color))
     }
 
-    private var topLabelTimer: PauseTransition? = null
+    private val notices get() = EditorSession.notifications
+    private val initialScope = notices.scope("", "Editor")
+    internal var notificationScope: () -> NotificationState.Scope = { initialScope }
+    private var operationNotice: NotificationState.Operation? = null
+    internal val operationToken: NotificationState.Operation? get() = operationNotice
+    private var loadingNotice: NotificationState.Operation? = null
+    private var importNotice: NotificationState.Operation? = null
+
+    private fun severity(color: Color): NotificationState.Severity = when (color) {
+        Color.GREENYELLOW -> NotificationState.Severity.SUCCESS
+        Color.ORANGE -> NotificationState.Severity.WARNING
+        Color.RED, Color.ORANGERED -> NotificationState.Severity.ERROR
+        else -> NotificationState.Severity.INFO
+    }
 
     val currentStage: Stage?
         get() = sidebarContainer.scene?.window as? Stage
@@ -171,16 +195,7 @@ class MainController {
     }
 
     fun showTimedTopLabel(text: String, textColor: Color = Color.WHITE, delaySeconds: Double = 2.0) {
-        if (operationRunning || loadingRunning) return
-        setTopLabel(text, textColor)
-        topLabelTimer?.stop()
-        topLabelTimer = PauseTransition(Duration.seconds(delaySeconds)).apply {
-            setOnFinished {
-                setTopLabel("")
-                topLabelTimer = null
-            }
-            play()
-        }
+        notices.toast(notificationScope(), text, severity(textColor), delaySeconds)
     }
 
     /**
@@ -192,11 +207,6 @@ class MainController {
      */
     fun showTimedTopLabel(text: String, hexColor: String, delaySeconds: Double = 1.0) {
         showTimedTopLabel(text, parseColor(hexColor), delaySeconds)
-    }
-
-    fun clearTopLabelTimer() {
-        topLabelTimer?.stop()
-        topLabelTimer = null
     }
 
     /** この機能領域の操作登録だけを解除します。他領域の登録は残します。 */
