@@ -239,6 +239,7 @@ class ServerManagementClient(
         override fun onMessage(message: ServerManagementResponse) {
             if (id != connectionId) return
             messageListeners.forEach { listener ->
+                if (id != connectionId) return@forEach
                 runCatching { listener(message) }
                     .onFailure {
                         logger.warn("受信メッセージの通知に失敗しました。", it)
