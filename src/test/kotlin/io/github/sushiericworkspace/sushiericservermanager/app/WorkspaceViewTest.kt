@@ -1,5 +1,6 @@
 package io.github.sushiericworkspace.sushiericservermanager.app
 
+import io.github.sushiericworkspace.sushiericservermanager.editor.session.EditorSession
 import io.github.sushiericworkspace.sushiericservermanager.app.workspace.WorkspaceManager
 import io.github.sushiericworkspace.sushiericservermanager.app.workspace.WorkspaceView
 import javafx.scene.Scene
@@ -221,6 +222,32 @@ class WorkspaceViewTest {
                 assertEquals(4, workspace.titles().size)
             }
         } finally { fx { stage.close() } }
+    }
+
+    @Test fun `Workspace fixtureは旧通知を隔離し作成後の通知は表示して終了時に解放する`() {
+        startFx()
+        fx {
+            val state = EditorSession.notifications
+            state.condition(state.scope("fixture257", "保存", "old"), "save", "前のテストの保存失敗")
+            state.endSession()
+            state.toast(state.scope("fixture257", "保存", "toast"), "前のテストの完了")
+            val stage = workspaceStage()
+            try {
+                assertTrue(state.snapshot().isEmpty())
+                val notices = stage.scene.root.lookup("#applicationNotifications") as VBox
+                assertFalse(notices.isManaged)
+                state.condition(state.scope("fixture257", "保存", "current"), "save", "このテストの保存失敗")
+                assertEquals(1, state.snapshot().size)
+                assertTrue(notices.isManaged)
+                assertEquals(1, notices.children.size)
+            } finally { stage.close() }
+            assertTrue(state.snapshot().isEmpty())
+            val next = workspaceStage()
+            try {
+                assertTrue(state.snapshot().isEmpty())
+                assertFalse((next.scene.root.lookup("#applicationNotifications") as VBox).isManaged)
+            } finally { next.close() }
+        }
     }
 
     private fun startFx() {

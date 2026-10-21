@@ -16,7 +16,8 @@
     <top>
         <VBox styleClass="console-header">
             <children>
-                <Label styleClass="console-title" text="Minecraft Server Console" />
+                <Label styleClass="console-title" text="Minecraftコンソール" />
+                <Label styleClass="console-connection-label" text="コマンドは即時実行されます（保存・アップロード対象外）" wrapText="true" />
                 <HBox alignment="CENTER_LEFT" spacing="12.0">
                     <children>
                         <Label fx:id="connectionLabel" styleClass="console-connection-label" />

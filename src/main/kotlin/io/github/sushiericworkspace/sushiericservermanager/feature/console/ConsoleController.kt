@@ -63,6 +63,10 @@ class ConsoleController : Initializable {
     private var pendingCompletion: PendingCompletion? = null
     private var suppressInputListener = false
     private var subscribedToLogs = false
+    private val listenerLock = Any()
+    @Volatile private var disposed = false
+    @Volatile private var connectionGeneration = 0L
+    private var messageListener: ((ServerManagementResponse) -> Unit)? = null
     private var verticalScrollBar: ScrollBar? = null
     private var dragAnchorIndex: Int? = null
 
@@ -79,8 +83,10 @@ class ConsoleController : Initializable {
 
     private val logDrainTimer = object : AnimationTimer() {
         override fun handle(now: Long) {
+            val generation = connectionGeneration
+            if (disposed) return
             val logs = incomingLogs.drain(LOGS_PER_FRAME)
-            if (logs.isEmpty()) return
+            if (logs.isEmpty() || generation != connectionGeneration || disposed) return
             appendEntries(
                 logs.map { log ->
                     ConsoleOutputEntry(
@@ -94,13 +100,41 @@ class ConsoleController : Initializable {
     }
 
     private val stateListener: (ServerManagementState) -> Unit = { state ->
-        runOnFxThread { applyConnectionState(state) }
+        connectionChanged(state)
     }
-    private val messageListener: (ServerManagementResponse) -> Unit = { message ->
-        if (message is ServerManagementResponse.ConsoleLog) {
-            incomingLogs.offer(ConsoleLogEntry.from(message))
-        } else {
-            runOnFxThread { receive(message) }
+
+    private fun connectionChanged(state: ServerManagementState) {
+        val generation = synchronized(listenerLock) {
+            if (disposed || state !== client.state) return
+            val generation = ++connectionGeneration
+            messageListener?.let(client::removeMessageListener)
+            messageListener = null
+            incomingLogs.clear()
+            if (state is ServerManagementState.Connected) {
+                val listener: (ServerManagementResponse) -> Unit = { message ->
+                    if (message is ServerManagementResponse.ConsoleLog) {
+                        synchronized(listenerLock) {
+                            if (!disposed && generation == connectionGeneration) {
+                                incomingLogs.offer(ConsoleLogEntry.from(message))
+                            }
+                        }
+                    } else {
+                        runOnFxThread(generation) { receive(message) }
+                    }
+                }
+                messageListener = listener
+                client.addMessageListener(listener)
+            }
+            generation
+        }
+        runOnFxThread(generation) {
+            if (state !== client.state) return@runOnFxThread
+            markPendingCommandsUnknown()
+            pendingCompletion = null
+            completionDelay.stop()
+            hideSuggestions()
+            subscribedToLogs = false
+            applyConnectionState(state)
         }
     }
 
@@ -110,8 +144,7 @@ class ConsoleController : Initializable {
         configureSuggestionPopup()
         configureCommandInput()
         client.addStateListener(stateListener)
-        client.addMessageListener(messageListener)
-        applyConnectionState(client.state)
+        connectionChanged(client.state)
         logDrainTimer.start()
     }
 
@@ -159,6 +192,7 @@ class ConsoleController : Initializable {
             cell
         }
         Platform.runLater {
+            if (disposed) return@runLater
             verticalScrollBar = outputListView.lookupAll(".scroll-bar")
                 .filterIsInstance<ScrollBar>()
                 .firstOrNull { it.orientation == Orientation.VERTICAL }
@@ -430,6 +464,7 @@ class ConsoleController : Initializable {
     }
 
     private fun executeCommands() {
+        if (disposed) return
         hideSuggestions()
         completionDelay.stop()
         val commands = commandModel.executableCommands(commandField.text)
@@ -467,6 +502,7 @@ class ConsoleController : Initializable {
     }
 
     private fun requestCompletion() {
+        if (disposed) return
         val fullText = commandField.text
         val line = commandModel.currentLine(fullText, commandField.caretPosition)
         if (line.text.isBlank() || !client.isConnected) {
@@ -662,6 +698,13 @@ class ConsoleController : Initializable {
         }
     }
 
+    private fun markPendingCommandsUnknown() {
+        pendingCommands.values.forEach { command ->
+            appendOutput("実行結果未確認（再送しません）: $command", COMMAND_ERROR_STYLE)
+        }
+        pendingCommands.clear()
+    }
+
     private fun applyConnectionState(state: ServerManagementState) {
         val connected = state is ServerManagementState.Connected
         commandField.isDisable = !connected
@@ -682,7 +725,7 @@ class ConsoleController : Initializable {
         } else {
             subscribedToLogs = false
             incomingLogs.clear()
-            pendingCommands.clear()
+            markPendingCommandsUnknown()
             pendingCompletion = null
             completionDelay.stop()
             hideSuggestions()
@@ -697,6 +740,7 @@ class ConsoleController : Initializable {
     @FXML
     @Suppress("unused")
     fun handleReconnect() {
+        if (disposed) return
         appendOutput("Management APIへ再接続しています...")
         EditorSession.reconnectManagementApi()
     }
@@ -709,22 +753,29 @@ class ConsoleController : Initializable {
 
     /** 画面が閉じられたとき、登録したリスナーとPopupを解放します。 */
     fun dispose() {
+        synchronized(listenerLock) {
+            if (disposed) return
+            disposed = true
+            connectionGeneration++
+            messageListener?.let(client::removeMessageListener)
+            messageListener = null
+            incomingLogs.clear()
+        }
         if (subscribedToLogs && client.isConnected) {
             client.send(ServerManagementRequest.ConsoleUnsubscribe)
         }
         subscribedToLogs = false
         logDrainTimer.stop()
-        incomingLogs.clear()
         completionDelay.stop()
         hideSuggestions()
         client.removeStateListener(stateListener)
-        client.removeMessageListener(messageListener)
         pendingCommands.clear()
         pendingCompletion = null
     }
 
-    private fun runOnFxThread(action: () -> Unit) {
-        if (Platform.isFxApplicationThread()) action() else Platform.runLater(action)
+    private fun runOnFxThread(generation: Long, action: () -> Unit) {
+        val update = { if (!disposed && generation == connectionGeneration) action() }
+        if (Platform.isFxApplicationThread()) update() else Platform.runLater(update)
     }
 
     private data class PendingCompletion(
