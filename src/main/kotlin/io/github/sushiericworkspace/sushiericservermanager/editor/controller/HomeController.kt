@@ -19,6 +19,7 @@ import io.github.sushiericworkspace.sushiericservermanager.editor.view.EditorVie
 import io.github.sushiericworkspace.sushiericservermanager.editor.view.EditorWindowManager
 import io.github.sushiericworkspace.sushiericservermanager.feature.console.ConsoleWindowManager
 import io.github.sushiericworkspace.sushiericservermanager.feature.dashboard.DashboardWindowManager
+import io.github.sushiericworkspace.sushiericservermanager.feature.dashboard.DashboardFormat
 import io.github.sushiericworkspace.sushiericservermanager.feature.modconfig.ModConfigWindowManager
 import io.github.sushiericworkspace.sushiericservermanager.feature.servercontrol.ServerControlWindowManager
 import io.github.sushiericworkspace.sushiericservermanager.feature.moneyhistory.MoneyHistoryWindowManager
@@ -46,7 +47,7 @@ import java.util.ResourceBundle
 
 /**
  * サーバー接続後のメイン操作画面（ホーム画面）を管理するコントローラー。
- * ファイルリストの表示、SSHセッションの維持、および切断処理を担当します。
+ * 接続とサーバーの要約、機能の入口、および切断操作を担当します。
  */
 class HomeController internal constructor(
     private val checkUpdate: () -> UpdateCheckResult,
@@ -126,7 +127,7 @@ class HomeController internal constructor(
     /**
      * 監視情報を表示へ反映します。
      *
-     * 値を受信していない場合は空表示にし、取得元と状態が分かるようにします。
+     * 未受信は未取得と示し、詳細な指標はDashboardへ表示します。
      * CPU使用率などOSレベルの情報は取得元が異なるため、ここでは扱いません。
      */
     private fun applyMonitorSnapshot(snapshot: ServerMonitorSnapshot) {
@@ -140,49 +141,11 @@ class HomeController internal constructor(
         monitorLabel.isVisible = true
 
         val server = snapshot.server
-        val jvm = snapshot.jvm
-
-        if (server == null || jvm == null) {
-            monitorLabel.text = "サーバー監視：値なし"
-            return
-        }
-
-        monitorLabel.text = buildString {
-            append("TPS ")
-            append(String.format("%.2f", server.ticksPerSecond))
-            append(" / MSPT ")
-            append(String.format("%.2f", server.millisPerTick))
-            append(System.lineSeparator())
-
-            append("プレイヤー ")
-            append(server.onlinePlayerCount)
-            append(" / ")
-            append(server.maxPlayerCount)
-            append("　稼働 ")
-            append(formatUptime(server.uptimeSeconds))
-            append(System.lineSeparator())
-
-            append("Heap ")
-            append(formatMegabytes(jvm.heapUsedBytes))
-            append(" / ")
-            append(jvm.heapMaxBytes?.let(::formatMegabytes) ?: "不明")
-            append("　Thread ")
-            append(jvm.threadCount)
+        monitorLabel.text = if (server == null) "サーバー要約：未取得" else {
+            "プレイヤー ${DashboardFormat.players(server.onlinePlayerCount, server.maxPlayerCount)}　" +
+                "TPS ${DashboardFormat.ticksPerSecond(server.ticksPerSecond)}"
         }
     }
-
-    /** 稼働時間を時分秒へ整形します。 */
-    private fun formatUptime(seconds: Long): String {
-        val hours = seconds / 3600
-        val minutes = (seconds % 3600) / 60
-        val remaining = seconds % 60
-
-        return "%d:%02d:%02d".format(hours, minutes, remaining)
-    }
-
-    /** バイト数をMiB表記へ整形します。 */
-    private fun formatMegabytes(bytes: Long): String =
-        "%,d MiB".format(bytes / (1024 * 1024))
 
     /** 現在接続中のサーバープロファイル */
     private var selectedProfile: ServerProfile? = null
@@ -503,21 +466,33 @@ class HomeController internal constructor(
         )
     }
 
-    private var workspaceListening = false
-    private val workspaceStateListener: (ServerManagementState) -> Unit = { state -> Platform.runLater { applyManagementState(state) } }
-    private val workspaceMonitorListener: (ServerMonitorSnapshot) -> Unit = { snapshot -> Platform.runLater { applyMonitorSnapshot(snapshot) } }
+    @Volatile private var workspaceListening = false
+    @Volatile private var workspaceGeneration = 0L
+    private var workspaceStateListener: ((ServerManagementState) -> Unit)? = null
+    private var workspaceMonitorListener: ((ServerMonitorSnapshot) -> Unit)? = null
 
     internal fun setWorkspaceVisible(visible: Boolean) {
         if (workspaceListening == visible) return
+        val generation = ++workspaceGeneration
         workspaceListening = visible
         if (visible) {
-            EditorSession.managementClient.addStateListener(workspaceStateListener)
-            EditorSession.serverMonitor.addListener(workspaceMonitorListener)
+            val stateListener: (ServerManagementState) -> Unit = { state ->
+                Platform.runLater { if (workspaceListening && generation == workspaceGeneration) applyManagementState(state) }
+            }
+            val monitorListener: (ServerMonitorSnapshot) -> Unit = { snapshot ->
+                Platform.runLater { if (workspaceListening && generation == workspaceGeneration) applyMonitorSnapshot(snapshot) }
+            }
+            workspaceStateListener = stateListener
+            workspaceMonitorListener = monitorListener
+            EditorSession.managementClient.addStateListener(stateListener)
+            EditorSession.serverMonitor.addListener(monitorListener)
             applyManagementState(EditorSession.managementClient.state)
             applyMonitorSnapshot(EditorSession.serverMonitor.snapshot)
         } else {
-            EditorSession.managementClient.removeStateListener(workspaceStateListener)
-            EditorSession.serverMonitor.removeListener(workspaceMonitorListener)
+            workspaceStateListener?.let(EditorSession.managementClient::removeStateListener)
+            workspaceMonitorListener?.let(EditorSession.serverMonitor::removeListener)
+            workspaceStateListener = null
+            workspaceMonitorListener = null
             requiredUpdateTask?.cancel()
         }
     }

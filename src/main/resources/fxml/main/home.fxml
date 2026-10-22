@@ -52,10 +52,10 @@
                                         <Label maxWidth="1.7976931348623157E308" styleClass="home-section-title" text="管理ツール" />
                                         <Button fx:id="dashboardButton" focusTraversable="false" maxWidth="1.7976931348623157E308"
                                                 mnemonicParsing="false" onAction="#onOpenDashboard"
-                                                styleClass="button, data-btn" text="Dashboard" />
+                                                styleClass="button, data-btn" text="ダッシュボード" />
                                         <Button fx:id="serverControlButton" focusTraversable="false" maxWidth="1.7976931348623157E308"
                                                 mnemonicParsing="false" onAction="#onOpenServerControl"
-                                                styleClass="button, data-btn" text="Server Control" />
+                                                styleClass="button, data-btn" text="サーバー操作" />
                                         <Button fx:id="consoleButton" focusTraversable="false" maxWidth="1.7976931348623157E308"
                                                 mnemonicParsing="false" onAction="#onOpenConsole"
                                                 styleClass="button, data-btn" text="Minecraftコンソール" />

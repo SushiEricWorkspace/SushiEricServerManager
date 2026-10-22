@@ -15,6 +15,7 @@ class DashboardFormatTest {
         assertEquals(DashboardFormat.MISSING, DashboardFormat.percent(null))
         assertEquals(DashboardFormat.MISSING, DashboardFormat.players(null, null))
         assertEquals(DashboardFormat.MISSING, DashboardFormat.uptime(null))
+        assertEquals(DashboardFormat.MISSING, DashboardFormat.threadCount(null))
         assertEquals(DashboardFormat.MISSING, DashboardFormat.bytes(null))
         assertEquals(DashboardFormat.MISSING, DashboardFormat.bytesPair(null, null))
     }
@@ -24,6 +25,7 @@ class DashboardFormatTest {
         assertEquals("0.00", DashboardFormat.ticksPerSecond(0.0))
         assertEquals("0.0 %", DashboardFormat.percent(0.0))
         assertEquals("0 / 20", DashboardFormat.players(0, 20))
+        assertEquals("0", DashboardFormat.threadCount(0))
         assertEquals("0時間 0分 0秒", DashboardFormat.uptime(0))
     }
 

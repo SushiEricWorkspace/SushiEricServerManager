@@ -30,9 +30,11 @@ class DashboardController : Initializable {
     @FXML private lateinit var playersValue: Label
     @FXML private lateinit var uptimeValue: Label
     @FXML private lateinit var heapValue: Label
+    @FXML private lateinit var threadsValue: Label
     @FXML private lateinit var cpuValue: Label
     @FXML private lateinit var memoryValue: Label
 
+    private var disposed = false
     private val client = EditorSession.managementClient
     private val serverMonitor = EditorSession.serverMonitor
     private val hostMetricsMonitor = EditorSession.hostMetricsMonitor
@@ -66,6 +68,8 @@ class DashboardController : Initializable {
 
     /** 画面が閉じられたとき、登録したリスナーと取得処理を解放します。 */
     fun dispose() {
+        if (disposed) return
+        disposed = true
         client.removeStateListener(stateListener)
         serverMonitor.removeListener(snapshotListener)
         hostMetricsMonitor.removeListener(hostMetricsListener)
@@ -92,8 +96,9 @@ class DashboardController : Initializable {
         applyConnection(
             label = serverStateValue,
             connected = managementConnected,
-            connectedText = "Online",
-            disconnectedText = "Offline"
+            connectedText = "稼働中（API確認）",
+            disconnectedText = "未確認（API未接続）",
+            disconnectedStyle = MISSING_STYLE_CLASS
         )
 
         applySshConnection()
@@ -119,6 +124,7 @@ class DashboardController : Initializable {
             DashboardFormat.players(server?.onlinePlayerCount, server?.maxPlayerCount)
         )
         setValue(uptimeValue, DashboardFormat.uptime(server?.uptimeSeconds))
+        setValue(threadsValue, DashboardFormat.threadCount(jvm?.threadCount))
         setValue(
             heapValue,
             DashboardFormat.bytesPair(jvm?.heapUsedBytes, jvm?.heapMaxBytes ?: jvm?.heapCommittedBytes)
@@ -151,18 +157,19 @@ class DashboardController : Initializable {
         label: Label,
         connected: Boolean,
         connectedText: String,
-        disconnectedText: String
+        disconnectedText: String,
+        disconnectedStyle: String = OFFLINE_STYLE_CLASS
     ) {
         label.text = if (connected) connectedText else disconnectedText
         label.styleClass.removeAll(STATE_STYLE_CLASSES)
-        label.styleClass.add(if (connected) ONLINE_STYLE_CLASS else OFFLINE_STYLE_CLASS)
+        label.styleClass.add(if (connected) ONLINE_STYLE_CLASS else disconnectedStyle)
     }
 
     private fun runOnFxThread(action: () -> Unit) {
         if (Platform.isFxApplicationThread()) {
-            action()
+            if (!disposed) action()
         } else {
-            Platform.runLater(action)
+            Platform.runLater { if (!disposed) action() }
         }
     }
 

@@ -28,6 +28,9 @@ internal object DashboardFormat {
     fun percent(value: Double?): String =
         value?.let { "${format("%.1f", it)} %" } ?: MISSING
 
+    /** JVMが報告したスレッド数を表します。 */
+    fun threadCount(value: Int?): String = value?.toString() ?: MISSING
+
     /** 接続中の人数と上限を表します。 */
     fun players(online: Int?, maximum: Int?): String =
         if (online == null || maximum == null) MISSING else "$online / $maximum"
