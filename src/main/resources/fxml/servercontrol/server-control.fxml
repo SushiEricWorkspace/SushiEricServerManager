@@ -2,6 +2,7 @@
 
 <?import javafx.scene.control.Button?>
 <?import javafx.scene.control.Label?>
+<?import javafx.scene.control.ScrollPane?>
 <?import javafx.scene.control.TextArea?>
 <?import javafx.scene.control.TextField?>
 <?import javafx.scene.layout.BorderPane?>
@@ -18,7 +19,7 @@
     <top>
         <VBox styleClass="server-control-header">
             <children>
-                <Label styleClass="server-control-title" text="Server Control" />
+                <Label styleClass="server-control-title" text="サーバー操作" />
                 <Label fx:id="connectionLabel" styleClass="server-control-note" />
                 <HBox styleClass="server-control-actions">
                     <children>
@@ -35,15 +36,17 @@
         </VBox>
     </top>
     <center>
-        <VBox styleClass="server-control-content">
+        <ScrollPane fitToWidth="true" hbarPolicy="NEVER" id="serverControlScroll">
+        <content>
+        <VBox styleClass="server-control-content" minWidth="0.0">
             <children>
-                <Label styleClass="server-control-section-title" text="コマンド設定" />
+                <Label styleClass="server-control-section-title" text="コマンド設定（実行前に保存）" />
                 <Label styleClass="server-control-note-inline" wrapText="true"
                        text="作業ディレクトリを指定しない場合は、SSHログイン先のホームディレクトリで実行します。" />
                 <GridPane styleClass="server-control-grid">
                     <columnConstraints>
                         <ColumnConstraints minWidth="120.0" prefWidth="120.0" />
-                        <ColumnConstraints hgrow="ALWAYS" minWidth="320.0" />
+                        <ColumnConstraints hgrow="ALWAYS" minWidth="0.0" />
                     </columnConstraints>
                     <Label styleClass="server-control-label" text="作業ディレクトリ:" GridPane.rowIndex="0" />
                     <TextField fx:id="workingDirectoryField" promptText="未指定時: SSHログイン先のホームディレクトリ"
@@ -75,11 +78,13 @@
                     </children>
                 </HBox>
 
-                <Label styleClass="server-control-section-title" text="実行結果" />
+                <Label styleClass="server-control-section-title" text="SSH操作の実行結果（サーバーの稼働確認とは別）" />
                 <TextArea fx:id="outputArea" editable="false" wrapText="true"
                           styleClass="server-control-output" VBox.vgrow="ALWAYS" />
             </children>
         </VBox>
+        </content>
+        </ScrollPane>
     </center>
     <bottom>
         <Label styleClass="server-control-note" wrapText="true"
