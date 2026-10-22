@@ -467,7 +467,11 @@ class ModConfigDocumentTest {
     }
 
     private fun respond(fixture: Fixture, buttonId: String, approve: Boolean = true, beforeReply: () -> Unit = {}) {
-        val action = FutureTask { (fixture.sceneRoot.lookup("#$buttonId") as Button).fire() }
+        val button = fx { fixture.sceneRoot.lookup("#$buttonId") as Button }
+        waitFx { !button.isDisabled }
+        fx { button.requestFocus() }
+        waitFx { button.scene.focusOwner === button }
+        val action = FutureTask { button.fire() }
         fx { Platform.runLater(action) }
         waitFx { fixture.hasDialog() }
         beforeReply()

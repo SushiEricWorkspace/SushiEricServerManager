@@ -3,47 +3,47 @@
 <?import javafx.scene.layout.*?>
 <BorderPane xmlns="http://javafx.com/javafx/21.0.1" xmlns:fx="http://javafx.com/fxml/1"
             fx:controller="io.github.sushiericworkspace.sushiericservermanager.feature.moneyhistory.MoneyHistoryController"
-            prefWidth="1100" prefHeight="640" styleClass="money-history-root">
+            prefWidth="1100" prefHeight="640" minWidth="0" styleClass="money-history-root">
     <center>
-        <TabPane focusTraversable="false" tabClosingPolicy="UNAVAILABLE">
+        <TabPane minWidth="0" focusTraversable="false" tabClosingPolicy="UNAVAILABLE">
             <tabs>
                 <Tab text="入出金">
                     <content>
-                        <VBox spacing="10" styleClass="money-history-content">
-                            <HBox spacing="8" alignment="CENTER_LEFT">
-                                <Label text="プレイヤー" minWidth="95" styleClass="history-filter-label" />
-                                <VBox fx:id="playerSelectorPane" minWidth="220" prefWidth="340" maxWidth="Infinity" HBox.hgrow="ALWAYS" />
-                                <ToggleButton fx:id="playerDisplayToggle" minWidth="110" prefWidth="110" onAction="#togglePlayerDisplay" />
-                                <Button text="更新" minWidth="75" prefWidth="75" onAction="#reloadSelected" />
-                            </HBox>
+                        <VBox minWidth="0" spacing="10" styleClass="money-history-content">
+                            <FlowPane fx:id="playerFilters" minWidth="0" hgap="8" vgap="8" alignment="CENTER_LEFT">
+                                <Label text="プレイヤー" minWidth="0" styleClass="history-filter-label"  prefWidth="95" maxWidth="${playerFilters.width}" />
+                                <VBox fx:id="playerSelectorPane" minWidth="0" prefWidth="340" maxWidth="${playerFilters.width}"  />
+                                <ToggleButton fx:id="playerDisplayToggle" minWidth="0" prefWidth="110" onAction="#togglePlayerDisplay"  maxWidth="${playerFilters.width}" />
+                                <Button text="更新" minWidth="0" prefWidth="75" onAction="#reloadSelected"  maxWidth="${playerFilters.width}" />
+                            </FlowPane>
                             <VBox spacing="8">
-                                <HBox spacing="8" alignment="CENTER_LEFT">
-                                    <Label text="開始" minWidth="60" styleClass="history-filter-label" />
-                                    <DatePicker fx:id="fromDate" promptText="YYYY/MM/DD" minWidth="180" prefWidth="180" maxWidth="180" />
-                                    <TextField fx:id="fromTime" promptText="HH:mm:ss" minWidth="105" prefWidth="105" maxWidth="105" />
-                                    <Button text="時刻を選択" onAction="#selectFromTime" />
-                                    <Button text="現在時刻" onAction="#setFromNow" />
-                                    <Button text="今日" onAction="#setFromToday" />
-                                    <Button text="リセット" onAction="#resetFrom" />
-                                </HBox>
-                                <HBox spacing="8" alignment="CENTER_LEFT">
-                                    <Label text="終了" minWidth="60" styleClass="history-filter-label" />
-                                    <DatePicker fx:id="toDate" promptText="YYYY/MM/DD" minWidth="180" prefWidth="180" maxWidth="180" />
-                                    <TextField fx:id="toTime" promptText="HH:mm:ss" minWidth="105" prefWidth="105" maxWidth="105" />
-                                    <Button text="時刻を選択" onAction="#selectToTime" />
-                                    <Button text="現在時刻" onAction="#setToNow" />
-                                    <Button text="今日" onAction="#setToToday" />
-                                    <Button text="リセット" onAction="#resetTo" />
-                                </HBox>
-                                <HBox spacing="8" alignment="CENTER_LEFT">
-                                    <Label text="種別" minWidth="60" styleClass="history-filter-label" />
-                                    <MenuButton fx:id="typeMenu" text="すべて" minWidth="140" prefWidth="150" maxWidth="150" />
-                                    <Button text="条件をリセット" onAction="#resetFilters" />
-                                </HBox>
+                                <FlowPane fx:id="fromFilters" minWidth="0" hgap="8" vgap="8" alignment="CENTER_LEFT">
+                                    <Label text="開始" minWidth="0" styleClass="history-filter-label"  prefWidth="60" maxWidth="${fromFilters.width}" />
+                                    <DatePicker fx:id="fromDate" promptText="YYYY/MM/DD" minWidth="0" prefWidth="180" maxWidth="${fromFilters.width}"  />
+                                    <TextField fx:id="fromTime" promptText="HH:mm:ss" minWidth="0" prefWidth="105" maxWidth="${fromFilters.width}"  />
+                                    <Button text="時刻を選択" onAction="#selectFromTime"  minWidth="0" maxWidth="${fromFilters.width}" />
+                                    <Button text="現在時刻" onAction="#setFromNow"  minWidth="0" maxWidth="${fromFilters.width}" />
+                                    <Button text="今日" onAction="#setFromToday"  minWidth="0" maxWidth="${fromFilters.width}" />
+                                    <Button text="リセット" onAction="#resetFrom"  minWidth="0" maxWidth="${fromFilters.width}" />
+                                </FlowPane>
+                                <FlowPane fx:id="toFilters" minWidth="0" hgap="8" vgap="8" alignment="CENTER_LEFT">
+                                    <Label text="終了" minWidth="0" styleClass="history-filter-label"  prefWidth="60" maxWidth="${toFilters.width}" />
+                                    <DatePicker fx:id="toDate" promptText="YYYY/MM/DD" minWidth="0" prefWidth="180" maxWidth="${toFilters.width}"  />
+                                    <TextField fx:id="toTime" promptText="HH:mm:ss" minWidth="0" prefWidth="105" maxWidth="${toFilters.width}"  />
+                                    <Button text="時刻を選択" onAction="#selectToTime"  minWidth="0" maxWidth="${toFilters.width}" />
+                                    <Button text="現在時刻" onAction="#setToNow"  minWidth="0" maxWidth="${toFilters.width}" />
+                                    <Button text="今日" onAction="#setToToday"  minWidth="0" maxWidth="${toFilters.width}" />
+                                    <Button text="リセット" onAction="#resetTo"  minWidth="0" maxWidth="${toFilters.width}" />
+                                </FlowPane>
+                                <FlowPane fx:id="conditionFilters" minWidth="0" hgap="8" vgap="8" alignment="CENTER_LEFT">
+                                    <Label text="種別" minWidth="0" styleClass="history-filter-label"  prefWidth="60" maxWidth="${conditionFilters.width}" />
+                                    <MenuButton fx:id="typeMenu" text="すべて" minWidth="0" prefWidth="150" maxWidth="${conditionFilters.width}"  />
+                                    <Button text="条件をリセット" onAction="#resetFilters"  minWidth="0" maxWidth="${conditionFilters.width}" />
+                                </FlowPane>
                             </VBox>
-                            <Label fx:id="statusLabel" text="プレイヤーを読み込み中..." />
-                            <Label fx:id="nameStatusLabel" text="" />
-                            <TableView fx:id="historyTable" VBox.vgrow="ALWAYS">
+                            <Label wrapText="true" maxWidth="Infinity" fx:id="statusLabel" text="プレイヤーを読み込み中..." />
+                            <Label wrapText="true" maxWidth="Infinity" fx:id="nameStatusLabel" text="" />
+                            <TableView minWidth="0" fx:id="historyTable" VBox.vgrow="ALWAYS">
                                 <columns>
                                     <TableColumn fx:id="timeColumn" text="日時" prefWidth="145" />
                                     <TableColumn fx:id="typeColumn" text="種別" prefWidth="90" />
