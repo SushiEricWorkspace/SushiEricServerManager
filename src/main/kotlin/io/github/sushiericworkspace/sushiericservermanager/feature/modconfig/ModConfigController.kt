@@ -65,7 +65,7 @@ class ModConfigController : Initializable {
     private val uploadResultListener = ChangeListener<SavedUploadPublication> { _, _, publication ->
         val service = dataService
         val version = documentVersion
-        if (publication != null && service != null && version != null) {
+        if (!disposed && publication != null && service != null && version != null) {
             val record = publication.snapshot.documents.firstOrNull { it.key == version.key }
             val final = publication.operation.targetRevisions.firstOrNull { it.key == version.key }?.revision
             if (record != null && version.revision == publication.observed[record.key] && record.revision == final) {
@@ -141,6 +141,7 @@ class ModConfigController : Initializable {
             setOnAction { switchSource(service) }
         }
         Platform.runLater {
+            if (disposed) return@runLater
             val savedSource = WorkspaceManager.current?.documentSource(rootPane)
             dataService = if (service.isRemote && savedSource == service.cacheIdentity) service else service.localService
             updateSourceLabel()
@@ -149,7 +150,7 @@ class ModConfigController : Initializable {
     }
 
     private fun switchSource(next: EditorDataService) {
-        if (busy || uploadAction?.busy == true || next === dataService || rootPane.scene?.let(ShortcutManager::isComposing) == true) return
+        if (disposed || busy || uploadAction?.busy == true || next === dataService || rootPane.scene?.let(ShortcutManager::isComposing) == true) return
         backupDelay.stop()
         setBusy(true)
         contentArea.isDisable = true
@@ -175,29 +176,33 @@ class ModConfigController : Initializable {
         pathLabel.text = service.modConfig.relativePath
     }
 
-    /** 保存されている内容を再読み込みします。 */
+    /** ローカル保存済みの本文で編集中の内容を置き換えます。 */
     @FXML
     @Suppress("unused")
     fun handleReload() { ShortcutManager.execute(rootPane, EditorShortcut.RELOAD) }
 
     private fun reload() {
-        if (busy || uploadFrozen) return
+        val service = dataService ?: return
+        val version = documentVersion
+        if (disposed || busy || uploadFrozen) return
 
-        if (contentArea.isEditable && contentArea.text.isNotEmpty()) {
+        if (contentArea.isEditable) {
             val confirmed = CustomDialog.confirmation()
                 .title("再読み込み")
                 .header("編集中の内容を破棄します")
-                .content("保存されている内容で置き換えます。")
+                .content("現在の編集本文を破棄し、ローカル保存済みの本文で置き換えます。未アップロードの保存済み本文は保持します。サーバーからの取得やアップロードは行いません。")
                 .owner(currentStage())
                 .show()
 
             if (!confirmed) return
         }
 
+        if (disposed || busy || uploadFrozen || dataService !== service || documentVersion !== version ||
+            ApplicationFlow.closingConnection) return
         load(restoreEditing = false)
     }
 
-    /** 入力された内容をそのまま保存します。 */
+    /** 入力された内容をローカルへそのまま保存し、サーバーへは反映しません。 */
     @FXML
     @Suppress("unused")
     fun handleSave() { ShortcutManager.execute(rootPane, EditorShortcut.SAVE) }
@@ -353,7 +358,7 @@ class ModConfigController : Initializable {
         onSuccess: (T) -> Unit,
         onFailure: (StoreError) -> Unit
     ) {
-        if (ApplicationFlow.closingConnection) return
+        if (disposed || ApplicationFlow.closingConnection) return
         val service = dataService ?: return
         service.beginSave()
         setBusy(true)
@@ -365,6 +370,7 @@ class ModConfigController : Initializable {
 
         task.setOnSucceeded {
             service.endSave()
+            if (disposed || dataService !== service) return@setOnSucceeded
             setBusy(false)
 
             when (val result = task.value) {
@@ -375,6 +381,7 @@ class ModConfigController : Initializable {
 
         task.setOnFailed {
             service.endSave()
+            if (disposed || dataService !== service) return@setOnFailed
             setBusy(false)
             setStatus("処理に失敗しました")
             logger.error("Mod設定の処理に失敗しました", task.exception)

@@ -264,6 +264,80 @@ class ModConfigDocumentTest {
         assertEquals(0, f.remoteWrites)
     }
 
+    @Test
+    fun `空文字へ編集した本文も再読込の取消で保持し明示破棄で保存済みへ戻す`() = fixture { f ->
+        f.server()
+        fx { f.text.text = "invalid: ["; f.save.fire() }
+        waitFx { f.status.text.contains("ローカル保存済み") && !f.text.isDisabled }
+        fx { f.text.text = "" }
+        respond(f, "reloadButton", approve = false)
+        fx { assertEquals("", f.text.text); assertTrue(f.status.text.contains("未保存")) }
+        val backedUp = CompletableFuture<Boolean>()
+        fx { f.controller.prepareClose { backedUp.complete(it) } }
+        assertTrue(backedUp.get(10, TimeUnit.SECONDS))
+        val before = (f.service.modConfig.localState() as StoreResult.Success).value
+        assertEquals("invalid: [", before.saved)
+        assertEquals("", before.editing)
+        respond(f, "reloadButton")
+        waitFx { f.text.text == "invalid: [" && !f.text.isDisabled }
+        val after = (f.service.modConfig.localState() as StoreResult.Success).value
+        assertEquals(before.saved, after.saved)
+        assertEquals(before.baseline, after.baseline)
+        assertEquals(true, after.unreflected)
+        assertEquals(0, f.remoteWrites)
+    }
+
+    @Test
+    fun `再読込の確認中に切り替えた保存元へ古い応答を適用しない`() = fixture { f ->
+        f.server()
+        fx { f.text.text = "server-draft: [" }
+        respond(f, "reloadButton", beforeReply = {
+            fx { (f.sceneRoot.lookup("#sourceMenu") as MenuButton).items.single { it.text == "ローカル" }.fire() }
+            waitFx { f.text.text == "local: first" && f.text.isEditable && !f.text.isDisabled }
+            fx { f.text.text = "local-draft: [" }
+        })
+        waitFx { !f.text.isDisabled }
+        fx { assertEquals("local-draft: [", f.text.text); assertTrue(f.status.text.contains("未保存")) }
+        assertEquals("server-draft: [", (f.service.modConfig.localState() as StoreResult.Success).value.editing)
+        assertEquals(0, f.remoteWrites)
+    }
+
+    @Test
+    fun `領域終了後は予約した読込と遅い読込完了を表示へ反映しない`() = fixture { f ->
+        fun newController(): Pair<Parent, ModConfigController> {
+            val loader = FXMLLoader(javaClass.getResource(AppScreen.MOD_CONFIG.fxml!!))
+            return loader.load<Parent>() to loader.getController()
+        }
+        val early = fx { newController().also { (_, control) -> control.initData(f.service); control.dispose() } }
+        fx { assertFalse((early.first.lookup("#contentArea") as TextArea).isEditable) }
+
+        val entered = CountDownLatch(1)
+        val release = CountDownLatch(1)
+        f.service.localService.submitIo { entered.countDown(); assertTrue(release.await(10, TimeUnit.SECONDS)) }
+        assertTrue(entered.await(10, TimeUnit.SECONDS))
+        var late: Pair<Parent, ModConfigController>? = null
+        try {
+            val active = fx { newController().also { (_, control) -> control.initData(f.service) } }
+            late = active
+            val closed = CompletableFuture<Boolean>()
+            fx {
+                assertFalse((active.first.lookup("#contentArea") as TextArea).isEditable)
+                active.second.prepareClose { closed.complete(it) }
+                active.second.dispose()
+            }
+            assertFalse(closed.get(10, TimeUnit.SECONDS))
+        } finally { release.countDown(); late?.let { fx { it.second.dispose() } } }
+        f.service.localService.awaitIo()
+        waitFx { f.service.localService.activeSaves == 0 }
+        fx {
+            for (pane in listOf(early.first, assertNotNull(late).first)) {
+                val text = pane.lookup("#contentArea") as TextArea
+                assertFalse(text.isEditable)
+                assertEquals("", text.text)
+            }
+        }
+    }
+
     private fun selectRequest(f: Fixture, index: Int = 0) {
         waitFx { f.dialogs().any { pane -> pane.buttonTypes.any { it.text == "この要求を確認" } } }
         fx {
@@ -392,18 +466,19 @@ class ModConfigDocumentTest {
         }
     }
 
-    private fun respond(fixture: Fixture, buttonId: String, approve: Boolean = true) {
-        fx {
-            val button = fixture.sceneRoot.lookup("#$buttonId") as Button
-            Platform.runLater { button.fire() }
-        }
+    private fun respond(fixture: Fixture, buttonId: String, approve: Boolean = true, beforeReply: () -> Unit = {}) {
+        val action = FutureTask { (fixture.sceneRoot.lookup("#$buttonId") as Button).fire() }
+        fx { Platform.runLater(action) }
         waitFx { fixture.hasDialog() }
+        beforeReply()
         fx {
             val pane = fixture.dialogs().single()
+            assertTrue(pane.contentText.contains("ローカル保存済み") || buttonId != "reloadButton")
             val role = if (approve) ButtonBar.ButtonData.OK_DONE else ButtonBar.ButtonData.CANCEL_CLOSE
             val type = pane.buttonTypes.first { it.buttonData == role }
             Platform.runLater { (pane.lookupButton(type) as Button).fire() }
         }
+        action.get(15, TimeUnit.SECONDS)
         waitFx { !fixture.hasDialog() }
     }
 
