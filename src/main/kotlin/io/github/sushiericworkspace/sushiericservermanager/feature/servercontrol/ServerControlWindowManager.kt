@@ -14,7 +14,8 @@ object ServerControlWindowManager {
         if (workspace.focus(WorkspaceFeature.SERVER_CONTROL)) return
         val loader = FXMLLoader(javaClass.getResource(AppScreen.SERVER_CONTROL.fxml!!))
         val root = loader.load<Parent>()
-        workspace.show(WorkspaceFeature.SERVER_CONTROL, root)
+        val controller = loader.getController<ServerControlController>()
+        workspace.show(WorkspaceFeature.SERVER_CONTROL, root, dispose = { controller.dispose() })
     }
 
     /** 表示中の機能を、workspaceの終了経路で閉じます。 */
