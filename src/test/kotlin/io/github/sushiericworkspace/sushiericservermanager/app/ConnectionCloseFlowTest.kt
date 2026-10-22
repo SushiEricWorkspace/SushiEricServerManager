@@ -8,14 +8,21 @@ import io.github.sushiericworkspace.sushiericservermanager.communication.SshMana
 import io.github.sushiericworkspace.sushiericservermanager.editor.controller.MainController
 import io.github.sushiericworkspace.sushiericservermanager.editor.service.EditorDataService
 import io.github.sushiericworkspace.sushiericservermanager.editor.service.LocalDocumentSnapshot
+import io.github.sushiericworkspace.sushiericservermanager.editor.service.LocalDocumentRecord
+import io.github.sushiericworkspace.sushiericservermanager.editor.service.LocalDocumentVersion
 import io.github.sushiericworkspace.sushiericservermanager.editor.service.EditorDocumentSource
 import io.github.sushiericworkspace.sushiericservermanager.editor.session.EditorConnection
 import io.github.sushiericworkspace.sushiericservermanager.editor.session.EditorSession
 import io.github.sushiericworkspace.sushiericservermanager.editor.store.*
 import io.github.sushiericworkspace.sushiericservermanager.editor.view.EditorView
 import io.github.sushiericworkspace.sushiericservermanager.editor.view.EditorWindowManager
+import io.github.sushiericworkspace.sushiericservermanager.feature.modconfig.ModConfigWindowManager
+import io.github.sushiericworkspace.sushiericservermanager.feature.modconfig.ModConfigController
+import javafx.animation.PauseTransition
+import javafx.scene.control.TextArea
 import io.github.sushiericworkspace.sushiericservermanager.config.*
 import io.github.sushiericworkspace.sushiericservermanager.app.workspace.WorkspaceManager
+import io.github.sushiericworkspace.sushiericservermanager.app.workspace.WorkspaceView
 import javafx.stage.WindowEvent
 import io.github.sushiericworkspace.sushiericservermanager.update.ManagerCompatibility
 import io.github.sushiericworkspace.sushiericservermanager.util.Utility
@@ -232,6 +239,70 @@ class ConnectionCloseFlowTest {
         fx { Platform.setImplicitExit(false) }
         fx { Utility.closeConnection { done.complete(Unit) } }
         done.get(10, TimeUnit.SECONDS)
+    }
+
+    @Test fun `Mod設定の単一領域を移動しても空draftを接続終了前に退避する`() = fixture { f ->
+        assertIs<StoreResult.Success<*>>(f.service.localService.modConfig.save("invalid: ["))
+        fx { ModConfigWindowManager.open(f.service) }
+        awaitFx { (f.home.scene.root.lookup("#contentArea") as? TextArea)?.isEditable == true }
+        val done = CompletableFuture<Unit>()
+        fx {
+            val workspace = assertIs<WorkspaceView>(
+                assertIs<AppFrame>(f.home.scene.root).center)
+            val text = assertIs<TextArea>(f.home.scene.root.lookup("#contentArea"))
+            ModConfigWindowManager.open(f.service)
+            assertEquals(1, workspace.titles().count { it == WorkspaceFeature.MOD_CONFIG })
+            assertSame(text, f.home.scene.root.lookup("#contentArea"))
+            assertTrue(workspace.move(WorkspaceFeature.MOD_CONFIG, WorkspaceFeature.ITEM_EDITOR, DockSide.LEFT))
+            assertSame(text, f.home.scene.root.lookup("#contentArea"))
+            f.home.width = 640.0
+            f.home.scene.root.applyCss(); f.home.scene.root.layout()
+            assertTrue((text.parent.lookup("#pathLabel") as Label).isWrapText)
+            assertTrue((text.parent.lookup("#statusLabel") as Label).isWrapText)
+            text.text = ""
+            stopModBackupTimer()
+            Utility.closeConnection { done.complete(Unit) }
+        }
+        done.get(10, TimeUnit.SECONDS)
+        val record = assertIs<StoreResult.Success<LocalDocumentRecord>>(f.service.localService.modConfig.localState()).value
+        assertEquals("invalid: [", record.saved)
+        assertEquals("", record.editing)
+        assertTrue(record.unsaved)
+        assertEquals(1, f.connection.closed)
+    }
+
+    @Test fun `Mod設定退避の世代不一致では空draftと接続と他writerの保存を保持する`() = fixture { f ->
+        val local = f.service.localService
+        assertIs<StoreResult.Success<*>>(local.modConfig.save("saved: ["))
+        fx { ModConfigWindowManager.open(f.service) }
+        awaitFx { (f.home.scene.root.lookup("#contentArea") as? TextArea)?.isEditable == true }
+        val observed = assertIs<StoreResult.Success<LocalDocumentRecord>>(local.modConfig.localState()).value
+        assertIs<StoreResult.Success<*>>(local.modConfig.saveObserved("other-writer: [",
+            LocalDocumentVersion(observed.key, observed.revision)))
+        val done = CompletableFuture<Unit>()
+        fx {
+            (f.home.scene.root.lookup("#contentArea") as TextArea).text = ""
+            stopModBackupTimer()
+            Utility.closeConnection { done.complete(Unit) }
+        }
+        awaitFx { !ApplicationFlow.closingConnection }
+        fx {
+            assertTrue(status().contains("Mod設定を退避できませんでした"))
+            assertEquals("", (f.home.scene.root.lookup("#contentArea") as TextArea).text)
+            assertTrue(f.home.isShowing)
+            assertSame(f.connection, EditorSession.connection)
+            assertFalse(f.home.scene.root.isDisable)
+        }
+        assertEquals(0, f.connection.closed)
+        assertFalse(done.isDone)
+        assertEquals("other-writer: [", assertIs<StoreResult.Success<LocalDocumentRecord>>(local.modConfig.localState()).value.saved)
+    }
+
+    private fun stopModBackupTimer() {
+        val controller = assertIs<ModConfigController>(ModConfigWindowManager::class.java
+            .getDeclaredField("activeController").apply { isAccessible = true }.get(ModConfigWindowManager))
+        assertIs<PauseTransition>(ModConfigController::class.java.getDeclaredField("backupDelay")
+            .apply { isAccessible = true }.get(controller)).stop()
     }
 
     @Test fun `通常SSHの終了遅延中も画面が応答し失敗では接続情報を破棄しない`() {

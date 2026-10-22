@@ -9,7 +9,7 @@
 <?import javafx.scene.layout.Region?>
 <?import javafx.scene.layout.VBox?>
 
-<BorderPane fx:id="rootPane" prefHeight="640.0" prefWidth="760.0"
+<BorderPane fx:id="rootPane" prefHeight="640.0" prefWidth="760.0" minWidth="0.0"
             styleClass="mod-config-root"
             xmlns="http://javafx.com/javafx/21.0.1" xmlns:fx="http://javafx.com/fxml/1"
             fx:controller="io.github.sushiericworkspace.sushiericservermanager.feature.modconfig.ModConfigController">
@@ -17,7 +17,7 @@
         <VBox styleClass="mod-config-header">
             <children>
                 <Label styleClass="mod-config-title" text="Mod設定" />
-                <Label fx:id="pathLabel" styleClass="mod-config-path" />
+                <Label fx:id="pathLabel" styleClass="mod-config-path" wrapText="true" maxWidth="Infinity" />
                 <FlowPane styleClass="mod-config-actions" hgap="8.0" vgap="8.0">
                     <children>
                         <MenuButton fx:id="sourceMenu" text="ローカル" />
@@ -31,14 +31,14 @@
                                 styleClass="button, btn-secondary" text="保存済みをアップロード…" />
                         <Button fx:id="readbackButton" onAction="#handleReadback"
                                 styleClass="button, btn-secondary" text="結果確認・読戻し…" />
-                        <Label fx:id="statusLabel" styleClass="mod-config-status" />
                     </children>
                 </FlowPane>
+                <Label fx:id="statusLabel" styleClass="mod-config-status" wrapText="true" maxWidth="Infinity" />
             </children>
         </VBox>
     </top>
     <center>
-        <TextArea fx:id="contentArea" wrapText="false" styleClass="mod-config-content" />
+        <TextArea fx:id="contentArea" minWidth="0.0" wrapText="false" styleClass="mod-config-content" />
     </center>
     <bottom>
         <Label styleClass="mod-config-note" wrapText="true"

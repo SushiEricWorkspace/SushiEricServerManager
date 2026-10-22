@@ -24,6 +24,7 @@ import javafx.scene.control.Button
 import javafx.scene.control.ProgressIndicator
 import javafx.scene.control.DialogPane
 import io.github.sushiericworkspace.sushiericservermanager.editor.view.EditorWindowManager
+import io.github.sushiericworkspace.sushiericservermanager.feature.modconfig.ModConfigWindowManager
 import javafx.scene.layout.VBox
 import javafx.stage.Stage
 import org.slf4j.LoggerFactory
@@ -137,26 +138,32 @@ object ApplicationFlow {
                 fail("退避に失敗しました。編集内容を保持しています。終了操作で再試行してください。")
                 return@prepareCloseAll
             }
-            label.text = "接続を終了中"
-            thread(isDaemon = true, name = "editor-disconnect") {
-                try {
-                    EditorSession.resetMode()
-                    Platform.runLater {
-                        try {
-                            EditorWindowManager.completeCloseAll()
-                            roots.forEach { (root, disabled) -> root.isDisable = disabled }
-                            windows.forEach { it.close() }
-                            completed()
-                        } finally {
-                            progress.close()
-                            closingConnection = false
-                            Platform.setImplicitExit(implicitExit)
+            ModConfigWindowManager.prepareClose { modBackedUp ->
+                if (!modBackedUp) {
+                    fail("Mod設定を退避できませんでした。編集内容と接続を保持しています。処理完了後に終了操作をやり直してください。")
+                    return@prepareClose
+                }
+                label.text = "接続を終了中"
+                thread(isDaemon = true, name = "editor-disconnect") {
+                    try {
+                        EditorSession.resetMode()
+                        Platform.runLater {
+                            try {
+                                EditorWindowManager.completeCloseAll()
+                                roots.forEach { (root, disabled) -> root.isDisable = disabled }
+                                windows.forEach { it.close() }
+                                completed()
+                            } finally {
+                                progress.close()
+                                closingConnection = false
+                                Platform.setImplicitExit(implicitExit)
+                            }
                         }
-                    }
-                } catch (error: Exception) {
-                    logger.error("接続の終了を確認できませんでした。接続と編集内容を保全します。", error)
-                    Platform.runLater {
-                        fail("接続の終了が未確認です。編集内容と接続データを保全しました。別の接続へ切り替えません。")
+                    } catch (error: Exception) {
+                        logger.error("接続の終了を確認できませんでした。接続と編集内容を保全します。", error)
+                        Platform.runLater {
+                            fail("接続の終了が未確認です。編集内容と接続データを保全しました。別の接続へ切り替えません。")
+                        }
                     }
                 }
             }
