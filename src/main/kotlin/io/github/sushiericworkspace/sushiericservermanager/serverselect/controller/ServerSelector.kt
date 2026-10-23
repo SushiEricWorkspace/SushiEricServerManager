@@ -399,12 +399,9 @@ class ServerSelector : Initializable {
         // 接続後に必要な共有サービスだけをServerSelector側で初期化する。
         EditorSession.startOnlineSession()
 
-        val loader = FXMLLoader(AppScreen::class.java.getResource(AppScreen.HOME.fxml!!))
-        val root = loader.load<Parent>()
-
         Stage().apply {
             title = appWindowTitle(profile.name)
-            scene = Utility.createScene(AppScreen.HOME, customRoot = root)
+            scene = Utility.createScene(AppScreen.HOME)
             show()
         }
         (serverListContainer.scene?.window as? Stage)?.close()
