@@ -284,12 +284,20 @@ internal class OreEditorLogic(
         }
         dropItemButton.onAction = EventHandler {
             val owner = main.currentStage ?: return@EventHandler
+            val active = editingGuard(selectData.id)
+            val parentList = selectData.mutableDropItems
+            val original = parentList.map { it.deepCopy() }
             itemBinding.load {
+                if (!active()) return@load
+                recordHistorySnapshot(selectData.id)
+                val apply = editingGuard(selectData.id)
                 DropItemEditorDialog.show(
                     owner = owner,
                     dropItems = selectData.mutableDropItems,
-                    items = availableItems
+                    items = availableItems,
+                    canApply = { apply() && editingDataMap[selectData.id]?.mutableDropItems === parentList && parentList == original }
                 ) {
+                    recordHistorySnapshot(selectData.id)
                     refreshValidation()
                 }
             }

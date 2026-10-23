@@ -7,6 +7,14 @@ import io.github.sushiericworkspace.sushiericdatamodel.data.drop.validation.Drop
 import io.github.sushiericworkspace.sushiericdatamodel.data.item.model.ItemBaseDataView
 import io.github.sushiericworkspace.sushiericdatamodel.data.item.model.ItemInternalId
 import io.github.sushiericworkspace.sushiericservermanager.app.AppScreen
+import javafx.animation.KeyFrame
+import javafx.animation.Timeline
+import javafx.util.Duration
+import javafx.scene.input.ClipboardContent
+import javafx.scene.input.TransferMode
+import javafx.scene.input.KeyCode
+import javafx.scene.input.KeyEvent
+import javafx.scene.control.TextInputControl
 import javafx.geometry.Insets
 import javafx.geometry.Pos
 import javafx.scene.Scene
@@ -95,6 +103,7 @@ internal object DropItemEditorDialog {
         owner: Window,
         dropItems: MutableList<MutableDropItemData>,
         items: Collection<ItemBaseDataView>,
+        canApply: () -> Boolean = { true },
         onConfirmed: () -> Unit
     ) {
         val stage = Stage().apply {
@@ -103,7 +112,17 @@ internal object DropItemEditorDialog {
             initModality(Modality.WINDOW_MODAL)
         }
         val catalog = DropItemCatalog(items)
-        val editingDropItems = dropItems.mapTo(mutableListOf()) { it.deepCopy() }
+        val original = dropItems.map { it.deepCopy() }
+        val draft = DropItemDraft(dropItems)
+        val editingDropItems = draft.items
+        var draggedIndex: Int? = null
+        val dragToken = java.util.UUID.randomUUID().toString()
+        var scrollDirection = 0.0
+        val scrollPane = ScrollPane()
+        val autoScroll = Timeline(KeyFrame(Duration.millis(80.0), {
+            scrollPane.vvalue = (scrollPane.vvalue + scrollDirection * .04).coerceIn(0.0, 1.0)
+        })).apply { cycleCount = Timeline.INDEFINITE }
+        fun commitInput() { stage.scene?.root?.requestFocus(); draft.record() }
         val listBox = VBox(8.0).apply {
             styleClass.addAll("editor-row-vbox", "drop-item-list-box")
             maxWidth = Double.MAX_VALUE
@@ -128,18 +147,42 @@ internal object DropItemEditorDialog {
                         canMoveUp = index > 0,
                         canMoveDown = index < editingDropItems.lastIndex,
                         onMoveUp = {
-                            moveDropItem(editingDropItems, index, index - 1)
+                            commitInput()
+                            draft.move(index, index - 1)
                             rebuildList()
                         },
                         onMoveDown = {
-                            moveDropItem(editingDropItems, index, index + 1)
+                            commitInput()
+                            draft.move(index, index + 1)
                             rebuildList()
                         },
                         onDelete = {
+                            commitInput()
                             editingDropItems.removeAt(index)
+                            draft.record()
                             rebuildList()
                         }
-                    )
+                    ).apply {
+                        setOnDragDetected { event ->
+                            commitInput()
+                            draggedIndex = index
+                            startDragAndDrop(TransferMode.MOVE).setContent(ClipboardContent().apply { putString(dragToken) })
+                            event.consume()
+                        }
+                        setOnDragOver { event ->
+                            if (event.dragboard.string == dragToken && draggedIndex != null) event.acceptTransferModes(TransferMode.MOVE)
+                            event.consume()
+                        }
+                        setOnDragDropped { event ->
+                            val from = draggedIndex
+                            event.isDropCompleted = event.dragboard.string == dragToken && from != null && draft.move(from, index)
+                            if (event.isDropCompleted) rebuildList()
+                            draggedIndex = null
+                            autoScroll.stop()
+                            event.consume()
+                        }
+                        setOnDragDone { draggedIndex = null; autoScroll.stop() }
+                    }
                 )
             }
         }
@@ -148,9 +191,11 @@ internal object DropItemEditorDialog {
             isFocusTraversable = false
             styleClass.add("btn-success")
             setOnAction {
+                commitInput()
                 editingDropItems.add(
                     MutableDropItemData(itemId = catalog.choices.firstOrNull()?.internalId)
                 )
+                draft.record()
                 rebuildList()
             }
         }
@@ -166,7 +211,17 @@ internal object DropItemEditorDialog {
                 Label("現在のドロップアイテム:").apply {
                     styleClass.add("editor-label-highlight")
                 },
-                ScrollPane(listBox).apply {
+                scrollPane.apply {
+                    content = listBox
+                    hbarPolicy = ScrollPane.ScrollBarPolicy.NEVER
+                    vbarPolicy = ScrollPane.ScrollBarPolicy.NEVER
+                    addEventFilter(javafx.scene.input.DragEvent.DRAG_OVER) { event ->
+                        if (draggedIndex != null && event.dragboard.string == dragToken) {
+                            val y = sceneToLocal(event.sceneX, event.sceneY).y
+                            scrollDirection = when { y < 32 -> -1.0; y > height - 32 -> 1.0; else -> 0.0 }
+                            if (scrollDirection == 0.0) autoScroll.stop() else autoScroll.play()
+                        }
+                    }
                     styleClass.add("drop-item-list-scroll")
                     isFitToWidth = true
                     prefHeight = 350.0
@@ -184,6 +239,9 @@ internal object DropItemEditorDialog {
                         isFocusTraversable = false
                         styleClass.add("btn-primary")
                         setOnAction {
+                            commitInput()
+                            if (!canApply() || dropItems != original) { stage.close(); return@setOnAction }
+                            if (dropItems == editingDropItems) { stage.close(); return@setOnAction }
                             dropItems.clear()
                             dropItems.addAll(editingDropItems.map { it.deepCopy() })
                             onConfirmed()
@@ -213,6 +271,17 @@ internal object DropItemEditorDialog {
                     .toExternalForm()
             )
         }
+        stage.scene.addEventFilter(KeyEvent.KEY_PRESSED) { event ->
+            if (event.isShortcutDown && stage.scene.focusOwner !is TextInputControl) {
+                val handled = when {
+                    event.code == KeyCode.Z && !event.isShiftDown -> { commitInput(); draft.undo() }
+                    event.code == KeyCode.Y || event.code == KeyCode.Z && event.isShiftDown -> draft.redo()
+                    else -> false
+                }
+                if (handled) { rebuildList(); event.consume() }
+            }
+        }
+        stage.setOnHidden { autoScroll.stop(); draggedIndex = null }
         stage.showAndWait()
     }
 

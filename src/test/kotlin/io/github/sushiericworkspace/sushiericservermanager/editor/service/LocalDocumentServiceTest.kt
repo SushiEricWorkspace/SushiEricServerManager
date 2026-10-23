@@ -21,6 +21,40 @@ class LocalDocumentServiceTest {
     }
 
     @Test
+    fun 部分退避整理は別文書のeditingOriginalRawを保ち古いrevisionを拒否する() {
+        val descriptor = io.github.sushiericworkspace.sushiericservermanager.editor.store.EditorDataDescriptors.item
+        val calls = java.util.concurrent.atomic.AtomicInteger()
+        val counting = io.github.sushiericworkspace.sushiericservermanager.editor.store.EditorDataDescriptor(
+            descriptor.dataType, descriptor.load, descriptor.save, descriptor.validate, descriptor.merger,
+            loadBackup = descriptor.loadBackup, saveBackup = { file, data -> calls.incrementAndGet(); descriptor.saveBackup(file, data) })
+        val service = EditorDataService(InMemoryEditorDataStore(), root.resolve("partial"))
+        val access = service.DataAccess(counting)
+        try {
+            val originals = listOf("a", "b").associateWith { access.createDefault(it) }
+            originals.forEach { (id, data) -> access.saveLocalDocument(id, data, emptyMap()) }
+            val versions = originals.keys.associateWith { id -> observed(access, id).getValue(id) }
+            val edits = originals.mapValues { (_, data) -> data.deepCopy().apply { display.displayName = "edited" } }
+            val entries = edits.mapValues { (id, data) -> data to originals.getValue(id) }
+            calls.set(0)
+            assertTrue(access.persistBackup(LocalBackupSnapshot(1, entries, emptySet(), emptyList(), mapOf("b" to mapOf("custom" to "-")), versions)).get())
+            assertEquals(4, calls.get())
+            access.saveLocalDocument("a", edits.getValue("a"), emptyMap(), versions = versions)
+            val before = (access.localDocuments() as StoreResult.Success).value.associateBy { it.key.id }
+            calls.set(0)
+            assertTrue(access.persistBackup(LocalBackupSnapshot(2, emptyMap(), setOf("a"), emptyList(), versions = versions.filterKeys { it == "a" })).get())
+            assertEquals(0, calls.get())
+            val after = (access.localDocuments() as StoreResult.Success).value.associateBy { it.key.id }
+            assertEquals(before.getValue("b"), after.getValue("b"))
+            assertTrue(after.getValue("b").unsaved)
+            assertEquals("-", after.getValue("b").raw["custom"])
+            access.updateLocalDocument("b") { it.copy(raw = mapOf("custom" to "new")) }
+            val current = (access.localDocuments() as StoreResult.Success).value
+            assertFalse(access.persistBackup(LocalBackupSnapshot(3, entries.filterKeys { it == "b" }, emptySet(), emptyList(), versions = versions.filterKeys { it == "b" })).get())
+            assertEquals(current, (access.localDocuments() as StoreResult.Success).value)
+        } finally { service.closeIo() }
+    }
+
+    @Test
     fun incompleteTypedDataAndRawInputCanBeSavedWithoutRemoteIo() {
         val remote = object : EditorDataStore by InMemoryEditorDataStore() {
             override val kind = EditorDataStoreKind.REMOTE

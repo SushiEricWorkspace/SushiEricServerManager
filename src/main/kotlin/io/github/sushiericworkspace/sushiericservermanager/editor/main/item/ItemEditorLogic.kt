@@ -479,6 +479,14 @@ class ItemEditorLogic(
         removeCachedData(id)
     }
 
+    override fun captureLoreHistoryIds(id: String): Map<String, List<String>> = editingDataMap[id]?.let { data ->
+        loreTreeUiIdMemory.snapshot(id, data.display.mutableLore.map { it.size })
+    }.orEmpty()
+
+    override fun restoreLoreHistoryIds(id: String, ids: Map<String, List<String>>) {
+        loreTreeUiIdMemory.restore(id, ids)
+    }
+
     override fun onHistoryDataRestored(id: String) {
         // 復元したデータから入力欄を作り直す必要はあるが、
         // ユーザーが開いていたツリーの状態はUndo/Redo後も維持する。
@@ -1253,6 +1261,7 @@ class ItemEditorLogic(
             }
         }
 
+        var activeDrag: () -> Boolean = { false }
         treeView.setCellFactory {
             LoreDragDropTreeCell(
                 itemData = selectData,
@@ -1263,7 +1272,16 @@ class ItemEditorLogic(
                 folderGraphicFactory = folderGraphicFactory,
                 contextMenuFactory = contextMenuFactory,
                 retainDraft = { key, field, valid -> retainInputDraft(selectData.id, key, field, valid) },
-                moveDraft = { from, to -> moveInputDraft(selectData.id, from, to) }
+                moveDraft = { from, to -> moveInputDraft(selectData.id, from, to) },
+                beforeDrag = {
+                    if (editingDataMap[selectData.id] !== selectData) false else {
+                        main.mainContentContainer.requestFocus()
+                        recordHistorySnapshot(selectData.id)
+                        activeDrag = editingGuard(selectData.id)
+                        activeDrag()
+                    }
+                },
+                beforeDrop = { activeDrag() }
             )
         }
     }
