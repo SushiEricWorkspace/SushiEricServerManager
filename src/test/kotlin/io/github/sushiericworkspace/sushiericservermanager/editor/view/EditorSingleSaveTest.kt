@@ -190,6 +190,7 @@ class EditorSingleSaveTest {
     fun displayFailureAfterPublicationReportsSavedWithErrors() = withFixture(EditorDataDescriptors.item) { fixture ->
         fx { fixture.logic.failSidebar = true }
         assertEquals(EditorView.SaveOutcome.SAVED_WITH_ERRORS, save(fixture))
+        fx { assertEquals(listOf(fixture.id), fixture.logic.committed) }
         assertFalse((fixture.service.items.localDocuments() as StoreResult.Success).value.single().unsaved)
         fx { fixture.logic.failSidebar = false; assertTrue(fixture.logic.unchanged()) }
     }
@@ -291,6 +292,202 @@ class EditorSingleSaveTest {
     }
 
     @Test
+    fun 一括保存は初回全退避後に残商品を再encodeせず別dirtyとrawを保持する() {
+        val writes = java.util.concurrent.ConcurrentHashMap<String, Int>()
+        withFixture(EditorDataDescriptors.item, backupWriter = { file, data ->
+            writes.merge(data.id, 1, Int::plus)
+            EditorDataDescriptors.item.saveBackup(file, data)
+        }) { fixture ->
+            addItem(fixture, "second"); addItem(fixture, "third"); addItem(fixture, "frozen")
+            val key = fixture.service.items.documentKey("frozen")
+            fx { fixture.logic.raw("frozen", "custom", "-"); fixture.service.uploadingDocuments.add(key) }
+            try {
+                writes.clear()
+                val result = saveAll(fixture)
+                assertEquals(EditorView.SaveOutcome.SAVED, result.outcome)
+                assertEquals(setOf("saved", "second", "third"), result.saved.toSet())
+                assertTrue(result.postProcessingErrors.isEmpty())
+                assertTrue(result.saved.all { writes.getValue(it) <= 3 }, "残対象を毎保存で再encodeしないこと: $writes")
+                assertEquals(2, writes.getValue("frozen"))
+                val records = (fixture.service.items.localDocuments() as StoreResult.Success).value.associateBy { it.key.id }
+                assertTrue(result.saved.all { !records.getValue(it).unsaved })
+                val frozen = records.getValue("frozen")
+                assertTrue(frozen.unsaved)
+                assertEquals("-", frozen.raw["custom"])
+                assertNotEquals(frozen.editing, frozen.original)
+            } finally { fx { fixture.service.uploadingDocuments.remove(key) } }
+        }
+    }
+
+    @Test
+    fun 一括保存の部分整理はrename元と削除対象を残さず他の保存を保つ() = withFixture(EditorDataDescriptors.item) { fixture ->
+        addItem(fixture, "second"); addItem(fixture, "third")
+        fx { fixture.logic.rename("renamed"); fixture.logic.delete("second") }
+        val result = saveAll(fixture)
+        assertEquals(EditorView.SaveOutcome.SAVED, result.outcome)
+        assertEquals(setOf("second", "third", "renamed"), result.saved.toSet())
+        assertTrue(result.postProcessingErrors.isEmpty())
+        val records = (fixture.service.items.localDocuments() as StoreResult.Success).value.associateBy { it.key.id }
+        assertTrue(records.getValue("saved").savedDeleted)
+        assertEquals("renamed", records.getValue("saved").movedTo)
+        assertTrue(records.getValue("second").savedDeleted)
+        assertNotNull(records.getValue("renamed").saved)
+        assertTrue(records.values.none { it.unsaved })
+        assertEquals(0, fixture.store.writes)
+        assertEquals(0, fixture.store.deletes)
+        assertTrue(fixture.store.renames.isEmpty())
+    }
+
+    @Test
+    fun 一括保存の退避失敗後は次の成功で全退避へ戻る() {
+        val failedOnce = java.util.concurrent.atomic.AtomicBoolean()
+        val writes = java.util.concurrent.ConcurrentHashMap<String, Int>()
+        withFixture(EditorDataDescriptors.item, backupWriter = { file, data ->
+            writes.merge(data.id, 1, Int::plus)
+            if (data.id == "third" && failedOnce.compareAndSet(false, true)) error("初回全退避のcodec失敗")
+            EditorDataDescriptors.item.saveBackup(file, data)
+        }) { fixture ->
+            addItem(fixture, "second"); addItem(fixture, "third")
+            writes.clear()
+            val result = saveAll(fixture)
+            assertTrue(failedOnce.get())
+            assertEquals(EditorView.SaveOutcome.SAVED_WITH_ERRORS, result.outcome)
+            assertEquals(setOf("saved", "second", "third"), result.saved.toSet())
+            assertTrue(result.postProcessingErrors.isNotEmpty())
+            assertTrue(writes.getValue("third") >= 4, "失敗後に残対象の全退避を再度実行すること")
+            assertTrue((fixture.service.items.localDocuments() as StoreResult.Success).value.none { it.unsaved })
+        }
+    }
+
+    @Test
+    fun 一括保存は退避callback前の世代とaccess変更で残対象と旧表示反映を停止する() {
+        for (replaceAccess in listOf(false, true)) {
+            val changed = java.util.concurrent.atomic.AtomicBoolean()
+            var invalidate: (() -> Unit)? = null
+            withFixture(EditorDataDescriptors.item, backupWriter = { file, data ->
+                if (data.id == "second" && changed.compareAndSet(false, true)) Platform.runLater { invalidate?.invoke() }
+                EditorDataDescriptors.item.saveBackup(file, data)
+            }) { fixture ->
+                addItem(fixture, "second")
+                val refreshes = fx { fixture.logic.sidebarRefreshes }
+                invalidate = { fixture.logic.invalidateBatch(replaceAccess); fixture.main.showOperation("新世代の処理") }
+                try {
+                    val result = saveAll(fixture)
+                    assertTrue(changed.get())
+                    assertEquals(EditorView.SaveOutcome.SAVED_WITH_ERRORS, result.outcome)
+                    assertEquals(listOf("saved"), result.saved)
+                    assertEquals(listOf("second"), result.notExecuted)
+                    assertTrue(result.postProcessingErrors.isNotEmpty())
+                    fx {
+                        assertEquals(listOf("saved"), fixture.logic.committed)
+                        assertEquals(refreshes, fixture.logic.sidebarRefreshes)
+                        assertEquals("新世代の処理", (fixture.root.lookup("#topInfoLabel") as Label).text)
+                        assertEquals(0, fixture.service.activeSaves)
+                    }
+                    val records = (fixture.service.items.localDocuments() as StoreResult.Success).value.associateBy { it.key.id }
+                    assertFalse(records.getValue("saved").unsaved)
+                    assertTrue(records.getValue("second").unsaved)
+                } finally { fx { fixture.main.finishOperation() } }
+            }
+        }
+    }
+
+    @Test
+    fun 一括保存のIO開始後に世代が変わっても失敗と結果不明を未実行へ落とさない() {
+        for (unknown in listOf(false, true)) {
+            val entered = java.util.concurrent.atomic.AtomicBoolean()
+            var invalidate: (() -> Unit)? = null
+            withFixture(EditorDataDescriptors.item, backupWriter = { file, data ->
+                if (data.id == "saved" && entered.compareAndSet(false, true)) {
+                    Platform.runLater { invalidate?.invoke() }
+                    if (unknown) throw AssertionError("fixtureの書き込み結果不明")
+                    error("fixtureの保存codec失敗")
+                }
+                EditorDataDescriptors.item.saveBackup(file, data)
+            }) { fixture ->
+                addItem(fixture, "second")
+                val before = (fixture.service.documents.read() as StoreResult.Success).value
+                invalidate = { fixture.logic.invalidateBatch(false); fixture.main.showOperation("新世代の処理") }
+                try {
+                    val result = saveAll(fixture)
+                    assertTrue(entered.get())
+                    assertEquals(EditorView.SaveOutcome.FAILED, result.outcome)
+                    assertTrue(result.saved.isEmpty())
+                    assertEquals(setOf("saved"), result.failed.keys)
+                    if (unknown) assertEquals("書き込みの結果を確認できません。ストアの状態を確認してください。", result.failed["saved"])
+                    assertEquals(listOf("second"), result.notExecuted)
+                    assertFalse("saved" in result.notExecuted)
+                    assertEquals(before, (fixture.service.documents.read() as StoreResult.Success).value)
+                    fx {
+                        assertTrue(fixture.logic.committed.isEmpty())
+                        assertEquals("新世代の処理", (fixture.root.lookup("#topInfoLabel") as Label).text)
+                        assertEquals(0, fixture.service.activeSaves)
+                    }
+                } finally { fx { fixture.main.finishOperation() } }
+            }
+        }
+    }
+
+    @Test
+    fun 一括保存の最後の一覧取得中に世代が変わったら旧snapshotを表示しない() = withFixture(EditorDataDescriptors.item) { fixture ->
+        addItem(fixture, "second")
+        val listed = CountDownLatch(1)
+        val release = CountDownLatch(1)
+        val original = fixture.service.store
+        val wrapper = object : EditorDataStore by original {
+            override fun <T : ManagedData<T, *>> list(descriptor: EditorDataDescriptor<T>): StoreResult<List<StoreResource>> {
+                listed.countDown()
+                check(release.await(10, TimeUnit.SECONDS)) { "一覧fixtureの解放待ち" }
+                return original.list(descriptor)
+            }
+        }
+        val storeField = EditorDataService::class.java.getDeclaredField("store").apply { isAccessible = true }
+        val refreshes = fx { fixture.logic.sidebarRefreshes }
+        storeField.set(fixture.service, wrapper)
+        try {
+            val completed = CompletableFuture<EditorView.BatchSaveResult>()
+            fx { fixture.logic.onSaveAll { completed.complete(it) } }
+            assertTrue(listed.await(10, TimeUnit.SECONDS))
+            assertTrue((fixture.service.documents.read() as StoreResult.Success).value.documents.none { it.unsaved })
+            fx { fixture.logic.invalidateBatch(false); fixture.main.showOperation("新世代の処理") }
+            release.countDown()
+            val result = completed.get(15, TimeUnit.SECONDS)
+            assertEquals(EditorView.SaveOutcome.SAVED_WITH_ERRORS, result.outcome)
+            assertEquals(setOf("saved", "second"), result.saved.toSet())
+            assertTrue(result.notExecuted.isEmpty())
+            assertTrue(result.postProcessingErrors.isNotEmpty())
+            fx {
+                assertEquals(refreshes, fixture.logic.sidebarRefreshes)
+                assertEquals("新世代の処理", (fixture.root.lookup("#topInfoLabel") as Label).text)
+                assertEquals(0, fixture.service.activeSaves)
+            }
+        } finally {
+            release.countDown()
+            storeField.set(fixture.service, original)
+            fx { fixture.main.finishOperation() }
+        }
+    }
+
+    @Test
+    fun 一括保存の選択再表示中の例外は保存済みを保ち自身のoperationを終了する() = withFixture(EditorDataDescriptors.item) { fixture ->
+        fx { fixture.logic.failAfterSelection = true }
+        try {
+            val result = saveAll(fixture)
+            assertEquals(EditorView.SaveOutcome.SAVED_WITH_ERRORS, result.outcome)
+            assertEquals(listOf("saved"), result.saved)
+            assertTrue(result.failed.isEmpty())
+            assertTrue(result.notExecuted.isEmpty())
+            assertTrue(result.postProcessingErrors.isNotEmpty())
+            fx {
+                assertEquals(listOf("saved"), fixture.logic.committed)
+                assertFalse(fixture.main.operationRunning)
+                assertEquals(0, fixture.service.activeSaves)
+            }
+            assertFalse((fixture.service.items.localDocuments() as StoreResult.Success).value.single().unsaved)
+        } finally { fx { fixture.logic.failAfterSelection = false } }
+    }
+
+    @Test
     fun saveAllPublishesEveryTypeLocallyWithoutSourceWrites() {
         verifyBatch(EditorDataDescriptors.item)
         verifyBatch(EditorDataDescriptors.ore)
@@ -322,6 +519,7 @@ class EditorSingleSaveTest {
             val result = saveAll(fixture)
             assertTrue("saved" in result.saved)
             assertTrue("failed" in result.failed)
+            fx { assertEquals(listOf("saved"), fixture.logic.committed) }
             fx { assertTrue(fixture.logic.isSaved("saved")); assertFalse(fixture.logic.isSaved("failed")) }
             fail = false
         }
@@ -393,6 +591,7 @@ class EditorSingleSaveTest {
         fixture.cancel = true
         val result = saveAll(fixture)
         assertEquals(EditorView.SaveOutcome.CANCELLED, result.outcome)
+        fx { assertTrue(fixture.logic.committed.isEmpty()) }
         assertEquals(before, (fixture.service.documents.read() as StoreResult.Success).value)
         assertEquals(0, fixture.store.writes)
     }
@@ -1213,8 +1412,16 @@ class EditorSingleSaveTest {
     private class TestView<T : ManagedData<T, *>>(main: MainController, service: EditorDataService, access: EditorDataService.DataAccess<T>) :
         EditorView<T>(main, service, access) {
         fun source() = dataService.documentSource
+        fun raw(id: String, field: String, value: String) { updateInputDraft(id, field, value) }
+        fun invalidateBatch(replaceAccess: Boolean) {
+            if (replaceAccess) EditorView::class.java.getDeclaredField("dataAccess").apply { isAccessible = true }.set(this, dataService.DataAccess(dataAccess.descriptor))
+            else EditorView::class.java.getDeclaredField("loadGeneration").apply { isAccessible = true }.let { it.setInt(this, it.getInt(this) + 1) }
+        }
         val ready = CompletableFuture<Unit>()
+        val committed = mutableListOf<String>()
+        override fun onLocalSaveCommitted(id: String) { committed += id }
         var failSidebar = false
+        var failAfterSelection = false
         var showDraft = false
         lateinit var draftField: javafx.scene.control.TextField
         fun restoreOriginal() {
@@ -1236,13 +1443,14 @@ class EditorSingleSaveTest {
         fun current(): T = editingDataMap.getValue(currentSelectedDataId!!)
         fun unchanged(): Boolean = editingDataMap == originalDataMap
         fun rename(newId: String = "renamed") { stageDataRename("saved", newId); refreshLocalSidebar(newId) }
-        fun delete() { stageDataDeletion("saved") }
+        fun delete(id: String = "saved") { stageDataDeletion(id) }
         override fun setupSidebar(container: VBox, selectId: String?) {
             assertTrue(Platform.isFxApplicationThread())
             sidebarRefreshes++
             check(!failSidebar) { "保存後表示のfixture失敗" }
             loadSidebar(onFailed = { ready.completeExceptionally(IllegalStateException("一覧の取得に失敗しました")) }) { ids, _ ->
                 (selectId ?: ids.firstOrNull())?.let(::selectTab)
+                check(!failAfterSelection) { "選択再表示後のfixture失敗" }
                 ready.complete(Unit)
             }
         }

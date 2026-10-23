@@ -19,17 +19,18 @@ internal class EditorDataHistory<T>(
         states.putIfAbsent(id, State(current = copy(value)))
     }
 
-    fun record(id: EditorDocumentKey, value: T) {
+    fun record(id: EditorDocumentKey, value: T): Boolean {
         val state = states[id]
         if (state == null) {
             initialize(id, value)
-            return
+            return false
         }
-        if (state.current == value) return
+        if (state.current == value) return false
         state.undo.addLast(copy(state.current))
         while (state.undo.size > maxEntries) state.undo.removeFirst()
         state.current = copy(value)
         state.redo.clear()
+        return true
     }
 
     fun undo(id: EditorDocumentKey, current: T): T? {

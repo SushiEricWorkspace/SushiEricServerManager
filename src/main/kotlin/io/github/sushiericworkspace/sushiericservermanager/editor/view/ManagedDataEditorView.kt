@@ -60,6 +60,9 @@ internal abstract class ManagedDataEditorView<T : ManagedData<T, *>>(
         onExpansionChanged = ::renderSidebarResults
     )
 
+    protected val sidebarQueryActive: Boolean get() = sidebarSearchField.text.isNotBlank()
+    protected fun showAllSidebarData() { sidebarSearchField.clear() }
+
     private var sidebarDataIds: List<String> = emptyList()
     private var sidebarDirectories: List<String> = emptyList()
 

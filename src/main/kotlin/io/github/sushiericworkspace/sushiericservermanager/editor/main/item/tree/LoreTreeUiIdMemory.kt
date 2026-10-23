@@ -189,6 +189,24 @@ class LoreTreeUiIdMemory {
         idsByItemId.remove(itemId)
     }
 
+    /** 履歴専用。linesは行ID順、sections:<行ID>はその行のセクションID順です。 */
+    internal fun snapshot(itemId: String, sectionCounts: List<Int>): Map<String, List<String>> {
+        val lines = getLineIds(itemId, sectionCounts.size).toList()
+        return buildMap {
+            put("lines", lines)
+            lines.forEachIndexed { index, line -> put("sections:$line", getSectionIds(itemId, line, sectionCounts[index]).toList()) }
+        }
+    }
+
+    /** 同じ文書の履歴からだけ復元し、渡された配列や別文書のID管理とは共有しません。 */
+    internal fun restore(itemId: String, snapshot: Map<String, List<String>>) {
+        if (snapshot.isEmpty()) { clearItem(itemId); return }
+        val lines = snapshot.getValue("lines")
+        idsByItemId[itemId] = ItemLoreIds(lines.toMutableList(), lines.associateWith { line ->
+            snapshot.getValue("sections:$line").toMutableList()
+        }.toMutableMap())
+    }
+
     private fun newId(): String {
         return UUID.randomUUID().toString()
     }
