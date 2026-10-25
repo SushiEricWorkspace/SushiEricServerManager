@@ -14,64 +14,73 @@ import kotlin.test.assertTrue
 
 class ComponentSegmentsTest {
     @Test
-    fun inheritsColorAndDecorationsWithoutLosingChildren() {
+    fun inheritsStyleAndHonorsExplicitFalseAcrossChildren() {
         val source = Component.text("親", NamedTextColor.RED, TextDecoration.BOLD)
-            .append(Component.text("継承"))
-            .append(Component.text("解除").decoration(TextDecoration.BOLD, false))
-        val runs = ComponentSegments.convert(source).toLines()[0].segments
-        assertEquals(listOf("親", "継承", "解除"), runs.map { it.text })
-        assertTrue(runs[0].isBold)
-        assertTrue(runs[1].isBold)
-        assertFalse(runs[2].isBold)
-        assertTrue(runs.all { it.color.orElseThrow().rgb() and 0xffffff == 0xff5555 })
+            .font(Key.key("minecraft:alt"))
+            .append(Component.text("子"))
+            .append(Component.text("解除").decoration(TextDecoration.BOLD, false)
+                .font(Key.key("minecraft:default")))
+        val runs = ComponentSegments.convert(source).single()
+        assertEquals(listOf("親子", "解除"), runs.map { it.text })
+        assertTrue(runs.all { it.style.color == 0xff5555 })
+        assertTrue(runs.first().style.bold)
+        assertEquals("minecraft:alt", runs.first().style.font)
+        assertFalse(runs.last().style.bold)
+        assertEquals("minecraft:default", runs.last().style.font)
     }
 
     @Test
-    fun preservesJapaneseEmptyLinesAndAllDecorations() {
-        val source = Component.text("日本語\n\n装飾")
+    fun preservesJapaneseEmptyAndTrailingLinesAndAllDecorations() {
+        val source = Component.text("日本語\n\n装飾\n")
             .decorate(TextDecoration.BOLD, TextDecoration.ITALIC, TextDecoration.UNDERLINED,
                 TextDecoration.STRIKETHROUGH, TextDecoration.OBFUSCATED)
-        val lines = ComponentSegments.convert(source).toLines()
-        assertEquals(3, lines.size)
-        assertEquals("日本語", lines[0].segments.single().text)
-        assertTrue(lines[1].segments.isEmpty())
-        val run = lines[2].segments.single()
-        assertEquals("装飾", run.text)
-        assertTrue(run.isBold && run.isItalic && run.isUnderlined && run.isStrikethrough && run.isObfuscated)
+        val lines = ComponentSegments.convert(source)
+        assertEquals(4, lines.size)
+        assertEquals("日本語", lines[0].single().text)
+        assertTrue(lines[1].isEmpty() && lines[3].isEmpty())
+        val style = lines[2].single().style
+        assertTrue(style.bold && style.italic && style.underlined && style.strikethrough && style.obfuscated)
     }
 
     @Test
-    fun doesNotTransferEventsOrMutateSource() {
+    fun readsWithoutChangingEventsOrSourceComponents() {
         val source = Component.text("本文").clickEvent(ClickEvent.runCommand("/unused"))
             .hoverEvent(HoverEvent.showText(Component.text("非表示")))
-            .append(Component.text("子").clickEvent(ClickEvent.openUrl("https://example.invalid")))
-        val segment = ComponentSegments.convert(source)
-        assertTrue(segment.clickEvent.isEmpty)
-        assertTrue(segment.hoverEvent.isEmpty)
-        assertTrue(segment.extra.single().clickEvent.isEmpty)
-        assertTrue(source.clickEvent() != null)
-        assertEquals("本文子", segment.toPlainText())
+            .append(Component.text("子").font(Key.key("custom:test")))
+        val before = source
+        val runs = ComponentSegments.convert(source).single()
+        assertEquals("本文子", runs.joinToString("") { it.text })
+        assertEquals("custom:test", runs.last().style.font)
+        assertEquals(before, source)
+        assertTrue(source.clickEvent() != null && source.hoverEvent() != null)
     }
 
     @Test
-    fun rejectsUnresolvedTranslationInsteadOfReplacingItsMeaning() {
+    fun 同じ有効Styleの文字と結合文字とサロゲートを検査前に連結する() {
+        for ((left, right) in listOf("A" to "B", "e" to "\u0301", "\uD842" to "\uDFB7")) {
+            val source = Component.text(left).append(Component.text(right).font(Key.key("minecraft:default")))
+            val run = ComponentSegments.convert(source).single().single()
+            assertEquals(left + right, run.text)
+            val display = PreviewText.display(run, run.text.codePoints().toArray().toSet())
+            assertEquals(null, display.notice)
+            assertEquals(left + right, display.runs.single().text)
+            assertEquals(left, source.content())
+        }
+    }
+
+    @Test
+    fun 異なるStyleと改行を越えて連結しない() {
+        val source = Component.text("a").append(Component.text("b", NamedTextColor.RED))
+            .append(Component.text("c\nd"))
+        val lines = ComponentSegments.convert(source)
+        assertEquals(listOf("a", "b", "c"), lines[0].map { it.text })
+        assertEquals("d", lines[1].single().text)
+        assertEquals(0xffffff, lines[0][0].style.color)
+        assertEquals(0xff5555, lines[0][1].style.color)
+    }
+
+    @Test
+    fun rejectsUnresolvedTranslation() {
         assertFailsWith<IllegalArgumentException> { ComponentSegments.convert(Component.translatable("item.test")) }
     }
-    @Test
-    fun inheritsDeclaredFontAcrossChildren() {
-        val source = Component.text("親").font(Key.key("minecraft:alt"))
-            .append(Component.text("子"))
-        val runs = ComponentSegments.convert(source).toLines()[0].segments
-        assertTrue(runs.all { it.toJson().asJsonObject.get("font").asString == "minecraft:alt" })
-    }
-
-    @Test
-    fun explicitDefaultFontStopsParentInheritance() {
-        val source = Component.text("親").font(Key.key("minecraft:alt"))
-            .append(Component.text("解除").font(Key.key("minecraft:default")))
-        val runs = ComponentSegments.convert(source).toLines()[0].segments
-        assertEquals("minecraft:alt", runs[0].toJson().asJsonObject.get("font").asString)
-        assertEquals("minecraft:default", runs[1].toJson().asJsonObject.get("font").asString)
-    }
-
 }

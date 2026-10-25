@@ -1,4 +1,3 @@
-import org.gradle.api.artifacts.component.ModuleComponentIdentifier
 import java.security.MessageDigest
 import java.util.Properties
 import java.nio.file.Path
@@ -51,18 +50,8 @@ val dataModelDependency = dataModelDevelopmentCoordinate ?: if (dataModelRelease
     "io.github.sushiericworkspace:sushieric-datamodel:$dataModelReleaseVersion"
 }
 
-val minecraftTextMetadata by configurations.creating {
-    isCanBeConsumed = false
-    isTransitive = false
-}
-val minecraftTextModule = libs.minecraft.text.get()
-val minecraftTextCoordinate = "${minecraftTextModule.module}:${minecraftTextModule.versionConstraint.requiredVersion}"
-
 dependencies {
-    add(minecraftTextMetadata.name, "$minecraftTextCoordinate@pom")
-    add(minecraftTextMetadata.name, "$minecraftTextCoordinate@module")
     api(dataModelDependency)
-    implementation(libs.minecraft.text)
 
     // GUI 関連ライブラリ
     implementation("org.controlsfx:controlsfx:11.2.1")
@@ -83,38 +72,6 @@ dependencies {
     testImplementation(kotlin("test"))
     testImplementation("org.mockito:mockito-core:5.18.0")
 }
-
-/** 固定code-only artifactの出典とhashを、コンパイルより前に照合する。 */
-val verifyMinecraftText by tasks.registering {
-    group = "verification"
-    inputs.file("gradle/minecraft-text.properties")
-    doLast {
-        val lock = Properties().apply {
-            file("gradle/minecraft-text.properties").inputStream().use { load(it) }
-        }
-        check(minecraftTextCoordinate == lock.getProperty("coordinate")) {
-            "minecraft-textの固定座標が一致しません"
-        }
-        val runtime = configurations.runtimeClasspath.get().incoming.artifacts.artifacts
-        check(runtime.none {
-            val id = it.id.componentIdentifier as? ModuleComponentIdentifier
-            id?.group == "com.github.minecraft-library" && id.module == "text"
-        }) { "元JitPack版minecraft-textが混在しています" }
-        val jar = runtime.single {
-            val id = it.id.componentIdentifier as? ModuleComponentIdentifier
-            id?.group == "io.github.sushiericworkspace.thirdparty" && id.module == "minecraft-text"
-        }.file
-        val files = mapOf("jar" to jar) + minecraftTextMetadata.files.associateBy { it.extension }
-        listOf("jar", "pom", "module").forEach { extension ->
-            val actual = MessageDigest.getInstance("SHA-256").digest(files.getValue(extension).readBytes())
-                .joinToString("") { "%02x".format(it) }
-            check(actual == lock.getProperty("$extension.sha256")) {
-                "minecraft-textの$extension hashが一致しません"
-            }
-        }
-    }
-}
-tasks.named("compileKotlin") { dependsOn(verifyMinecraftText) }
 
 configurations.configureEach {
     resolutionStrategy.cacheDynamicVersionsFor(0, "seconds")
@@ -648,6 +605,35 @@ val verifyReleaseContents = tasks.register("verifyReleaseContents") {
             "通常runtimeがdevelopmentモジュールへ依存しています。"
         }
         verifyDistributionFiles(runtime.get().files + tasks.jar.get().archiveFile.get().asFile)
+
+        check(runtime.get().files.none { it.name.startsWith("minecraft-text-") }) {
+            "製品runtimeに不要なMinecraft文字描画ライブラリが含まれています。"
+        }
+        ZipFile(tasks.jar.get().archiveFile.get().asFile).use { jar ->
+            val entries = jar.entries().asSequence().filterNot { it.isDirectory }.toList()
+            check(entries.none { it.name.startsWith("fonts/Minecraft-") ||
+                it.name.startsWith("assets/minecraft/") || it.name.startsWith("colorfont/") }) {
+                "製品JARにMinecraft抽出素材または開発fixtureが含まれています。"
+            }
+            val manifest = Properties().apply {
+                load(jar.getInputStream(jar.getEntry("preview-assets.properties")
+                    ?: error("プレビュー素材一覧が製品JARにありません")))
+            }
+            manifest.stringPropertyNames().forEach { path ->
+                val entry = jar.getEntry(path) ?: error("プレビュー素材が製品JARにありません: $path")
+                val hash = jar.getInputStream(entry).use { stream ->
+                    val digest = MessageDigest.getInstance("SHA-256")
+                    val buffer = ByteArray(8192)
+                    while (true) {
+                        val read = stream.read(buffer)
+                        if (read < 0) break
+                        digest.update(buffer, 0, read)
+                    }
+                    digest.digest().joinToString("") { "%02x".format(it) }
+                }
+                check(hash == manifest.getProperty(path)) { "配布用プレビュー素材のhashが不一致です: $path" }
+            }
+        }
         if (dataModelReleaseVersion != null) {
             check(runtime.get().files.none { it.name.startsWith("sushieric-datamodel-editor-dev-") }) {
                 "正式配布へ開発SushiEricDataModelが混入しています。"

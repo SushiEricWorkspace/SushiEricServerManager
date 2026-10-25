@@ -7,7 +7,6 @@ run-paper = "2.3.1"
 javafx = "27"
 
 [libraries]
-minecraft-text = { module = "io.github.sushiericworkspace.thirdparty:minecraft-text", version = "63e3bfd67c11c6b11288ae00de590c6f6fe5aa40-classpath.2" }
 paper-api = { group = "io.papermc.paper", name = "paper-api", version.ref = "paper" }
 
 [plugins]

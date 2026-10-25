@@ -41,6 +41,7 @@ tasks.test {
 
 // 製品APIの公開範囲を広げず、管理ストア統合テストだけで通常mainのinternal APIを参照します。
 tasks.named<org.jetbrains.kotlin.gradle.tasks.KotlinCompile>("compileTestKotlin") {
+    source(rootProject.file("src/test/kotlin/io/github/sushiericworkspace/sushiericservermanager/editor/render/PreviewCanvasFxTest.kt"))
     friendPaths.from(rootProject.tasks.named<org.jetbrains.kotlin.gradle.tasks.KotlinCompile>("compileKotlin")
         .flatMap { it.destinationDirectory })
 }

@@ -1,0 +1,13 @@
+Noto Sans JP Regular / Bold, Version 2.004
+© 2014-2021 Adobe (http://www.adobe.com/).
+This Font Software is licensed under the SIL Open Font License, Version 1.1.
+OFL全文は同じディレクトリのOFL.txtを参照してください。
+出典: https://github.com/notofonts/noto-cjk/tree/523d033d6cb47f4a80c58a35753646f5c3608a78/Sans/SubsetOTF/JP
+版: Sans2.004 / commit 523d033d6cb47f4a80c58a35753646f5c3608a78
+原本を改変・改名・再subset化していません。フォントのOFLとアプリの権利を区別します。
+
+共通アイテム記号・未収録記号
+本プロジェクトのために幾何形状から作成した独自素材です。
+Minecraft素材の抽出・変換・トレースは使用していません。
+正本: images/preview/item.svg、images/preview/missing.svg
+生成手順: python3.12 -B scripts/prepare-preview-symbols.py
