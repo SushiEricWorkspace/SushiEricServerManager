@@ -4,6 +4,8 @@ import io.github.sushiericworkspace.sushiericdatamodel.data.item.model.mutable.M
 import io.github.sushiericworkspace.sushiericservermanager.app.AppScreen
 import io.github.sushiericworkspace.sushiericservermanager.util.Utility.applyCommonStyle
 import io.github.sushiericworkspace.sushiericservermanager.util.Utility.createScene
+import io.github.sushiericworkspace.sushiericservermanager.editor.render.ItemPreviewService
+import io.github.sushiericworkspace.sushiericservermanager.editor.render.itemPreviewReviews
 import javafx.geometry.Insets
 import javafx.geometry.Pos
 import javafx.scene.control.Alert
@@ -23,10 +25,15 @@ import javafx.scene.text.Text
 import javafx.scene.text.TextFlow
 import org.slf4j.LoggerFactory
 
-class RewriteConfirmation(
+class RewriteConfirmation internal constructor(
     private val originalData: MutableItemBaseData,
-    private val serverData: MutableItemBaseData
+    private val serverData: MutableItemBaseData,
+    private val currentData: MutableItemBaseData,
+    private val previews: ItemPreviewService
 ) : javafx.stage.Stage() {
+
+    constructor(originalData: MutableItemBaseData, serverData: MutableItemBaseData) :
+        this(originalData, serverData, originalData, ItemPreviewService())
 
     private val logger = LoggerFactory.getLogger(javaClass)
 
@@ -193,6 +200,8 @@ class RewriteConfirmation(
                 Label("サーバー上のデータを上書きして、現在の編集内容で保存しますか？\n上書きする項目にチェックを入れてください。").apply {
                     isWrapText = true
                 },
+                previews.review(itemPreviewReviews("比較元", originalData, null) +
+                    itemPreviewReviews("編集中", currentData, null) + itemPreviewReviews("サーバー", serverData, null)),
                 diffTreeView.apply {
                     VBox.setVgrow(this, Priority.ALWAYS)
                 },

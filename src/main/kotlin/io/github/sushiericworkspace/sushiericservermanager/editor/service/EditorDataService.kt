@@ -27,6 +27,7 @@ import io.github.sushiericworkspace.sushiericservermanager.editor.store.StoreErr
 import io.github.sushiericworkspace.sushiericservermanager.editor.store.StoreErrorCode
 import io.github.sushiericworkspace.sushiericservermanager.editor.store.StoreResource
 import io.github.sushiericworkspace.sushiericservermanager.editor.store.StoreResult
+import io.github.sushiericworkspace.sushiericservermanager.editor.render.ItemPreviewService
 import io.github.sushiericworkspace.sushiericservermanager.util.Utility
 import kotlinx.serialization.json.Json
 import org.slf4j.LoggerFactory
@@ -122,6 +123,7 @@ class EditorDataService(
     }
 
     internal fun closeIo() {
+        if (previewService.isInitialized()) previewService.value.close()
         ioExecutor.shutdown()
         if (localCompanion.isInitialized() && localCompanion.value !== this) {
             localCompanion.value.itemReferences.close()
@@ -159,6 +161,8 @@ class EditorDataService(
 
     val items: DataAccess<MutableItemBaseData> = DataAccess(EditorDataDescriptors.item)
     internal val itemReferences = ItemReferenceCache(this)
+    private val previewService = lazy { ItemPreviewService() }
+    internal val itemPreviews get() = previewService.value
     val ores: DataAccess<MutableOreBaseData> = DataAccess(EditorDataDescriptors.ore)
     val shops = DataAccess(EditorDataDescriptors.shop)
     val recipes = DataAccess(EditorDataDescriptors.recipe)

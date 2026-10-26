@@ -295,6 +295,7 @@ internal class OreEditorLogic(
                     owner = owner,
                     dropItems = selectData.mutableDropItems,
                     items = availableItems,
+                    previews = dataService.itemPreviews,
                     canApply = { apply() && editingDataMap[selectData.id]?.mutableDropItems === parentList && parentList == original }
                 ) {
                     recordHistorySnapshot(selectData.id)

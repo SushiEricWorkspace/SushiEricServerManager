@@ -1,5 +1,6 @@
 package io.github.sushiericworkspace.sushiericservermanager.editor.main.recipe
 
+import io.github.sushiericworkspace.sushiericservermanager.editor.render.ItemPreviewService
 import io.github.sushiericworkspace.sushiericdatamodel.data.item.model.ItemInternalId
 import io.github.sushiericworkspace.sushiericdatamodel.data.recipe.model.RecipeIngredients
 import io.github.sushiericworkspace.sushiericdatamodel.data.recipe.model.RecipeSize
@@ -164,11 +165,11 @@ class RecipeEditorViewTest {
             assertIs<TextField>(pane.lookup("#item-selection-search")).text = "swords.test"
             assertEquals(1, tree.root.children.size)
         }
-        assertEquals(ItemTreeSelection.Selected(item.internalId), ItemTreeSelectionDialog.show(null, listOf(item), item.internalId))
+        assertEquals(ItemTreeSelection.Selected(item.internalId), ItemTreeSelectionDialog.show(null, listOf(item), item.internalId, ItemPreviewService()))
         act("選択を解除")
-        assertEquals(ItemTreeSelection.Cleared, ItemTreeSelectionDialog.show(null, listOf(item), item.internalId))
+        assertEquals(ItemTreeSelection.Cleared, ItemTreeSelectionDialog.show(null, listOf(item), item.internalId, ItemPreviewService()))
         act(ButtonType.CANCEL.text)
-        assertNull(ItemTreeSelectionDialog.show(null, listOf(item), ItemInternalId("missing")))
+        assertNull(ItemTreeSelectionDialog.show(null, listOf(item), ItemInternalId("missing"), ItemPreviewService()))
         interactionFailure?.let { throw it }
     }
 

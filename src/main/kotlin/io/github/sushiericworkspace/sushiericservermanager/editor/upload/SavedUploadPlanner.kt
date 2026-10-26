@@ -3,11 +3,16 @@ package io.github.sushiericworkspace.sushiericservermanager.editor.upload
 import io.github.sushiericworkspace.sushiericdatamodel.data.core.ManagedData
 import io.github.sushiericworkspace.sushiericdatamodel.data.core.identity.PublicId
 import io.github.sushiericworkspace.sushiericdatamodel.data.item.model.ItemInternalId
+import io.github.sushiericworkspace.sushiericdatamodel.data.item.model.ItemBaseDataView
+import io.github.sushiericworkspace.sushiericservermanager.editor.render.ItemPreviewContent
+import io.github.sushiericworkspace.sushiericservermanager.editor.render.ItemPreviewReview
+import io.github.sushiericworkspace.sushiericservermanager.editor.render.itemPreviewReviews
 import io.github.sushiericworkspace.sushiericdatamodel.data.recipe.model.RecipeIngredients
 import io.github.sushiericworkspace.sushiericservermanager.editor.merge.DataFieldPath
 import io.github.sushiericworkspace.sushiericservermanager.editor.service.*
 import io.github.sushiericworkspace.sushiericservermanager.editor.store.*
 import java.util.UUID
+import org.slf4j.LoggerFactory
 
 /** 保存元の選択と宛先IDです。編集中データは参照しません。 */
 internal data class SavedUploadSelection(
@@ -22,7 +27,8 @@ internal data class SavedUploadCandidate(
     val relocationKey: EditorDocumentKey?,
     val before: String?,
     val merge: SavedUploadMerge,
-    val baselineKnown: Boolean
+    val baselineKnown: Boolean,
+    val previews: List<ItemPreviewReview> = emptyList()
 )
 
 /** 通信の読取と文書revisionを固定した確認入力です。確認取消では公開・通信書込とも行いません。 */
@@ -57,6 +63,7 @@ internal class SavedUploadPlanner(private val origin: EditorDataService, private
         val inputs = linkedMapOf<EditorDocumentKey, SavedUploadDocument>()
         val versions = linkedMapOf<EditorDocumentKey, Long>()
         val candidates = mutableListOf<SavedUploadCandidate>()
+        val displaySnapshots = linkedMapOf<EditorDocumentKey, Triple<String?, String?, String?>>()
         fun reserve(key: EditorDocumentKey) {
             versions[key] = destination.documents.firstOrNull { it.key == key }?.revision ?: 0
         }
@@ -128,11 +135,64 @@ internal class SavedUploadPlanner(private val origin: EditorDataService, private
                 if (read(key).value() != null) fail(StoreErrorCode.ALREADY_EXISTS, key.id)
             }
             reserve(key)
+            displaySnapshots[key] = Triple(baseline, local, latest)
             candidates += SavedUploadCandidate(input, key, relocation, before,
                 merge(key, baseline, local, latest, known), known)
         }
+        val localItems = runCatching {
+            val items = records.values.filter { it.key.category == target.items.dataType.categoryDirName && !it.savedDeleted }
+                .mapNotNull { record -> record.saved?.let { target.items.decodeDocument(record.key.id, it).freeze() } }
+                .associateByTo(linkedMapOf()) { it.internalId }
+            candidates.filter { it.targetKey.category == target.items.dataType.categoryDirName }.forEach { candidate ->
+                displaySnapshots.getValue(candidate.targetKey).second?.let { body ->
+                    val item = target.items.decodeDocument(candidate.targetKey.id, body).freeze()
+                    items[item.internalId] = item
+                }
+            }
+            items
+        }.getOrNull()
+        val needsReferences = candidates.any { it.targetKey.category in setOf(target.ores.dataType.categoryDirName, target.recipes.dataType.categoryDirName) }
+        val serverItems = if (needsReferences) sourcePreviewItems() else emptyMap()
+        val displayed = candidates.map { candidate ->
+            val (base, saved, latest) = displaySnapshots.getValue(candidate.targetKey)
+            candidate.copy(previews = previewSide(candidate.targetKey, "比較元", base, null) +
+                previewSide(candidate.targetKey, "保存済み", saved, localItems) +
+                previewSide(candidate.targetKey, "最新サーバー", latest, serverItems))
+        }
         SavedUploadPreview(destination.source as EditorDocumentSource.Server, inputs.values.toList(),
-            versions.map { SavedUploadTargetVersion(it.key, it.value) }, candidates)
+            versions.map { SavedUploadTargetVersion(it.key, it.value) }, displayed)
+    }
+
+    // 表示の追加読取失敗は通信候補の拒否条件にせず、未取得表示へ渡す。
+    private fun sourcePreviewItems(): Map<ItemInternalId, ItemBaseDataView>? { return runCatching {
+        val resources = when (val listed = target.sourceStore.list(target.items.descriptor)) {
+            is StoreResult.Success -> listed.value
+            is StoreResult.Failure -> return null
+        }
+        resources.map { resource ->
+            val loaded = target.sourceStore.load(target.items.descriptor, resource.id)
+            val item = when (loaded) {
+                is StoreResult.Success -> loaded.value
+                is StoreResult.Failure -> return null
+            }
+            item.freeze().copy(id = resource.id)
+        }.associateBy { it.internalId }
+    }.onFailure { LoggerFactory.getLogger(javaClass).warn("参照プレビュー一覧を取得できませんでした", it) }.getOrNull() }
+
+    private fun previewSide(key: EditorDocumentKey, label: String, body: String?, items: Map<ItemInternalId, ItemBaseDataView>?): List<ItemPreviewReview> {
+        if (body == null) return emptyList()
+        return try {
+            val data = when (key.category) {
+                target.items.dataType.categoryDirName -> target.items.decodeDocument(key.id, body)
+                target.ores.dataType.categoryDirName -> target.ores.decodeDocument(key.id, body)
+                target.recipes.dataType.categoryDirName -> target.recipes.decodeDocument(key.id, body)
+                else -> null
+            }
+            itemPreviewReviews(label, data, items)
+        } catch (error: Exception) {
+            LoggerFactory.getLogger(javaClass).warn("比較プレビューを準備できませんでした", error)
+            listOf(ItemPreviewReview(label, label + ": " + key.id, ItemPreviewContent.unavailable(key.id)))
+        }
     }
 
     /** UIで選択した競合値だけを使い、最終参照と正式保存のvalidationを通信作用前に確認します。 */

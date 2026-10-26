@@ -93,7 +93,7 @@ internal class SavedUploadAction(
                             message("アップロード", "この宛先に反映する保存済み差分はありません。")
                             return@runLater
                         }
-                        val choice = SavedUploadDialog.show(owner, target.currentProfileName.orEmpty(), preview)
+                        val choice = SavedUploadDialog.show(owner, target.currentProfileName.orEmpty(), preview, target.itemPreviews)
                         if (choice == null || !isActive() || cancelled) { finish(); return@runLater }
                         observed = preview.versions.associate { it.key to it.revision }
                         val progress = SavedUploadProgress(owner, origin.cacheIdentity + " → " + target.cacheIdentity).also { it.show() }

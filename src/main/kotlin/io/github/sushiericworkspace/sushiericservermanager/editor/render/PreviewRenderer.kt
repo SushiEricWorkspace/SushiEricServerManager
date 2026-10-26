@@ -27,9 +27,12 @@ internal class PreviewRenderer {
     private val size = 22.0
     private val regular by lazy { loadFont(PreviewResources.REGULAR, "Regular") }
     private val bold by lazy { loadFont(PreviewResources.BOLD, "Bold") }
-    private val item by lazy {
+    private val item by lazy { loadSymbol(PreviewResources.ITEM) }
+    private val missing by lazy { loadSymbol(PreviewResources.MISSING) }
+
+    private fun loadSymbol(path: String): Image {
         PreviewResources.ensureVerified()
-        loader.getResourceAsStream(PreviewResources.ITEM)!!.use { Image(it) }.also {
+        return loader.getResourceAsStream(path)!!.use { Image(it) }.also {
             check(!it.isError) { "同梱プレビュー記号を読めません" }
         }
     }
@@ -44,15 +47,23 @@ internal class PreviewRenderer {
         return font
     }
 
-    fun render(components: List<Component>, scaleX: Double, scaleY: Double): Result {
+    fun render(components: List<Component>, scaleX: Double, scaleY: Double, symbol: PreviewSymbol = PreviewSymbol.COMMON): Result {
         check(Platform.isFxApplicationThread()) { "プレビュー描画はJavaFX Application Threadで実行してください" }
         require(scaleX.isFinite() && scaleX > 0 && scaleY.isFinite() && scaleY > 0)
         PreviewResources.ensureVerified()
         val lines = components.flatMap(ComponentSegments::convert)
-        val description = mutableListOf("Manager標準書体・独自の共通アイテム記号による確認表示")
+        val description = mutableListOf(when (symbol) {
+            PreviewSymbol.COMMON -> "Manager標準書体・独自の共通アイテム記号による確認表示（個別画像は未収録）"
+            PreviewSymbol.MISSING -> "参照先不明・未収録記号による確認表示"
+            PreviewSymbol.UNAVAILABLE -> "プレビュー未取得・内容は保持されています"
+        })
         val content = Group()
-        content.children.add(ImageView(item).apply { x = 16.0; y = 16.0 })
-        content.children.add(Text("共通記号").apply {
+        content.children.add(ImageView(if (symbol == PreviewSymbol.COMMON) item else missing).apply { x = 16.0; y = 16.0 })
+        content.children.add(Text(when (symbol) {
+            PreviewSymbol.COMMON -> "共通記号・未収録"
+            PreviewSymbol.MISSING -> "参照先不明"
+            PreviewSymbol.UNAVAILABLE -> "未取得"
+        }).apply {
             font = regular
             fill = Color.LIGHTGRAY
             x = 58.0

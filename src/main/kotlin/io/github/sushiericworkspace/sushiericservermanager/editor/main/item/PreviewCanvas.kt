@@ -1,31 +1,29 @@
 package io.github.sushiericworkspace.sushiericservermanager.editor.main.item
 
 import io.github.sushiericworkspace.sushiericdatamodel.data.item.model.ItemBaseDataView
-import io.github.sushiericworkspace.sushiericservermanager.editor.render.PreviewRenderer
+import io.github.sushiericworkspace.sushiericservermanager.editor.render.ItemPreviewContent
+import io.github.sushiericworkspace.sushiericservermanager.editor.render.ItemPreviewService
 import io.github.sushiericworkspace.sushiericservermanager.ui.dialog.CustomDialog
 import javafx.scene.image.ImageView
 import javafx.stage.Screen
-import net.kyori.adventure.text.Component
 import org.slf4j.LoggerFactory
 
 /** 編集対象を変更せず、同梱書体による内容確認用プレビューをImageViewへ反映する。 */
-class PreviewCanvas(
+class PreviewCanvas internal constructor(
     private val itemData: ItemBaseDataView,
-    private val imageView: ImageView
+    private val imageView: ImageView,
+    private val previews: ItemPreviewService
 ) {
-    private val renderer = PreviewRenderer()
+    constructor(itemData: ItemBaseDataView, imageView: ImageView) : this(itemData, imageView, ItemPreviewService())
     private var errorShown = false
 
     fun refreshPreview() {
         try {
             val window = imageView.scene?.window
             val screen = Screen.getPrimary()
-            val rows = listOf(Component.text(itemData.display.displayName)) +
-                itemData.display.lore.map { line ->
-                    line.fold(Component.empty()) { root, section -> root.append(section.toComponent()) }
-                }
-            val result = renderer.render(rows, window?.outputScaleX ?: screen.outputScaleX,
-                window?.outputScaleY ?: screen.outputScaleY)
+            val result = previews.render(ItemPreviewContent.item(itemData),
+                window?.outputScaleX ?: screen.outputScaleX,
+                window?.outputScaleY ?: screen.outputScaleY, "editing")
             imageView.image = result.image
             imageView.fitWidth = result.width
             imageView.fitHeight = result.height

@@ -3,6 +3,7 @@ package io.github.sushiericworkspace.sushiericservermanager.editor.upload
 import io.github.sushiericworkspace.sushiericservermanager.app.AppScreen
 import io.github.sushiericworkspace.sushiericservermanager.app.NotificationState
 import io.github.sushiericworkspace.sushiericservermanager.editor.session.EditorSession
+import io.github.sushiericworkspace.sushiericservermanager.editor.render.ItemPreviewService
 import io.github.sushiericworkspace.sushiericservermanager.editor.merge.ConflictValueFormatter
 import io.github.sushiericworkspace.sushiericservermanager.editor.merge.DataFieldPath
 import io.github.sushiericworkspace.sushiericservermanager.editor.service.EditorDocumentKey
@@ -23,7 +24,7 @@ internal data class SavedUploadConfirmation(
 
 /** 確認中も対象外文書を操作できる、保存済み世代のアップロード確認です。 */
 internal object SavedUploadDialog {
-    fun show(owner: Stage?, targetName: String, preview: SavedUploadPreview): SavedUploadConfirmation? {
+    fun show(owner: Stage?, targetName: String, preview: SavedUploadPreview, previews: ItemPreviewService): SavedUploadConfirmation? {
         val apply = ButtonType("確認した保存済み内容をアップロード", ButtonBar.ButtonData.OK_DONE)
         val unknown = preview.candidates.any { !it.baselineKnown }
         val unknownChoice = CheckBox("比較元がない文書の内容と宛先を確認しました").apply { isSelected = !unknown }
@@ -43,6 +44,7 @@ internal object SavedUploadDialog {
                 "（" + candidate.targetKey.id + " が未生成のまま不在であることも確認）"
                 else if (source != candidate.targetKey.id) " → " + candidate.targetKey.id else ""
             rows.children += Label(operation + ": " + candidate.targetKey.category + " / " + source + destination)
+            rows.children += previews.review(candidate.previews)
             if (!candidate.baselineKnown) rows.children += Label("サーバー基準未取得: 自動統合しません")
             for (conflict in candidate.merge.conflicts) {
                 val group = ToggleGroup()
