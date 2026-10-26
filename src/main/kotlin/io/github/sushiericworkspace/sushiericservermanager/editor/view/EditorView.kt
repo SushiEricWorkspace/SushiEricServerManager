@@ -12,6 +12,8 @@ import io.github.sushiericworkspace.sushiericservermanager.config.AppSettingsMan
 import io.github.sushiericworkspace.sushiericservermanager.editor.result.ValidationResult
 import io.github.sushiericworkspace.sushiericservermanager.editor.result.dataservice.LoadResult
 import io.github.sushiericworkspace.sushiericservermanager.editor.result.dataservice.RenameResult
+import io.github.sushiericworkspace.sushiericservermanager.editor.render.itemPreviewReviews
+import io.github.sushiericworkspace.sushiericservermanager.editor.service.ItemReferenceStatus
 import io.github.sushiericworkspace.sushiericservermanager.editor.service.EditorDataService
 import io.github.sushiericworkspace.sushiericservermanager.editor.session.EditorSession
 import io.github.sushiericworkspace.sushiericservermanager.editor.upload.SavedUploadAction
@@ -1637,7 +1639,10 @@ abstract class EditorView<T : ManagedData<T, *>>(
             main.showOperation("保存準備 ${targets.size}/${targets.size} 件（まとめた差分を確認）")
             if (CustomDialog.confirmation().title("すべて保存")
                     .header("以下の変更をまとめてストアへ反映します（${prepared.size} 件）")
-                    .content(details).scrollableContent().okButton("すべて保存", Color.DODGERBLUE)
+                    .content(details).scrollableContent()
+                    .additionalContent(dataService.itemPreviews.review(prepared.flatMap { entry ->
+                        savePreviewEntries(entry.original, entry.previewData)
+                    })).okButton("すべて保存", Color.DODGERBLUE)
                     .owner(main.currentStage).show()) persist(0)
             else { notExecuted += prepared.map { it.dataId }; finish() }
         }
@@ -1680,6 +1685,11 @@ abstract class EditorView<T : ManagedData<T, *>>(
         return editing != saved || pendingStoreOperations[id] != null || inputDrafts[documentKey(id)].orEmpty() != savedInputDrafts[documentKey(id)].orEmpty()
     }
 
+    private fun savePreviewEntries(before: T?, current: T) = dataService.itemReferences.snapshot.let { snapshot ->
+        val items = snapshot.byInternalId.takeIf { snapshot.status == ItemReferenceStatus.READY }
+        itemPreviewReviews("前回保存", before, items) + itemPreviewReviews("編集・保存予定", current, items)
+    }
+
     private fun confirmSaveChanges(prepared: PreparedSave<T>): Boolean {
         val details = saveChangeDetails(
             dataId = prepared.dataId,
@@ -1697,6 +1707,7 @@ abstract class EditorView<T : ManagedData<T, *>>(
             .header("以下の変更をローカルに保存します")
             .content(details)
             .scrollableContent()
+            .additionalContent(dataService.itemPreviews.review(savePreviewEntries(prepared.original, prepared.previewData)))
             .okButton("保存", Color.DODGERBLUE)
             .owner(main.currentStage)
             .show()

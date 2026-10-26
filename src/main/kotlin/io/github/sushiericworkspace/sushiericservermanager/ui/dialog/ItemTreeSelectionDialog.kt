@@ -6,6 +6,7 @@ import io.github.sushiericworkspace.sushiericservermanager.app.AppScreen
 import io.github.sushiericworkspace.sushiericservermanager.editor.view.SidebarTreeNode
 import io.github.sushiericworkspace.sushiericservermanager.editor.view.buildSidebarTree
 import io.github.sushiericworkspace.sushiericservermanager.ui.AppTooltip
+import io.github.sushiericworkspace.sushiericservermanager.editor.render.ItemPreviewService
 import javafx.scene.control.ButtonBar
 import javafx.scene.control.ButtonType
 import javafx.scene.control.Dialog
@@ -26,7 +27,7 @@ internal sealed interface ItemTreeSelection {
 
 /** 公開IDのディレクトリ階層を表示し、保存用の内部IDを返す選択モーダルです。 */
 internal object ItemTreeSelectionDialog {
-    fun show(owner: Window?, items: Collection<ItemBaseDataView>, current: ItemInternalId?): ItemTreeSelection? {
+    fun show(owner: Window?, items: Collection<ItemBaseDataView>, current: ItemInternalId?, previews: ItemPreviewService): ItemTreeSelection? {
         val byPublicId = items.associateBy { it.id }
         val currentPublicId = items.firstOrNull { it.internalId == current }?.id
         val select = ButtonType("選択", ButtonBar.ButtonData.OK_DONE)
@@ -48,12 +49,10 @@ internal object ItemTreeSelectionDialog {
                         super.updateItem(item, empty)
                         graphic = null
                         text = if (empty || item == null) null else item.name
-                        tooltip = if (empty || item == null) null else AppTooltip.create(
-                            when (item) {
-                                is SidebarTreeNode.Data -> item.fullId
-                                is SidebarTreeNode.Directory -> item.fullPath
-                            }
-                        )
+                        previews.install(this, (item as? SidebarTreeNode.Data)?.takeUnless { empty }?.let { byPublicId[it.fullId] })
+                        tooltip = if (!empty && item is SidebarTreeNode.Directory) AppTooltip.create(
+                            item.fullPath
+                        ) else null
                     }
                 }
             }

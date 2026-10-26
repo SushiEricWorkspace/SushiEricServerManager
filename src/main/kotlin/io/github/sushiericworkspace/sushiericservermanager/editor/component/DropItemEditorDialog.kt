@@ -7,6 +7,7 @@ import io.github.sushiericworkspace.sushiericdatamodel.data.drop.validation.Drop
 import io.github.sushiericworkspace.sushiericdatamodel.data.item.model.ItemBaseDataView
 import io.github.sushiericworkspace.sushiericdatamodel.data.item.model.ItemInternalId
 import io.github.sushiericworkspace.sushiericservermanager.app.AppScreen
+import io.github.sushiericworkspace.sushiericservermanager.editor.render.ItemPreviewService
 import javafx.animation.KeyFrame
 import javafx.animation.Timeline
 import javafx.util.Duration
@@ -45,6 +46,7 @@ internal data class DropItemChoice(
 }
 
 internal class DropItemCatalog(items: Collection<ItemBaseDataView>) {
+    val byInternalId = items.associateBy { it.internalId }
     val choices: List<DropItemChoice> = items
         .map { DropItemChoice(it.internalId, it.id) }
         .sortedBy { it.publicId }
@@ -103,6 +105,7 @@ internal object DropItemEditorDialog {
         owner: Window,
         dropItems: MutableList<MutableDropItemData>,
         items: Collection<ItemBaseDataView>,
+        previews: ItemPreviewService,
         canApply: () -> Boolean = { true },
         onConfirmed: () -> Unit
     ) {
@@ -144,6 +147,7 @@ internal object DropItemEditorDialog {
                     createDropItemRow(
                         dropItem = dropItem,
                         catalog = catalog,
+                        previews = previews,
                         canMoveUp = index > 0,
                         canMoveDown = index < editingDropItems.lastIndex,
                         onMoveUp = {
@@ -288,6 +292,7 @@ internal object DropItemEditorDialog {
     private fun createDropItemRow(
         dropItem: MutableDropItemData,
         catalog: DropItemCatalog,
+        previews: ItemPreviewService,
         canMoveUp: Boolean,
         canMoveDown: Boolean,
         onMoveUp: () -> Unit,
@@ -311,7 +316,7 @@ internal object DropItemEditorDialog {
             )
         }
 
-        val itemSelector = createItemSelector(dropItem, catalog, ::refreshStatus)
+        val itemSelector = createItemSelector(dropItem, catalog, previews, ::refreshStatus)
         val countSpinner = EditorSpinnerFactory.intSpinner(
             initialValue = dropItem.n,
             min = 1,
@@ -380,6 +385,7 @@ internal object DropItemEditorDialog {
     private fun createItemSelector(
         dropItem: MutableDropItemData,
         catalog: DropItemCatalog,
+        previews: ItemPreviewService,
         onChanged: () -> Unit
     ): VBox {
         val unresolvedChoice = dropItem.itemId
@@ -400,16 +406,19 @@ internal object DropItemEditorDialog {
             minWidth = 180.0
             maxWidth = Double.MAX_VALUE
             comboBox.prefWidth = 360.0
-            comboBox.cellFactory = Callback {
+            fun itemCell() =
                 object : ListCell<DropItemChoice>() {
                     override fun updateItem(item: DropItemChoice?, empty: Boolean) {
                         super.updateItem(item, empty)
                         text = if (empty || item == null) null else item.displayText
                         styleClass.remove("warning-label")
                         if (!empty && item?.publicId == null) styleClass.add("warning-label")
+                        val id = item?.takeUnless { empty }?.internalId
+                        previews.install(this, id?.let(catalog.byInternalId::get), id)
                     }
                 }
-            }
+            comboBox.cellFactory = Callback { itemCell() }
+            comboBox.buttonCell = itemCell()
         }
         return selector
     }

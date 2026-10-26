@@ -12,6 +12,7 @@ import io.github.sushiericworkspace.sushiericservermanager.editor.main.item.diff
 import io.github.sushiericworkspace.sushiericservermanager.editor.service.EditorDataService
 import io.github.sushiericworkspace.sushiericservermanager.editor.service.EditorDocumentKey
 import io.github.sushiericworkspace.sushiericservermanager.editor.service.EditorDocumentSource
+import io.github.sushiericworkspace.sushiericservermanager.editor.render.ItemPreviewContent
 import io.github.sushiericworkspace.sushiericservermanager.editor.view.EditorSidebar
 import io.github.sushiericworkspace.sushiericservermanager.editor.view.buildSidebarRows
 import io.github.sushiericworkspace.sushiericservermanager.editor.view.isLocalOnlyData
@@ -244,7 +245,11 @@ class ItemEditorLogic(
         onMove = ::moveData,
         expandedState = sidebarExpandedState,
         onExpandedStateChanged = ::persistSidebarExpandedState,
-        onExpansionChanged = ::renderSidebarResults
+        onExpansionChanged = ::renderSidebarResults,
+        previewData = { node, id ->
+            val content = id?.let { editingDataMap[it]?.let(ItemPreviewContent::item) ?: ItemPreviewContent.unavailable(it) }
+            dataService.itemPreviews.installContent(node, content, "editing")
+        }
     )
 
     private var sidebarItemIds: List<String> = emptyList()
@@ -499,7 +504,7 @@ class ItemEditorLogic(
         currentData: MutableItemBaseData,
         serverData: MutableItemBaseData
     ): MutableItemBaseData? {
-        val dialog = RewriteConfirmation(originalData, serverData)
+        val dialog = RewriteConfirmation(originalData, serverData, currentData, dataService.itemPreviews)
         val currentStage = main.sidebarContainer.scene.window as? Stage
 
         if (currentStage != null) {
@@ -614,7 +619,8 @@ class ItemEditorLogic(
     override fun setupMainContent(selectData: MutableItemBaseData) {
         previewCanvas = PreviewCanvas(
             itemData = selectData,
-            imageView = previewImageView
+            imageView = previewImageView,
+            previews = dataService.itemPreviews
         )
 
         previewCanvas?.refreshPreview()

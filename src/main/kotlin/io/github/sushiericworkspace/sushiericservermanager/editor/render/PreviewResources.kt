@@ -22,6 +22,13 @@ internal object PreviewResources {
         }
         val hashes = manifest.stringPropertyNames().associateWith(manifest::getProperty)
         verify(loader, hashes)
+        hashes
+    }
+
+    val fontRevision by lazy { listOf(REGULAR, BOLD, COVERAGE).joinToString("/") { verified.getValue(it) } }
+    val imageRevision by lazy {
+        listOf(ITEM, MISSING, "images/preview/item.svg", "images/preview/missing.svg")
+            .joinToString("/") { verified.getValue(it) }
     }
 
     val codepoints: Set<Int> by lazy {

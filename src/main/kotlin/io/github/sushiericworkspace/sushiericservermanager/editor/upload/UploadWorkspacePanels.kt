@@ -307,7 +307,7 @@ internal class UploadWorkspacePanels(private val target: EditorDataService, priv
             if (error != null || disposed) { finish("確認を準備できません。予約を保持しています。"); return@runLater }
             val confirmed = mutableListOf<Triple<UploadPlanGroup, SavedUploadPreview, SavedUploadConfirmation>>()
             for ((group, preview) in previews) {
-                val choice = SavedUploadDialog.show(owner(), target.currentProfileName.orEmpty() + " / " + group.targetDirectory, preview)
+                val choice = SavedUploadDialog.show(owner(), target.currentProfileName.orEmpty() + " / " + group.targetDirectory, preview, target.itemPreviews)
                 if (choice == null || disposed) { finish("確認を取り消しました。通信作用はありません。"); return@runLater }
                 confirmed += Triple(group, preview, choice)
             }

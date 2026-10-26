@@ -7,6 +7,7 @@ import io.github.sushiericworkspace.sushiericdatamodel.data.recipe.model.RecipeS
 import io.github.sushiericworkspace.sushiericdatamodel.data.recipe.model.mutable.MutableRecipeData
 import io.github.sushiericworkspace.sushiericdatamodel.stats.player.AchievementType
 import io.github.sushiericworkspace.sushiericdatamodel.stats.player.SkillType
+import io.github.sushiericworkspace.sushiericservermanager.editor.render.itemReferencePreview
 import io.github.sushiericworkspace.sushiericservermanager.editor.component.ItemReferenceBinding
 import io.github.sushiericworkspace.sushiericservermanager.editor.component.SearchableComboBox
 import io.github.sushiericworkspace.sushiericservermanager.editor.controller.MainController
@@ -21,7 +22,6 @@ import io.github.sushiericworkspace.sushiericservermanager.ui.dialog.MergeConfli
 import io.github.sushiericworkspace.sushiericservermanager.ui.dialog.ItemTreeSelectionDialog
 import io.github.sushiericworkspace.sushiericservermanager.ui.dialog.ItemTreeSelection
 import io.github.sushiericworkspace.sushiericservermanager.ui.dialog.CustomDialog
-import io.github.sushiericworkspace.sushiericservermanager.ui.AppTooltip
 import javafx.application.Platform
 import io.github.sushiericworkspace.sushiericservermanager.ui.dialog.RecipeSaveProgressDialog
 import javafx.concurrent.Task
@@ -218,7 +218,7 @@ internal class RecipeEditorLogic(main: MainController, service: EditorDataServic
             val button = this
             itemBinding.load {
                 if (button.scene == null) return@load
-                when (val selection = ItemTreeSelectionDialog.show(main.currentStage, availableItems, current())) {
+                when (val selection = ItemTreeSelectionDialog.show(main.currentStage, availableItems, current(), dataService.itemPreviews)) {
                     is ItemTreeSelection.Selected -> changed(selection.id)
                     ItemTreeSelection.Cleared -> changed(null)
                     null -> Unit
@@ -233,7 +233,7 @@ internal class RecipeEditorLogic(main: MainController, service: EditorDataServic
             val id = current()
             button.text = if (id == null) "アイテムを選択..." else dataService.itemReferences.snapshot.byInternalId[id]?.id
                 ?: if (!itemsLoaded) "参照確認中: ${id.value}" else "参照先不明: ${id.value}"
-            button.tooltip = AppTooltip.create(button.text)
+            dataService.itemPreviews.installContent(button, id?.let { itemReferencePreview(dataService.itemReferences.snapshot, it) }, "saved")
         }
     }
 

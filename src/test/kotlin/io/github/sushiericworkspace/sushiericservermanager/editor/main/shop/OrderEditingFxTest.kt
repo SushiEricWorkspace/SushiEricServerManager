@@ -262,7 +262,7 @@ class OrderEditingFxTest {
         val completed = CompletableFuture<Unit>()
         var records = 0
         Platform.runLater {
-            try { DropItemEditorDialog.show(f.stage, parent, listOf(dropItem), onConfirmed = { records++ }); completed.complete(Unit) }
+            try { DropItemEditorDialog.show(f.stage, parent, listOf(dropItem), f.service.itemPreviews, onConfirmed = { records++ }); completed.complete(Unit) }
             catch (error: Throwable) { completed.completeExceptionally(error) }
         }
         var dialog: Stage? = null
@@ -361,7 +361,7 @@ class OrderEditingFxTest {
         }
         try {
             Platform.runLater {
-                try { DropItemEditorDialog.show(f.stage,parent,emptyList(),onConfirmed=confirmed);completed.complete(Unit) }
+                try { DropItemEditorDialog.show(f.stage,parent,emptyList(),f.service.itemPreviews,onConfirmed=confirmed);completed.complete(Unit) }
                 catch(error:Throwable) { completed.completeExceptionally(error) }
             }
             completed.get(15,TimeUnit.SECONDS)

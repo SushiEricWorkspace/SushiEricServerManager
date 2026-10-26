@@ -10,13 +10,14 @@ import io.github.sushiericworkspace.sushiericservermanager.editor.view.createPub
 import io.github.sushiericworkspace.sushiericservermanager.ui.dialog.MergeConflictDialog
 import io.github.sushiericworkspace.sushiericservermanager.ui.dialog.CustomDialog
 import io.github.sushiericworkspace.sushiericservermanager.editor.service.ItemReferenceStatus
+import io.github.sushiericworkspace.sushiericservermanager.editor.render.itemReferencePreview
 import io.github.sushiericworkspace.sushiericservermanager.editor.component.ItemReferenceBinding
 import io.github.sushiericworkspace.sushiericdatamodel.data.core.identity.PublicId
 import javafx.animation.KeyFrame
 import javafx.animation.Timeline
 import javafx.util.Duration
-import javafx.scene.control.ListView
 import javafx.scene.control.ListCell
+import javafx.scene.control.ListView
 import javafx.scene.input.ClipboardContent
 import javafx.scene.input.TransferMode
 import javafx.scene.input.KeyCode
@@ -108,6 +109,8 @@ internal class ShopEditorLogic(main: MainController, service: EditorDataService)
         val itemLabel = Label().apply { style = "-fx-font-size: 16px;" }
         fun refreshItem() {
             itemLabel.text = selectData.itemInternalId?.let(::itemDisplayText) ?: "未選択"
+            val id = selectData.itemInternalId
+            dataService.itemPreviews.installContent(itemLabel, id?.let { itemReferencePreview(dataService.itemReferences.snapshot, it) }, "saved")
         }
         refreshItem()
         val item = HBox(10.0, itemLabel, Button("アイテムを選択...").apply {
@@ -118,6 +121,15 @@ internal class ShopEditorLogic(main: MainController, service: EditorDataService)
                     val choices = dataService.itemReferences.snapshot.items.sortedBy { it.id }.map { it.internalId }
                     val selector = SearchableComboBox(choices, selectData.itemInternalId, "公開IDで検索",
                         ::itemDisplayText, onSelected = {})
+                    fun itemCell() = object : ListCell<ItemInternalId>() {
+                        override fun updateItem(id: ItemInternalId?, empty: Boolean) {
+                            super.updateItem(id, empty)
+                            text = id?.takeUnless { empty }?.let(::itemDisplayText)
+                            dataService.itemPreviews.install(this, id?.takeUnless { empty }?.let { dataService.itemReferences.snapshot.byInternalId[it] }, id?.takeUnless { empty })
+                        }
+                    }
+                    selector.comboBox.setCellFactory { itemCell() }
+                    selector.comboBox.buttonCell = itemCell()
                     val selected = Dialog<ItemInternalId>().apply {
                         title = "対象アイテムを選択"
                         initOwner(main.currentStage)
