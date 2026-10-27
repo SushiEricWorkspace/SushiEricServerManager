@@ -2,12 +2,10 @@ package io.github.sushiericworkspace.sushiericservermanager.editor.main.recipe
 
 import io.github.sushiericworkspace.sushiericdatamodel.data.core.validation.SushiEricValidationError
 import io.github.sushiericworkspace.sushiericdatamodel.data.item.model.ItemInternalId
-import io.github.sushiericworkspace.sushiericdatamodel.data.recipe.model.RecipeIngredients
 import io.github.sushiericworkspace.sushiericdatamodel.data.recipe.model.RecipeSize
 import io.github.sushiericworkspace.sushiericdatamodel.data.recipe.model.mutable.MutableRecipeData
 import io.github.sushiericworkspace.sushiericdatamodel.stats.player.AchievementType
 import io.github.sushiericworkspace.sushiericdatamodel.stats.player.SkillType
-import io.github.sushiericworkspace.sushiericservermanager.editor.render.itemReferencePreview
 import io.github.sushiericworkspace.sushiericservermanager.editor.component.ItemReferenceBinding
 import io.github.sushiericworkspace.sushiericservermanager.editor.component.SearchableComboBox
 import io.github.sushiericworkspace.sushiericservermanager.editor.controller.MainController
@@ -19,8 +17,6 @@ import io.github.sushiericworkspace.sushiericservermanager.editor.store.StoreRes
 import io.github.sushiericworkspace.sushiericservermanager.editor.view.ManagedDataEditorView
 import io.github.sushiericworkspace.sushiericservermanager.editor.view.createPublicIdDisplay
 import io.github.sushiericworkspace.sushiericservermanager.ui.dialog.MergeConflictDialog
-import io.github.sushiericworkspace.sushiericservermanager.ui.dialog.ItemTreeSelectionDialog
-import io.github.sushiericworkspace.sushiericservermanager.ui.dialog.ItemTreeSelection
 import io.github.sushiericworkspace.sushiericservermanager.ui.dialog.CustomDialog
 import javafx.application.Platform
 import io.github.sushiericworkspace.sushiericservermanager.ui.dialog.RecipeSaveProgressDialog
@@ -32,6 +28,7 @@ import javafx.scene.control.Button
 import javafx.scene.control.CheckBox
 import javafx.scene.control.ComboBox
 import javafx.scene.control.Label
+import javafx.scene.control.ScrollPane
 import javafx.scene.control.TextField
 import javafx.scene.layout.GridPane
 import javafx.scene.layout.HBox
@@ -48,8 +45,7 @@ internal class RecipeEditorLogic(main: MainController, service: EditorDataServic
     private var disposed = false
     private var refreshContent: (() -> Unit)? = null
     private val focusTargets = mutableMapOf<String, Node>()
-    private val ingredientFields = mutableMapOf<Int, Button>()
-    private val itemButtons = mutableMapOf<Button, () -> ItemInternalId?>()
+    private var board: RecipeBoardView? = null
 
     private val availableItems get() = dataService.itemReferences.snapshot.items
     private val itemsLoaded get() = dataService.itemReferences.snapshot.status == ItemReferenceStatus.READY
@@ -75,7 +71,8 @@ internal class RecipeEditorLogic(main: MainController, service: EditorDataServic
         catalog = null
         catalogFailed = false
         refreshContent = null
-        itemButtons.clear()
+        board?.close()
+        board = null
     }
 
     override fun loadEditorReferences() {
@@ -104,8 +101,8 @@ internal class RecipeEditorLogic(main: MainController, service: EditorDataServic
         refreshContent = ::refresh
         refreshButton.setOnAction { loadCatalog(force = true) }
         focusTargets.clear()
-        ingredientFields.clear()
-        itemButtons.clear()
+        board?.close()
+        board = null
         val size = ComboBox<RecipeSize>().apply {
             id = "recipe-size"
             items.setAll(RecipeSize.entries)
@@ -116,6 +113,7 @@ internal class RecipeEditorLogic(main: MainController, service: EditorDataServic
             value = selectData.size
             setOnAction {
                 value?.let { changeRecipeSize(selectData, it) }
+                recordHistorySnapshot(selectData.id)
                 setupMainContent(selectData)
             }
         }
@@ -124,10 +122,10 @@ internal class RecipeEditorLogic(main: MainController, service: EditorDataServic
             isSelected = selectData.shaped
             setOnAction {
                 changeRecipeShape(selectData, isSelected)
+                recordHistorySnapshot(selectData.id)
                 setupMainContent(selectData)
             }
         }
-        val result = itemButton({ selectData.resultItemInternalId }) { selectData.resultItemInternalId = it; refresh() }.apply { id = "recipe-result" }
         val count = integerField(selectData.resultCount) { selectData.resultCount = it ?: 0; refresh() }.apply { id = "recipe-count" }
         retainInputDraft(selectData.id, "resultCount", count) { it.isEmpty() || it.toIntOrNull() != null }
         val header = GridPane().apply {
@@ -135,38 +133,14 @@ internal class RecipeEditorLogic(main: MainController, service: EditorDataServic
             add(Label("レシピID:"), 0, 0)
             add(createPublicIdDisplay(selectData.id), 1, 0)
             add(Label("盤サイズ:"), 0, 1); add(HBox(12.0, size, shaped).apply { alignment = Pos.CENTER_LEFT }, 1, 1)
-            add(Label("完成品:"), 0, 2); add(result, 1, 2)
-            add(Label("完成数:"), 0, 3); add(count, 1, 3)
+            add(Label("完成数:"), 0, 2); add(count, 1, 2)
         }
-        focusTargets.putAll(mapOf("size" to size, "resultItemInternalId" to result, "resultCount" to count))
-        val slots = recipeSlots(selectData.ingredients).toMutableMap()
-        fun editSlot(slot: Int, id: ItemInternalId?) {
-            if (id == null) slots.remove(slot) else slots[slot] = id
-            selectData.ingredients = if (selectData.shaped) RecipeIngredients.Shaped(slots)
-                else RecipeIngredients.Shapeless(slots.toSortedMap().values.toList())
+        val recipeBoard = RecipeBoardView(selectData, referenceItems(), dataService.itemPreviews, "editing", {
+            recordHistorySnapshot(selectData.id)
             refresh()
-        }
-        fun cell(slot: Int): VBox {
-            val field = itemButton({ slots[slot] }) { editSlot(slot, it) }.apply {
-                id = "recipe-ingredient-$slot"
-                prefWidth = 160.0; minWidth = 80.0; maxWidth = Double.MAX_VALUE
-            }
-            ingredientFields[slot] = field
-            return VBox(4.0, Label("${slot + 1}番目"), field).apply { maxWidth = Double.MAX_VALUE }
-        }
-        val board = GridPane().apply {
-            hgap = 8.0; vgap = 8.0; maxWidth = Double.MAX_VALUE
-            selectData.size.slots.forEach { slot ->
-                add(cell(slot), slot % selectData.size.sideLength, slot / selectData.size.sideLength)
-            }
-            children.forEach { GridPane.setHgrow(it, Priority.ALWAYS) }
-        }
-        focusTargets["ingredients"] = board
-        val extra = VBox(8.0)
-        slots.keys.filter { it !in selectData.size.slots }.sorted().forEach { slot -> extra.children += cell(slot) }
-        if (extra.children.isNotEmpty()) {
-            extra.children.add(0, Label("盤の範囲外の材料（選択を解除すると削除）").apply { styleClass.add("error-label") })
-        }
+        }, { count.requestFocus(); count.selectAll() })
+        board = recipeBoard
+        focusTargets.putAll(mapOf("size" to size, "resultCount" to count, "ingredients" to recipeBoard))
         val skillFields = GridPane().apply {
             hgap = 12.0; vgap = 8.0
             SkillType.entries.forEachIndexed { index, skill ->
@@ -201,41 +175,26 @@ internal class RecipeEditorLogic(main: MainController, service: EditorDataServic
         }
         refreshAchievements()
         focusTargets["achievementRequirements"] = achievementSelector
-        main.mainContentContainer.children.setAll(VBox(16.0,
-            header, Label("材料（ボタンからアイテムを選択、未選択は空きマス）"),
-            Label("形状なしでは配置を問わず、同じアイテムの選択回数が必要個数になります。サイズを縮小しても材料は削除されません。" ).apply { isWrapText = true },
-            board, extra, Label("要求スキルレベル"), skillFields, Label("要求実績（すべて達成が必要）"),
+        val form = VBox(16.0,
+            header, Label("材料（1枠1個）"),
+            Label("パレットから配置し、右クリックでコピー・削除できます。サイズを縮小しても盤外の材料を保持します。").apply { isWrapText = true },
+            recipeBoard, Label("要求スキルレベル"), skillFields, Label("要求実績（すべて達成が必要）"),
             HBox(10.0, achievementSelector, addAchievement).apply { alignment = Pos.CENTER_LEFT }, achievements,
             refreshButton, warnings
-        ).apply { padding = Insets(20.0) })
+        ).apply { padding = Insets(20.0) }
+        val scroll = ScrollPane(form).apply { isFitToWidth = true; minWidth = 0.0; minHeight = 0.0 }
+        main.mainContentContainer.children.setAll(HBox(16.0, scroll, recipeBoard.palette).apply {
+            minWidth = 0.0; minHeight = 0.0; maxWidth = Double.MAX_VALUE
+            HBox.setHgrow(scroll, Priority.ALWAYS)
+            HBox.setHgrow(this, Priority.ALWAYS)
+        })
         refresh()
     }
 
-    private fun itemButton(current: () -> ItemInternalId?, changed: (ItemInternalId?) -> Unit): Button = Button().apply {
-        isWrapText = true
-        itemButtons[this] = current
-        setOnAction {
-            val button = this
-            itemBinding.load {
-                if (button.scene == null) return@load
-                when (val selection = ItemTreeSelectionDialog.show(main.currentStage, availableItems, current(), dataService.itemPreviews)) {
-                    is ItemTreeSelection.Selected -> changed(selection.id)
-                    ItemTreeSelection.Cleared -> changed(null)
-                    null -> Unit
-                }
-            }
-        }
-    }
+    private fun referenceItems() = dataService.itemReferences.snapshot
+        .takeIf { it.status == ItemReferenceStatus.READY }?.byInternalId
 
-    private fun refreshItemButtons() {
-        itemButtons.forEach { (button, current) ->
-            button.isDisable = dataService.itemReferences.snapshot.status == ItemReferenceStatus.LOADING
-            val id = current()
-            button.text = if (id == null) "アイテムを選択..." else dataService.itemReferences.snapshot.byInternalId[id]?.id
-                ?: if (!itemsLoaded) "参照確認中: ${id.value}" else "参照先不明: ${id.value}"
-            dataService.itemPreviews.installContent(button, id?.let { itemReferencePreview(dataService.itemReferences.snapshot, it) }, "saved")
-        }
-    }
+    private fun refreshItemButtons() { board?.refresh(referenceItems()) }
 
     private fun integerField(initial: Int?, changed: (Int?) -> Unit): TextField = TextField(initial?.toString().orEmpty()).apply {
         textProperty().addListener { _, _, value -> if (value.isEmpty() || value.toIntOrNull() != null) changed(value.toIntOrNull()) }
@@ -255,8 +214,9 @@ internal class RecipeEditorLogic(main: MainController, service: EditorDataServic
     override fun itemDisplayText(id: ItemInternalId): String = dataService.itemReferences.snapshot.byInternalId[id]?.id ?: id.value
 
     override fun focusValidationError(error: SushiEricValidationError): Boolean {
-        val target = if (error.property.name == "ingredients") ingredientFields[error.key as? Int] ?: focusTargets["ingredients"]
-            else focusTargets[error.property.name]
+        if (error.property.name == "resultItemInternalId") return board?.let { it.focusResult(); true } ?: false
+        if (error.property.name == "ingredients" && (error.key as? Int)?.let { board?.focusIngredient(it) } == true) return true
+        val target = focusTargets[error.property.name]
         return target?.let { it.requestFocus(); true } ?: false
     }
 
@@ -310,6 +270,8 @@ internal class RecipeEditorLogic(main: MainController, service: EditorDataServic
 
     override fun afterClose() {
         disposed = true
+        board?.close()
+        board = null
         itemBinding.close()
         catalogTask?.cancel()
     }

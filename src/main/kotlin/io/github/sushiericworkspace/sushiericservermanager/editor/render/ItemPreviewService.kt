@@ -158,7 +158,7 @@ internal class ItemPreviewService : AutoCloseable {
         fun inViewport(): Boolean {
             val scene = node.scene ?: return false
             if (window?.isShowing != true || !node.isVisible || scene.width <= 0 || scene.height <= 0) return false
-            val bounds = node.localToScene(node.boundsInLocal)
+            val bounds = node.localToSceneTransform.transform(node.boundsInLocal)
             if (!bounds.intersects(0.0, 0.0, scene.width, scene.height)) return false
             var parent = node.parent
             while (parent != null) {

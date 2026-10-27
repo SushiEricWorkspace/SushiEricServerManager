@@ -100,7 +100,7 @@ class RecipeEditorViewTest {
         val material = assertIs<Button>(root.lookup("#recipe-ingredient-0"))
         assertTrue(material.text.contains("test-ingredient"))
         val result = assertIs<Button>(root.lookup("#recipe-result"))
-        assertEquals("アイテムを選択...", result.text)
+        assertEquals("空き", result.text)
         val count = assertIs<TextField>(root.lookup("#recipe-count"))
         count.text = "2"
         assertEquals(2, data.resultCount)

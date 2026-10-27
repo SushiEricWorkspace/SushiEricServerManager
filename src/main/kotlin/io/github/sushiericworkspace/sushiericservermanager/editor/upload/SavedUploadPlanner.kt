@@ -4,10 +4,12 @@ import io.github.sushiericworkspace.sushiericdatamodel.data.core.ManagedData
 import io.github.sushiericworkspace.sushiericdatamodel.data.core.identity.PublicId
 import io.github.sushiericworkspace.sushiericdatamodel.data.item.model.ItemInternalId
 import io.github.sushiericworkspace.sushiericdatamodel.data.item.model.ItemBaseDataView
+import io.github.sushiericworkspace.sushiericdatamodel.data.item.model.mutable.MutableItemBaseData
 import io.github.sushiericworkspace.sushiericservermanager.editor.render.ItemPreviewContent
 import io.github.sushiericworkspace.sushiericservermanager.editor.render.ItemPreviewReview
 import io.github.sushiericworkspace.sushiericservermanager.editor.render.itemPreviewReviews
 import io.github.sushiericworkspace.sushiericdatamodel.data.recipe.model.RecipeIngredients
+import io.github.sushiericworkspace.sushiericdatamodel.data.recipe.model.RecipeDataView
 import io.github.sushiericworkspace.sushiericservermanager.editor.merge.DataFieldPath
 import io.github.sushiericworkspace.sushiericservermanager.editor.service.*
 import io.github.sushiericworkspace.sushiericservermanager.editor.store.*
@@ -28,7 +30,17 @@ internal data class SavedUploadCandidate(
     val before: String?,
     val merge: SavedUploadMerge,
     val baselineKnown: Boolean,
-    val previews: List<ItemPreviewReview> = emptyList()
+    val previews: List<ItemPreviewReview> = emptyList(),
+    val recipePreview: RecipeUploadPreview? = null,
+    val itemPreview: ((Set<DataFieldPath>) -> ItemBaseDataView?)? = null
+)
+
+/** IO段階でdecodeした固定sideと、同じmerge選択の読取投影。保存・通信作用を持たない。 */
+internal data class RecipeUploadPreview(
+    val base: RecipeDataView?, val saved: RecipeDataView?, val latest: RecipeDataView?,
+    val localItems: Map<ItemInternalId, ItemBaseDataView>?,
+    val serverItems: Map<ItemInternalId, ItemBaseDataView>?,
+    val planned: (Set<DataFieldPath>) -> RecipeDataView?
 )
 
 /** 通信の読取と文書revisionを固定した確認入力です。確認取消では公開・通信書込とも行いません。 */
@@ -157,10 +169,58 @@ internal class SavedUploadPlanner(private val origin: EditorDataService, private
             val (base, saved, latest) = displaySnapshots.getValue(candidate.targetKey)
             candidate.copy(previews = previewSide(candidate.targetKey, "比較元", base, null) +
                 previewSide(candidate.targetKey, "保存済み", saved, localItems) +
-                previewSide(candidate.targetKey, "最新サーバー", latest, serverItems))
+                previewSide(candidate.targetKey, "最新サーバー", latest, serverItems),
+                recipePreview = recipePreview(candidate, base, saved, latest, localItems, serverItems),
+                itemPreview = itemPreview(candidate, base, saved, latest))
         }
         SavedUploadPreview(destination.source as EditorDocumentSource.Server, inputs.values.toList(),
             versions.map { SavedUploadTargetVersion(it.key, it.value) }, displayed)
+    }
+
+    private fun itemPreview(
+        candidate: SavedUploadCandidate, base: String?, saved: String?, latest: String?
+    ): ((Set<DataFieldPath>) -> ItemBaseDataView?)? {
+        if (candidate.targetKey.category != target.items.dataType.categoryDirName) return null
+        return runCatching {
+            fun decode(body: String?) = body?.let { target.items.decodeDocument(candidate.targetKey.id, it) }
+            val before = decode(base)
+            val local = decode(saved)
+            val remote = decode(latest)
+            val outputId = candidate.relocationKey?.id?.takeIf { candidate.input.deleted } ?: candidate.targetKey.id
+            val resolve: (Set<DataFieldPath>) -> ItemBaseDataView? = { paths ->
+                val value = if (candidate.merge.previewWithLocal != null) candidate.merge.previewWithLocal.invoke(paths) as? MutableItemBaseData
+                else when (candidate.merge.resolveWithLocal(paths)) {
+                    saved -> local
+                    latest -> remote
+                    base -> before
+                    else -> null
+                }
+                value?.deepCopy()?.apply { id = outputId }
+            }
+            resolve
+        }.onFailure { LoggerFactory.getLogger(javaClass).warn("反映予定の参照定義を準備できませんでした", it) }.getOrNull()
+    }
+
+    private fun recipePreview(
+        candidate: SavedUploadCandidate, base: String?, saved: String?, latest: String?,
+        localItems: Map<ItemInternalId, ItemBaseDataView>?, serverItems: Map<ItemInternalId, ItemBaseDataView>?
+    ): RecipeUploadPreview? {
+        if (candidate.targetKey.category != target.recipes.dataType.categoryDirName) return null
+        return runCatching {
+            fun decode(body: String?) = body?.let { target.recipes.decodeDocument(candidate.targetKey.id, it) }
+            val before = decode(base)
+            val local = decode(saved)
+            val remote = decode(latest)
+            RecipeUploadPreview(before, local, remote, localItems, serverItems) { paths ->
+                if (candidate.merge.previewWithLocal != null) candidate.merge.previewWithLocal.invoke(paths) as? RecipeDataView
+                else when (candidate.merge.resolveWithLocal(paths)) {
+                    saved -> local
+                    latest -> remote
+                    base -> before
+                    else -> null
+                }
+            }
+        }.onFailure { LoggerFactory.getLogger(javaClass).warn("レシピ盤面を準備できませんでした", it) }.getOrNull()
     }
 
     // 表示の追加読取失敗は通信候補の拒否条件にせず、未取得表示へ渡す。
@@ -414,4 +474,23 @@ internal class SavedUploadPlanner(private val origin: EditorDataService, private
     } catch (error: Exception) {
         StoreResult.Failure(StoreError(StoreErrorCode.IO_ERROR, detail = error.message, cause = error))
     }
+}
+
+/** 固定server一覧へ同batchの実採用Itemを重ねる。未取得・未選択を不在と確定しない。 */
+internal fun plannedUploadItems(
+    server: Map<ItemInternalId, ItemBaseDataView>?, candidates: List<SavedUploadCandidate>,
+    localPaths: Map<EditorDocumentKey, Set<DataFieldPath>>
+): Map<ItemInternalId, ItemBaseDataView>? {
+    val items = server?.values?.associateByTo(linkedMapOf()) { it.id } ?: return null
+    for (candidate in candidates.filter { it.targetKey.category == EditorDataDescriptors.item.dataType.categoryDirName }) {
+        val resolver = candidate.itemPreview ?: return null
+        if (candidate.merge.conflicts.isNotEmpty() && candidate.input.key !in localPaths) return null
+        items.remove(candidate.relocationKey?.id ?: candidate.targetKey.id)
+        val destination = if (candidate.input.deleted && candidate.relocationKey != null) {
+            items.remove(candidate.targetKey.id)
+            candidate.relocationKey.id
+        } else candidate.targetKey.id
+        resolver(localPaths[candidate.input.key].orEmpty())?.let { items[destination] = it }
+    }
+    return items.values.associateBy { it.internalId }
 }

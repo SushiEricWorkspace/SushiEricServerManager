@@ -4,9 +4,11 @@ import io.github.sushiericworkspace.sushiericservermanager.app.AppScreen
 import io.github.sushiericworkspace.sushiericservermanager.app.NotificationState
 import io.github.sushiericworkspace.sushiericservermanager.editor.session.EditorSession
 import io.github.sushiericworkspace.sushiericservermanager.editor.render.ItemPreviewService
+import io.github.sushiericworkspace.sushiericservermanager.editor.main.recipe.recipeDataReview
 import io.github.sushiericworkspace.sushiericservermanager.editor.merge.ConflictValueFormatter
 import io.github.sushiericworkspace.sushiericservermanager.editor.merge.DataFieldPath
 import io.github.sushiericworkspace.sushiericservermanager.editor.service.EditorDocumentKey
+import io.github.sushiericworkspace.sushiericservermanager.editor.store.EditorDataDescriptors
 import javafx.beans.binding.Bindings
 import javafx.event.ActionEvent
 import javafx.event.EventHandler
@@ -30,6 +32,7 @@ internal object SavedUploadDialog {
         val unknownChoice = CheckBox("比較元がない文書の内容と宛先を確認しました").apply { isSelected = !unknown }
         val groups = linkedMapOf<Pair<EditorDocumentKey, DataFieldPath>, ToggleGroup>()
         val rows = VBox(12.0)
+        val refreshPlans = mutableListOf<() -> Unit>()
         rows.children += Label("宛先: " + targetName)
         rows.children += Label("編集中の未保存内容は送信しません。対象文書だけを固定し、他の文書は操作できます。").apply { isWrapText = true }
         preview.candidates.forEach { candidate ->
@@ -44,11 +47,42 @@ internal object SavedUploadDialog {
                 "（" + candidate.targetKey.id + " が未生成のまま不在であることも確認）"
                 else if (source != candidate.targetKey.id) " → " + candidate.targetKey.id else ""
             rows.children += Label(operation + ": " + candidate.targetKey.category + " / " + source + destination)
-            rows.children += previews.review(candidate.previews)
+            val recipe = candidate.recipePreview
+            val planned = VBox(6.0)
+            if (recipe == null) rows.children += previews.review(candidate.previews)
+            else {
+                rows.children.addAll(
+                    recipeDataReview("比較元", recipe.base, null, previews),
+                    recipeDataReview("保存済み", recipe.saved, recipe.localItems, previews),
+                    recipeDataReview("最新サーバー", recipe.latest, recipe.serverItems, previews), planned)
+            }
+            fun refreshPlanned() {
+                if (recipe == null) return
+                val choices = candidate.merge.conflicts.map { groups[candidate.input.key to it.path]?.selectedToggle }
+                val itemConflicts = preview.candidates.filter { it.targetKey.category == EditorDataDescriptors.item.dataType.categoryDirName }.flatMap { item ->
+                    item.merge.conflicts.map { groups[item.input.key to it.path]?.selectedToggle }
+                }
+                if (choices.any { it == null } || itemConflicts.any { it == null }) {
+                    planned.children.setAll(Label("反映予定: 競合値をすべて選択してください"))
+                    return
+                }
+                val local = candidate.merge.conflicts.filterIndexed { index, _ -> choices[index]?.userData == true }.mapTo(mutableSetOf()) { it.path }
+                val paths = preview.candidates.associate { entry ->
+                    entry.input.key to entry.merge.conflicts.filter { conflict ->
+                        groups[entry.input.key to conflict.path]?.selectedToggle?.userData == true
+                    }.mapTo(mutableSetOf()) { it.path }
+                }
+                val items = plannedUploadItems(recipe.serverItems, preview.candidates, paths)
+                val data = recipe.planned(local)
+                planned.children.setAll(if (data == null) Label("反映予定: 文書なし（削除）")
+                    else recipeDataReview("反映予定", data, items, previews))
+            }
+            refreshPlans += ::refreshPlanned
             if (!candidate.baselineKnown) rows.children += Label("サーバー基準未取得: 自動統合しません")
             for (conflict in candidate.merge.conflicts) {
                 val group = ToggleGroup()
                 groups[candidate.input.key to conflict.path] = group
+                group.selectedToggleProperty().addListener { _, _, _ -> refreshPlans.forEach { it() } }
                 rows.children += VBox(6.0,
                     Label(conflict.displayName),
                     Label("比較元: " + ConflictValueFormatter.format(conflict.baseValue)).apply { isWrapText = true },
@@ -64,6 +98,7 @@ internal object SavedUploadDialog {
                     })
             }
         }
+        refreshPlans.forEach { it() }
         if (unknown) rows.children += unknownChoice
         rows.children += Label("確認後のサーバー変更を完全に排除するものではありません。結果不明の工程は再送せず、読戻しで確認します。").apply { isWrapText = true }
         val notifications = EditorSession.notifications

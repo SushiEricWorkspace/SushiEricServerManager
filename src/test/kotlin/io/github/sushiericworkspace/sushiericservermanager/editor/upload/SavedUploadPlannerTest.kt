@@ -1,6 +1,8 @@
 package io.github.sushiericworkspace.sushiericservermanager.editor.upload
 
 import io.github.sushiericworkspace.sushiericdatamodel.data.core.ManagedData
+import io.github.sushiericworkspace.sushiericdatamodel.data.recipe.model.RecipeIngredients
+import io.github.sushiericworkspace.sushiericdatamodel.data.item.model.mutable.MutableItemBaseData
 import io.github.sushiericworkspace.sushiericdatamodel.data.core.identity.VanillaBlockId
 import io.github.sushiericworkspace.sushiericdatamodel.data.drop.model.mutable.MutableDropItemData
 import io.github.sushiericworkspace.sushiericservermanager.editor.service.*
@@ -39,6 +41,33 @@ class SavedUploadPlannerTest {
         val body = access.encodeDocument(value)
         return (access.updateLocalDocument(value.id) { it.copy(editing = body, saved = body, original = body) }
             as StoreResult.Success).value
+    }
+
+    @Test
+    fun requiredItemIsPresentInPlannedRecipeCatalogAndMatchesBuiltPayloadWithoutWrites() {
+        val remote = remote()
+        val service = EditorDataService(remote, root.resolve("server"))
+        val local = service.localService
+        try {
+            val item = local.items.createDefault("new_item")
+            val recipe = local.recipes.createDefault("recipe").apply {
+                ingredients = RecipeIngredients.Shaped(mapOf(0 to item.internalId))
+                resultItemInternalId = item.internalId
+            }
+            saved(local.items, item)
+            val input = saved(local.recipes, recipe)
+            val planner = SavedUploadPlanner(local, service)
+            val preview = (planner.preview(listOf(SavedUploadSelection(input.key))) as StoreResult.Success).value
+            assertEquals(setOf("new_item", "recipe"), preview.candidates.map { it.targetKey.id }.toSet())
+            val projected = plannedUploadItems(emptyMap(), preview.candidates, emptyMap())!!
+            assertEquals(item.internalId, projected.values.single().internalId)
+            val recipePreview = preview.candidates.single { it.recipePreview != null }.recipePreview!!
+            assertEquals(recipe.ingredients, recipePreview.planned(emptySet())!!.ingredients)
+            val operation = (planner.build(preview, emptyMap(), confirmUnknownBaseline = true) as StoreResult.Success).value
+            val writtenItem = service.items.decodeDocument(item.id, operation.steps.single { it.key.id == item.id }.after!!)
+            assertEquals(writtenItem.freeze(), (projected.getValue(item.internalId) as MutableItemBaseData).freeze())
+            assertEquals(0, remote.writes)
+        } finally { service.closeIo(); local.closeIo() }
     }
 
     @Test
@@ -215,6 +244,40 @@ class SavedUploadPlannerTest {
                 assertEquals(0, remote.writes)
             } finally { service.closeIo() }
         }
+    }
+
+    @Test
+    fun renamedThenDeletedItemPreviewUsesTheOldPublicIdWhenServerContentIsSelected() {
+        val remote = remote()
+        val item = EditorDataDescriptors.item.createDefault("a")
+        remote.files.save(EditorDataDescriptors.item, item.id, item)
+        val service = EditorDataService(remote, root.resolve("server"))
+        try {
+            assertTrue(service.items.observeStore("a") is StoreResult.Success)
+            assertTrue(service.store.rename(EditorDataDescriptors.item, "a", "b") is StoreResult.Success)
+            assertTrue(service.store.delete(EditorDataDescriptors.item, "b") is StoreResult.Success)
+            val latest = item.deepCopy().apply { itemDetail.maxStackSize = 32 }
+            remote.files.save(EditorDataDescriptors.item, item.id, latest)
+            val planner = SavedUploadPlanner(service, service)
+            val preview = (planner.preview(listOf(SavedUploadSelection(service.items.documentKey("a")))) as StoreResult.Success).value
+            val candidate = preview.candidates.single()
+            val conflicts = candidate.merge.conflicts.mapTo(mutableSetOf()) { it.path }
+            assertFalse(conflicts.isEmpty())
+            for (choices in listOf(emptySet(), conflicts)) {
+                val paths = mapOf(candidate.input.key to choices)
+                val catalog = plannedUploadItems(mapOf(latest.internalId to latest), preview.candidates, paths)!!
+                val operation = (planner.build(preview, paths) as StoreResult.Success).value
+                val old = operation.steps.single { it.key.id == "a" }
+                assertNull(operation.steps.single { it.key.id == "b" }.after)
+                if (old.after == null) assertTrue(catalog.isEmpty())
+                else {
+                    val written = service.items.decodeDocument("a", old.after)
+                    assertEquals(written.id, catalog.values.single().id)
+                    assertEquals(written.itemDetail.maxStackSize, catalog.values.single().itemDetail.maxStackSize)
+                }
+            }
+            assertEquals(0, remote.writes)
+        } finally { service.closeIo() }
     }
 
     @Test

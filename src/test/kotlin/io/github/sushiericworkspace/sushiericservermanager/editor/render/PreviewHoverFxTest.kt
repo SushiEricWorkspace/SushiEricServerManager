@@ -28,12 +28,14 @@ import javafx.scene.control.Button
 import javafx.scene.control.ContextMenu
 import javafx.scene.control.ListCell
 import javafx.scene.control.Tooltip
+import javafx.scene.control.ScrollPane
 import javafx.scene.control.skin.VirtualFlow
 import javafx.scene.image.ImageView
 import javafx.scene.input.MouseButton
 import javafx.scene.input.MouseEvent
 import javafx.scene.input.PickResult
 import javafx.scene.layout.VBox
+import javafx.scene.layout.Region
 import javafx.stage.Stage
 import javafx.stage.PopupWindow
 import javafx.stage.Window
@@ -95,6 +97,52 @@ class PreviewHoverFxTest {
                 button.localToScene(button.boundsInLocal).intersects(0.0, 0.0, stage.scene.width, stage.scene.height)
         }.toList()
         fun close() { service.close(); clock.stop(); stage.close() }
+    }
+
+    @Test
+    fun preparesTheSameCandidateAfterScrollingIntoViewport() {
+        startFx()
+        var fixture: Fixture? = null
+        var primary: Throwable? = null
+        try {
+            val candidate = item("viewport.same-node", "画面外から同じ候補 日本語 é 𠮷")
+            val (f, target, scroll) = fx {
+                val holder = Fixture(linkedMapOf()).also { fixture = it }
+                val button = Button("同じ候補")
+                val spacer = Region().apply { minHeight = 600.0; prefHeight = 600.0 }
+                val pane = ScrollPane(VBox(spacer, button)).apply {
+                    prefHeight = 160.0; maxHeight = 160.0; isFitToWidth = true
+                }
+                holder.probes.children.setAll(pane)
+                holder.stage.scene.root.applyCss(); holder.stage.scene.root.layout()
+                assertFalse(button.localToScene(button.boundsInLocal).intersects(pane.localToScene(pane.boundsInLocal)))
+                holder.service.installContent(button, ItemPreviewContent.item(candidate), "viewport-same-node")
+                Triple(holder, button, pane)
+            }
+            pulses(f.clock, 2)
+            fx { scroll.content.translateY = -1.0 }
+            pulses(f.clock, 2)
+            fx {
+                scroll.vvalue = 1.0
+                f.stage.scene.root.applyCss(); f.stage.scene.root.layout()
+                assertSame(target, (scroll.content as VBox).children.last())
+                assertTrue(target.localToScene(target.boundsInLocal).intersects(scroll.localToScene(scroll.boundsInLocal)))
+            }
+            pulses(f.clock, 3)
+            val shown = show(target, f)
+            var hoverFailure: Throwable? = null
+            try {
+                fx { assertTrue(assertIs<ImageView>(shown.tooltip.graphic).accessibleText.contains("画面外から同じ候補")) }
+            } catch (error: Throwable) {
+                hoverFailure = error
+                throw error
+            } finally { cleanup(hoverFailure, { hide(target, shown.tooltip) }) }
+        } catch (error: Throwable) {
+            primary = error
+            throw error
+        } finally {
+            cleanup(primary, { fx { fixture?.close() } })
+        }
     }
 
     @Test @Order(1)

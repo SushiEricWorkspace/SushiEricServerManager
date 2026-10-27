@@ -7,9 +7,13 @@ import io.github.sushiericworkspace.sushiericservermanager.editor.merge.DataConf
 import io.github.sushiericworkspace.sushiericservermanager.editor.merge.DataFieldPath
 import io.github.sushiericworkspace.sushiericservermanager.editor.service.EditorDataService
 
-/** 確認画面の選択から送信候補を作ります。ここでは通信先へ作用しません。 */
+/**
+ * 確認画面の選択から送信候補を作る。通信先へは作用しない。
+ * previewWithLocalはdecode済みmergeのコピーだけを返し、encodeやファイルI/Oを行わない。
+ */
 internal class SavedUploadMerge(
     val conflicts: List<DataConflict>,
+    val previewWithLocal: ((Set<DataFieldPath>) -> ManagedData<*, *>?)? = null,
     private val resolve: (Set<DataFieldPath>) -> String?
 ) {
     fun resolveWithLocal(paths: Set<DataFieldPath>): String? = resolve(paths)
@@ -35,7 +39,7 @@ internal object SavedUploadMerges {
         if (identity(before) != identity(saved) || identity(before) != identity(remote))
             return whole(base, local, latest)
         val merged = access.merge(before, saved, remote)
-        return SavedUploadMerge(merged.conflicts) { paths ->
+        return SavedUploadMerge(merged.conflicts, { paths -> merged.resolveWithLocal(paths) }) { paths ->
             access.encodeDocument(merged.resolveWithLocal(paths))
         }
     }

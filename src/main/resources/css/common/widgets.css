@@ -26,3 +26,23 @@
 @import "box.css";
 
 @import "workspace.css";
+
+.recipe-palette-list .scroll-bar:vertical,
+.recipe-palette-list .scroll-bar:horizontal {
+    -fx-pref-width: 0;
+    -fx-pref-height: 0;
+    -fx-max-width: 0;
+    -fx-max-height: 0;
+    -fx-opacity: 0;
+}
+
+.recipe-drop-target {
+    -fx-border-color: -fx-accent;
+    -fx-border-width: 2;
+}
+
+.recipe-review-heading,
+.recipe-board .recipe-board-caption,
+.recipe-palette .recipe-board-caption {
+    -fx-text-fill: -fx-text-color;
+}
