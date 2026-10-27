@@ -12,7 +12,8 @@ import io.github.sushiericworkspace.sushiericservermanager.config.AppSettingsMan
 import io.github.sushiericworkspace.sushiericservermanager.editor.result.ValidationResult
 import io.github.sushiericworkspace.sushiericservermanager.editor.result.dataservice.LoadResult
 import io.github.sushiericworkspace.sushiericservermanager.editor.result.dataservice.RenameResult
-import io.github.sushiericworkspace.sushiericservermanager.editor.render.itemPreviewReviews
+import io.github.sushiericworkspace.sushiericservermanager.editor.main.recipe.recipeDataReview
+import io.github.sushiericworkspace.sushiericdatamodel.data.recipe.model.RecipeDataView
 import io.github.sushiericworkspace.sushiericservermanager.editor.service.ItemReferenceStatus
 import io.github.sushiericworkspace.sushiericservermanager.editor.service.EditorDataService
 import io.github.sushiericworkspace.sushiericservermanager.editor.session.EditorSession
@@ -1640,9 +1641,9 @@ abstract class EditorView<T : ManagedData<T, *>>(
             if (CustomDialog.confirmation().title("すべて保存")
                     .header("以下の変更をまとめてストアへ反映します（${prepared.size} 件）")
                     .content(details).scrollableContent()
-                    .additionalContent(dataService.itemPreviews.review(prepared.flatMap { entry ->
-                        savePreviewEntries(entry.original, entry.previewData)
-                    })).okButton("すべて保存", Color.DODGERBLUE)
+                    .additionalContent(VBox(12.0).apply { prepared.forEach { entry ->
+                        children += savePreviewContent(entry.original, entry.previewData)
+                    } }).okButton("すべて保存", Color.DODGERBLUE)
                     .owner(main.currentStage).show()) persist(0)
             else { notExecuted += prepared.map { it.dataId }; finish() }
         }
@@ -1685,9 +1686,10 @@ abstract class EditorView<T : ManagedData<T, *>>(
         return editing != saved || pendingStoreOperations[id] != null || inputDrafts[documentKey(id)].orEmpty() != savedInputDrafts[documentKey(id)].orEmpty()
     }
 
-    private fun savePreviewEntries(before: T?, current: T) = dataService.itemReferences.snapshot.let { snapshot ->
+    private fun savePreviewContent(before: T?, current: T) = dataService.itemReferences.snapshot.let { snapshot ->
         val items = snapshot.byInternalId.takeIf { snapshot.status == ItemReferenceStatus.READY }
-        itemPreviewReviews("前回保存", before, items) + itemPreviewReviews("編集・保存予定", current, items)
+        VBox(12.0, recipeDataReview("前回保存", before, items, dataService.itemPreviews),
+            recipeDataReview("編集・保存予定", current, items, dataService.itemPreviews))
     }
 
     private fun confirmSaveChanges(prepared: PreparedSave<T>): Boolean {
@@ -1707,7 +1709,7 @@ abstract class EditorView<T : ManagedData<T, *>>(
             .header("以下の変更をローカルに保存します")
             .content(details)
             .scrollableContent()
-            .additionalContent(dataService.itemPreviews.review(savePreviewEntries(prepared.original, prepared.previewData)))
+            .additionalContent(savePreviewContent(prepared.original, prepared.previewData))
             .okButton("保存", Color.DODGERBLUE)
             .owner(main.currentStage)
             .show()
@@ -2614,7 +2616,16 @@ abstract class EditorView<T : ManagedData<T, *>>(
                     val conflictScope = main.notificationScope().copy(target = id)
                     val notifications = EditorSession.notifications
                     if (merged.conflicts.isNotEmpty()) notifications.condition(conflictScope, "fetch-conflict", "取得した内容と編集中データの競合を確認してください。")
-                    val selectedPaths = MergeConflictDialog.show(main.currentStage, id, merged.conflicts)
+                    val content = if (base is RecipeDataView && merged.conflicts.isNotEmpty()) {
+                        val items = dataService.itemReferences.snapshot.let { reference ->
+                            reference.byInternalId.takeIf { reference.status == ItemReferenceStatus.READY }
+                        }
+                        VBox(12.0,
+                            recipeDataReview("取得基準", base, null, dataService.itemPreviews),
+                            recipeDataReview("ローカル編集", current, items, dataService.itemPreviews),
+                            recipeDataReview("最新サーバー", latest, null, dataService.itemPreviews))
+                    } else null
+                    val selectedPaths = MergeConflictDialog.show(main.currentStage, id, merged.conflicts, content)
                         ?: run { finishSync("取得をキャンセルしました", Color.WHITE); return }
                     notifications.resolve(conflictScope, "fetch-conflict")
                     merged.resolveWithLocal(selectedPaths)

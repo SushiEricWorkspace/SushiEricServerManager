@@ -8,6 +8,7 @@ import io.github.sushiericworkspace.sushiericservermanager.editor.view.createPub
 import javafx.geometry.Insets
 import javafx.geometry.Pos
 import javafx.scene.control.ButtonBar
+import javafx.scene.Node
 import javafx.scene.control.ButtonType
 import javafx.scene.control.Button
 import javafx.scene.control.Dialog
@@ -22,10 +23,12 @@ import javafx.scene.shape.Line
 import javafx.stage.Stage
 
 object MergeConflictDialog {
+    /** FXスレッドで競合を確認する。additionalContentは同じ確認画面へ配置する読取用Node。取消はnullを返す。 */
     fun show(
         owner: Stage?,
         dataId: String,
         conflicts: List<DataConflict>,
+        additionalContent: Node? = null,
         formatValue: (Any?) -> String = { ConflictValueFormatter.format(it) }
     ): Set<DataFieldPath>? {
         if (conflicts.isEmpty()) return emptySet()
@@ -33,6 +36,7 @@ object MergeConflictDialog {
         val selection = MergeConflictSelectionModel(conflicts)
         val choiceControls = linkedMapOf<DataFieldPath, ConflictChoiceControls>()
         val conflictList = VBox(10.0).apply {
+            additionalContent?.let { children += it }
             children.addAll(conflicts.map { conflict ->
                 createConflictRow(conflict, selection, formatValue).also { row ->
                     choiceControls[conflict.path] = row.choiceControls

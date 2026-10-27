@@ -3,6 +3,7 @@ package io.github.sushiericworkspace.sushiericservermanager.editor.component
 import io.github.sushiericworkspace.sushiericdatamodel.data.core.ManagedData
 import io.github.sushiericworkspace.sushiericdatamodel.data.core.identity.VanillaBlockId
 import io.github.sushiericworkspace.sushiericdatamodel.data.drop.model.mutable.MutableDropItemData
+import io.github.sushiericworkspace.sushiericdatamodel.data.item.model.ItemBaseDataView
 import io.github.sushiericworkspace.sushiericdatamodel.data.item.model.ItemInternalId
 import io.github.sushiericworkspace.sushiericdatamodel.data.item.model.mutable.MutableItemBaseData
 import io.github.sushiericworkspace.sushiericdatamodel.data.ore.model.mutable.MutableOreBaseData
@@ -14,6 +15,7 @@ import io.github.sushiericworkspace.sushiericservermanager.editor.controller.Mai
 import io.github.sushiericworkspace.sushiericservermanager.editor.main.ore.OreEditorLogic
 import io.github.sushiericworkspace.sushiericservermanager.editor.main.recipe.RecipeEditorLogic
 import io.github.sushiericworkspace.sushiericservermanager.editor.main.shop.ShopEditorLogic
+import io.github.sushiericworkspace.sushiericservermanager.editor.render.PreviewCanvasFxTest
 import io.github.sushiericworkspace.sushiericservermanager.editor.service.EditorDataService
 import io.github.sushiericworkspace.sushiericservermanager.editor.store.*
 import io.github.sushiericworkspace.sushiericservermanager.editor.view.EditorView
@@ -26,12 +28,12 @@ import javafx.scene.control.ButtonType
 import javafx.scene.control.ComboBox
 import javafx.scene.control.DialogPane
 import javafx.scene.control.Label
+import javafx.scene.control.ListView
 import javafx.stage.Stage
 import javafx.stage.Window
 import org.junit.jupiter.api.condition.EnabledOnOs
 import org.junit.jupiter.api.condition.OS
 import java.util.concurrent.CompletableFuture
-import java.util.concurrent.CountDownLatch
 import java.util.concurrent.FutureTask
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicInteger
@@ -94,7 +96,8 @@ class ItemReferenceEditorsTest {
             var ready = false
             while (!ready) {
                 onFxThread {
-                    ready = opened[0].first.scene.root.lookupAll(".button").filterIsInstance<Button>().any { it.text == "アイテムを選択..." } &&
+                    val paletteIds = (opened[1].first.scene.lookup("#recipe-palette-list") as? ListView<*>)?.items?.map { (it as? ItemBaseDataView)?.internalId }
+                    ready = paletteIds == listOf(item.internalId) && opened[0].first.scene.root.lookupAll(".button").filterIsInstance<Button>().any { it.text == "アイテムを選択..." } &&
                         opened[2].first.scene.root.lookupAll(".button").filterIsInstance<Button>().any { it.text.startsWith("ドロップ") } &&
                         opened[3].first.scene.root.lookupAll(".label").filterIsInstance<Label>().any { it.text == "items.first" } &&
                         opened[1].first.scene.lookup("#recipe-result") != null &&
@@ -120,8 +123,8 @@ class ItemReferenceEditorsTest {
                         finally { assertIs<Button>(pane.lookupButton(ButtonType.CANCEL)).fire() }
                     }
                 }
-                cancelDialog { assertNotNull(it.lookup("#item-selection-tree")) }
-                assertIs<Button>(recipe.scene.lookup("#recipe-result")).fire()
+                val palette = assertIs<ListView<*>>(recipe.scene.lookup("#recipe-palette-list"))
+                assertEquals(listOf(item.internalId), palette.items.map { assertIs<ItemBaseDataView>(it).internalId })
                 cancelDialog { pane ->
                     assertEquals(listOf(item.internalId), assertIs<ComboBox<*>>(pane.lookup(".combo-box")).items.toList())
                 }
@@ -158,7 +161,7 @@ class ItemReferenceEditorsTest {
                 service.items.delete("items.renamed")
             }
             onFxThread {
-                assertTrue(assertIs<Button>(opened[1].first.scene.lookup("#recipe-result")).text.startsWith("参照先不明"))
+                assertEquals("参照不明: ${item.internalId.value}", assertIs<Button>(opened[1].first.scene.lookup("#recipe-result")).text)
                 assertTrue(opened.first().first.scene.root.lookupAll(".label").filterIsInstance<Label>().any { it.text == "参照先不明" })
                 assertEquals(2, reads.get())
             }
@@ -226,10 +229,7 @@ class ItemReferenceEditorsTest {
     }
 
     private fun onFxThread(action: () -> Unit) {
-        val started = CountDownLatch(1)
-        try { Platform.startup { Platform.setImplicitExit(false); started.countDown() } }
-        catch (_: IllegalStateException) { started.countDown() }
-        assertTrue(started.await(20, TimeUnit.SECONDS), "JavaFXを起動できませんでした")
+        PreviewCanvasFxTest.startFx()
         val task = FutureTask(action)
         Platform.runLater(task)
         task.get(20, TimeUnit.SECONDS)
