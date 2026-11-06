@@ -1,5 +1,8 @@
 package io.github.sushiericworkspace.sushiericservermanager.editor.main.shop
 
+import io.github.sushiericworkspace.sushiericdatamodel.data.shop.model.ShopProductStock
+import io.github.sushiericworkspace.sushiericservermanager.editor.store.StoreResult
+import io.github.sushiericworkspace.sushiericservermanager.editor.view.PendingStoreOperation
 import io.github.sushiericworkspace.sushiericservermanager.app.WindowSizing
 import io.github.sushiericworkspace.sushiericdatamodel.data.core.validation.SushiEricValidationError
 import io.github.sushiericworkspace.sushiericdatamodel.data.item.model.ItemInternalId
@@ -112,7 +115,7 @@ internal class ShopEditorLogic(main: MainController, dataService: EditorDataServ
         refreshValidation = { refreshItem(); refreshMessages?.invoke() }
         val purchase = priceField(selectData.purchasePrice) { selectData.purchasePrice = it; refresh() }
         val sale = priceField(selectData.salePrice) { selectData.salePrice = it; refresh() }
-        val stock = integerField(selectData.stock, "空欄: 無限在庫") { selectData.stock = it; refresh() }
+        val stock = integerField(selectData.stock, if (dataService.isRemote && selectData.stockBaseline is ShopProductStock.Uninitialized) "未初期化（空欄で登録: 無限在庫）" else "空欄: 無限在庫") { selectData.stock = it; refresh() }
         val order = integerField(selectData.displayOrder, "表示順（空欄: 0）") { selectData.displayOrder = it ?: 0; refresh() }
         val increaseStock = CheckBox("プレイヤーの販売時に有限在庫を増やす").apply {
             isSelected = selectData.increaseStockOnSale
@@ -172,6 +175,26 @@ internal class ShopEditorLogic(main: MainController, dataService: EditorDataServ
         if (merge.conflicts.isEmpty()) return merge.merged
         val local = MergeConflictDialog.show(main.currentStage, dataId, merge.conflicts) ?: return null
         return merge.resolveWithLocal(local)
+    }
+
+
+    internal override fun writeSingleSave(prepared: PreparedSave<MutableShopProductData>): StoreResult<MutableShopProductData?> {
+        val products = dataService.store.shopProducts ?: return super.writeSingleSave(prepared)
+        val data = prepared.saveData?.deepCopy()?.apply {
+            id = prepared.dataId
+            refreshCompleted(validate(itemIds))
+        }
+        val result = when (val operation = prepared.operation) {
+            is PendingStoreOperation.Delete -> products.delete(requireNotNull(prepared.productBaseline))
+            is PendingStoreOperation.Rename ->
+                products.relocate(requireNotNull(prepared.productBaseline), requireNotNull(data))
+            else -> products.save(requireNotNull(data), prepared.productBaseline)
+        }
+        return when (result) {
+            is StoreResult.Success ->
+                StoreResult.Success(data)
+            is StoreResult.Failure -> result
+        }
     }
 
     override fun afterClose() {

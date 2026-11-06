@@ -56,6 +56,9 @@ class ManagedManagementTransport(private val session: ManagedSession) : Manageme
     override fun send(request: ServerManagementRequest): Boolean {
         if (session.state != ManagedSession.State.OPEN) return false
         return when (request) {
+            // 商品DBは監督のwriter接続が必要です（.github #64）。
+            is ServerManagementRequest.DatabaseContextRequest,
+            is ServerManagementRequest.DatabaseProductRequest -> false
             is ServerManagementRequest.CommandExecute,
             is ServerManagementRequest.MoneyHistorySave,
             is ServerManagementRequest.AchievementSave,

@@ -1,9 +1,11 @@
 package io.github.sushiericworkspace.sushiericservermanager.editor.store
 
+import io.github.sushiericworkspace.sushiericservermanager.editor.shop.ShopEditorStore
 import io.github.sushiericworkspace.sushiericdatamodel.data.core.ManagedData
 
 interface EditorDataStore {
     val kind: EditorDataStoreKind
+    val shopProducts: ShopEditorStore? get() = null
     val identity: String
     /** ローカル取り込み元の隔離領域。nullの場合はアプリ共通のオフライン領域を使います。 */
     val offlineDirectory: java.io.File? get() = null

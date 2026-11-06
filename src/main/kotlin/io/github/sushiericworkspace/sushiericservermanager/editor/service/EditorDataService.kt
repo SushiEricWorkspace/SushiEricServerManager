@@ -1,5 +1,10 @@
 package io.github.sushiericworkspace.sushiericservermanager.editor.service
 
+import io.github.sushiericworkspace.sushiericservermanager.editor.shop.ShopEditorStore
+import io.github.sushiericworkspace.sushiericservermanager.editor.shop.ShopSaveSession
+import io.github.sushiericworkspace.sushiericservermanager.editor.shop.ManagementShopTransport
+import io.github.sushiericworkspace.sushiericservermanager.communication.management.ServerManagementClient
+import java.util.UUID
 import io.github.sushiericworkspace.sushiericdatamodel.data.core.SushiEricDataType
 import io.github.sushiericworkspace.sushiericdatamodel.data.core.ManagedData
 import io.github.sushiericworkspace.sushiericdatamodel.data.core.identity.PublicId
@@ -48,6 +53,17 @@ class EditorDataService(
     val autoSaveDirectory: File = FilePath.AUTOSAVE_DIR.toFile()
 ) {
     constructor(ssh: SshManager) : this(RemoteEditorDataStore(ssh))
+
+    constructor(ssh: SshManager, management: ServerManagementClient) : this(
+        RemoteEditorDataStore(ssh, ShopEditorStore(
+            ShopSaveSession(
+                ManagementShopTransport(management),
+                FilePath.AUTOSAVE_DIR.toFile().resolve("shop-pending").resolve(UUID.nameUUIDFromBytes(
+                    requireNotNull(ssh.currentProfile).let { "${it.host}:${it.port}:${it.user}:${it.path}" }.toByteArray(Charsets.UTF_8)
+                ).toString() + ".json").toPath()
+            ), writable = { ssh.compatibility.writable }
+        ))
+    )
 
     private val ioLock = Any()
     val store: EditorDataStore = SerializedEditorDataStore(store, ioLock)

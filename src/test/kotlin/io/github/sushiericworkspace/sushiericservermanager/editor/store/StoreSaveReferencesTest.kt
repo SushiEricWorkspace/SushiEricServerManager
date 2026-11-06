@@ -66,7 +66,7 @@ class StoreSaveReferencesTest {
     }
 
     @Test
-    fun `通常リモートで鉱石とショップは毎回最新参照を取得して削除を検出する`() {
+    fun `通常リモートで鉱石は毎回最新参照を取得して削除を検出する`() {
         val store = spy(RemoteEditorDataStore(remote()))
         val item = EditorDataDescriptors.item.createDefault("reference")
         val resource = StoreResource(item.id, "reference.yml", "item_data/stats/reference.yml")
@@ -76,20 +76,15 @@ class StoreSaveReferencesTest {
             id = "ore", blockId = VanillaBlockId("iron_ore"),
             mutableDropItems = mutableListOf(MutableDropItemData(itemId = item.internalId))
         )
-        val shop = MutableShopProductData("weapons.product", item.internalId, 100, 50, 12, true, 3)
         assertIs<StoreResult.Success<Unit>>(store.save(EditorDataDescriptors.ore, ore.id, ore))
-        assertIs<StoreResult.Success<Unit>>(store.save(EditorDataDescriptors.shop, shop.id, shop))
         assertTrue(ore.completed)
-        assertTrue(shop.completed)
-        verify(store, times(2)).list(EditorDataDescriptors.item)
-        verify(store, times(2)).load(EditorDataDescriptors.item, item.id)
+        verify(store, times(1)).list(EditorDataDescriptors.item)
+        verify(store, times(1)).load(EditorDataDescriptors.item, item.id)
         doReturn(StoreResult.Success(emptyList<StoreResource>())).`when`(store).list(EditorDataDescriptors.item)
         clearInvocations(store)
         assertIs<StoreResult.Success<Unit>>(store.save(EditorDataDescriptors.ore, ore.id, ore))
-        assertIs<StoreResult.Success<Unit>>(store.save(EditorDataDescriptors.shop, shop.id, shop))
         assertFalse(ore.completed)
-        assertFalse(shop.completed)
-        verify(store, times(2)).list(EditorDataDescriptors.item)
+        verify(store, times(1)).list(EditorDataDescriptors.item)
         verify(store, never()).load(EditorDataDescriptors.item, item.id)
     }
 
@@ -148,4 +143,35 @@ class StoreSaveReferencesTest {
         doReturn(true).`when`(ssh).isSftpActive
         doReturn(ManagerCompatibility.Compatible("0.1.0")).`when`(ssh).compatibility
     }
+    @Test
+    fun `商品raw書込みは大小文字にかかわらず拒否し隣接名の通常ファイルは保存できる`() {
+        val ssh = remote()
+        val store = RemoteEditorDataStore(ssh)
+        for (path in listOf("shop_data", "SHOP_DATA", "Shop_Data/weapons/product.yml", "SHOP_DATA/weapons/product.yml")) {
+            assertEquals(StoreErrorCode.UNSUPPORTED_FORMAT,
+                assertIs<StoreResult.Failure>(store.writeText(path, "保持")).error.code)
+        }
+        verify(ssh, never()).upload(anyString(), anyString())
+        assertIs<StoreResult.Success<Unit>>(store.writeText("shop_database/settings.yml", "保持"))
+        verify(ssh, times(1)).upload(anyString(), anyString())
+    }
+
+    @Test
+    fun `通常リモートの商品はDB接続なしでSFTPへ保存しない`() {
+        val ssh = remote()
+        val store = RemoteEditorDataStore(ssh)
+        val item = EditorDataDescriptors.item.createDefault("reference")
+        val shop = MutableShopProductData("weapons.product", item.internalId, 100, 50, 12)
+        assertEquals(StoreErrorCode.STORE_UNAVAILABLE,
+            assertIs<StoreResult.Failure>(store.save(EditorDataDescriptors.shop, shop.id, shop)).error.code)
+        assertIs<StoreResult.Failure>(store.writeText("shop_data/weapons/product.yml", "保持"))
+        assertIs<StoreResult.Failure>(store.rename(EditorDataDescriptors.shop, shop.id, "next"))
+        assertIs<StoreResult.Failure>(store.delete(EditorDataDescriptors.shop, shop.id))
+        assertIs<StoreResult.Failure>(store.deleteDirectory(EditorDataDescriptors.shop, "weapons"))
+        verify(ssh, never()).upload(anyString(), anyString())
+        verify(ssh, never()).rename(anyString(), anyString())
+        verify(ssh, never()).remove(anyString())
+        verify(ssh, never()).removeDirectory(anyString())
+    }
+
 }

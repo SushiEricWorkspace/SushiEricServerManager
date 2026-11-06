@@ -1,6 +1,8 @@
 package io.github.sushiericworkspace.sushiericservermanager.communication.management
 
 import kotlinx.serialization.SerialName
+import io.github.sushiericworkspace.sushiericdatamodel.database.host.HostAdapterRequest
+import io.github.sushiericworkspace.sushiericdatamodel.database.host.HostAdapterResponse
 import kotlinx.serialization.Serializable
 
 /**
@@ -18,6 +20,13 @@ sealed interface ServerManagementMessage
  */
 @Serializable
 sealed interface ServerManagementRequest : ServerManagementMessage {
+    @Serializable @SerialName("database_context_request")
+    data class DatabaseContextRequest(val nonce: String? = null) : ServerManagementRequest
+
+    @Serializable @SerialName("database_product_request")
+    data class DatabaseProductRequest(val binding: ManagementDatabaseBinding, val request: HostAdapterRequest,
+        val nonce: String? = null) : ServerManagementRequest
+
 
     /**
      * 接続確認の要求です。
@@ -115,6 +124,16 @@ sealed interface ServerManagementRequest : ServerManagementMessage {
  */
 @Serializable
 sealed interface ServerManagementResponse : ServerManagementMessage {
+    @Serializable @SerialName("database_context")
+    data class DatabaseContext(val success: Boolean, val binding: ManagementDatabaseBinding? = null,
+        val detail: String? = null, val nonce: String? = null,
+        val rejectedBeforeEffect: Boolean = false) : ServerManagementResponse {
+        init { require(!success || !rejectedBeforeEffect) }
+    }
+
+    @Serializable @SerialName("database_product_result")
+    data class DatabaseProductResult(val response: HostAdapterResponse, val nonce: String? = null) : ServerManagementResponse
+
 
     /**
      * 接続確認への応答です。
