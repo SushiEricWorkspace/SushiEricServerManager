@@ -42,7 +42,9 @@ data class ServerProfile(
      * 画面で選んだ値を保持し、次にコンソールを開いたときへ引き継ぎます。
      * レベルの解釈は表示側が行うため、ここでは文字列のまま保持します。
      */
-    val consoleLogLevel: String = DEFAULT_CONSOLE_LOG_LEVEL
+    val consoleLogLevel: String = DEFAULT_CONSOLE_LOG_LEVEL,
+    /** Management未接続時に使う、配備・照合済み同一ホストD3 CLI。 */
+    val databaseHistory: DatabaseHistoryHost? = null
 ) {
     fun resolvedAuthenticationType(): AuthenticationType =
         AuthenticationType.fromStoredValue(authenticationType)
@@ -69,6 +71,10 @@ data class ServerProfile(
         const val DEFAULT_CONSOLE_LOG_LEVEL: String = "INFO"
     }
 }
+
+/** commandLineは固定Java 21 runtimeと絶対world/shop pathを指し、秘密情報を含めません。 */
+@Serializable
+data class DatabaseHistoryHost(val worldUuid: String, val commandLine: String)
 
 object SettingConfigManager : JsonFileHandler<ServerConfig>(
     FilePath.SERVER_PROFILES,

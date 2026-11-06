@@ -1,5 +1,6 @@
 package io.github.sushiericworkspace.sushiericservermanager.editor.store
 
+import io.github.sushiericworkspace.sushiericservermanager.feature.moneyhistory.HistorySource
 import io.github.sushiericworkspace.sushiericdatamodel.data.core.ManagedData
 import io.github.sushiericworkspace.sushiericdatamodel.data.core.identity.PublicId
 import io.github.sushiericworkspace.sushiericdatamodel.data.item.model.ItemInternalId
@@ -11,15 +12,26 @@ import java.nio.file.Files
 import java.nio.file.StandardCopyOption
 
 class LocalEditorDataStore(
-    rootDirectory: File
+    rootDirectory: File,
+    historySource: HistorySource? = null
 ) : EditorDataStore {
     private val rootDirectory = rootDirectory.canonicalFile
     private val logger = LoggerFactory.getLogger(javaClass)
+    private val configuredHistorySource = historySource
+    override val historySource: HistorySource?
+        get() {
+            configuredHistorySource?.let { return it }
+            check(!rootDirectory.resolve("server.sqlite").exists() && !rootDirectory.resolve("world-id").exists()) {
+                "DB済みworldの履歴にはworldとshop_dataを指定した読取接続が必要です。"
+            }
+            return null
+        }
 
     override val kind: EditorDataStoreKind = EditorDataStoreKind.LOCAL
     override val identity: String = "offline"
     override val isAvailable: Boolean
-        get() = rootDirectory.exists() || rootDirectory.mkdirs()
+        get() = if (configuredHistorySource != null) rootDirectory.isDirectory
+            else rootDirectory.exists() || rootDirectory.mkdirs()
 
     fun ensureDirectories(): StoreResult<Unit> {
         return try {

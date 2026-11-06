@@ -8,7 +8,7 @@ import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 
 /**
- * 入出金履歴の種別です。ServerModの`MoneyTransactionType`の列挙名と同じ名前で、履歴ファイルの`type`に保存されます。
+ * 入出金履歴の種別です。DataModelの`MoneyEntryType`と同じ名前で、DB履歴から変換します。
  *
  * [displayName]は、画面とServerModの`/se money history`で共通の表示名です。
  */
@@ -19,7 +19,8 @@ internal enum class MoneyHistoryType(val displayName: String) {
     ADMIN_ADD("管理者加算"),
     ADMIN_REMOVE("管理者減算"),
     SHOP_BUY("ショップ購入"),
-    SHOP_SELL("ショップ販売")
+    SHOP_SELL("ショップ販売"),
+    UPGRADE("強化")
 }
 
 /** 入出金履歴1件の表示用の行です。 */
@@ -32,7 +33,8 @@ internal data class MoneyHistoryRow(
     val balanceAfter: Long,
     val counterparty: String?,
     val executor: String?,
-    val reason: String?
+    val reason: String?,
+    val exempt: Boolean = false
 )
 
 /** 入出金履歴の時刻の表示形式です。 */

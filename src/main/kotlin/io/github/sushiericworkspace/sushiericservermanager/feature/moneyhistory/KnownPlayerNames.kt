@@ -46,15 +46,21 @@ internal class HistoryPlayer(val uuid: String, var displayName: String) {
     override fun toString(): String = "$displayName ($uuid)"
 }
 
-/** 履歴や外部プロフィールを取得せず、サーバーのキャッシュとUUIDだけで一覧を作ります。 */
-internal fun readHistoryPlayers(store: EditorDataStore, logger: Logger): List<HistoryPlayer> {
+/** DBの記録名とusercache、既存プレイヤーディレクトリをUUIDで統合します。外部プロフィールは取得しません。 */
+internal fun readHistoryPlayers(store: EditorDataStore, logger: Logger,
+    source: HistorySource? = null): List<HistoryPlayer> {
     val names = readKnownPlayerNames(store, logger)
+    val recorded = source?.readAll()?.flatMap { it.players }?.groupBy { it.uuid }.orEmpty()
     val directories = when (val result = store.listPath("player_data")) {
         is StoreResult.Success -> result.value
-        is StoreResult.Failure -> error("プレイヤー一覧を取得できません: ${result.error.code}")
+        is StoreResult.Failure -> if (result.error.code == StoreErrorCode.FILE_NOT_FOUND) emptyList()
+            else error("プレイヤー一覧を取得できません: ${result.error.code}")
     }
-    return directories.filter { it.isDirectory }.mapNotNull { entry ->
-        val uuid = runCatching { UUID.fromString(entry.name).toString() }.getOrNull() ?: return@mapNotNull null
-        HistoryPlayer(uuid, names[uuid] ?: uuid)
+    val directoryIds = directories.filter { it.isDirectory }.mapNotNull { entry ->
+        runCatching { UUID.fromString(entry.name).toString() }.getOrNull()
+    }
+    val ids = if (source == null) directoryIds else (directoryIds + names.keys + recorded.keys).distinct()
+    return ids.map { uuid ->
+        HistoryPlayer(uuid, names[uuid] ?: recorded[uuid]?.firstNotNullOfOrNull { it.name } ?: uuid)
     }.sortedBy(HistoryPlayer::displayName)
 }
