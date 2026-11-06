@@ -280,7 +280,7 @@ class EditController : Initializable {
                 list = replaceServerProfilePreservingOrder(
                     profiles = current.list,
                     originalName = originalProfile.name,
-                    replacement = profile
+                    replacement = profile.copy(databaseHistory = originalProfile.databaseHistory)
                 )
             )
         )

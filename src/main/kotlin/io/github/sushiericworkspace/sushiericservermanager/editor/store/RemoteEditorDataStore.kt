@@ -2,6 +2,8 @@ package io.github.sushiericworkspace.sushiericservermanager.editor.store
 
 import io.github.sushiericworkspace.sushiericservermanager.editor.shop.ShopEditorStore
 import io.github.sushiericworkspace.sushiericdatamodel.data.shop.model.mutable.MutableShopProductData
+import io.github.sushiericworkspace.sushiericservermanager.feature.moneyhistory.SshHistorySource
+import io.github.sushiericworkspace.sushiericservermanager.feature.moneyhistory.HistorySource
 import io.github.sushiericworkspace.sushiericdatamodel.path.SushiEricDataDirectory
 import io.github.sushiericworkspace.sushiericdatamodel.data.core.ManagedData
 import io.github.sushiericworkspace.sushiericdatamodel.data.core.identity.PublicId
@@ -22,6 +24,16 @@ class RemoteEditorDataStore(
     private val logger = LoggerFactory.getLogger(javaClass)
 
     override val kind: EditorDataStoreKind = EditorDataStoreKind.REMOTE
+    override val connectionIdentity: Any get() = ssh.sshClient ?: ssh
+
+    override val historySource: HistorySource?
+        get() = ssh.currentProfile?.databaseHistory?.let { configuration ->
+            val client = requireNotNull(ssh.sshClient) { "SSH接続が終了しました。" }
+            SshHistorySource({
+                check(ssh.sshClient === client && client.isConnected) { "検索元のSSH接続が終了・変更されました。" }
+                client
+            }, configuration.commandLine, configuration.worldUuid)
+        }
 
     override val identity: String
         get() = ssh.currentProfile?.name ?: "remote"

@@ -20,6 +20,7 @@ class ServerManagementClient(
     private val tunnelService: SshTunnelService = SshTunnelService()
 ) {
     private val logger = LoggerFactory.getLogger(javaClass)
+    internal val historySearchLock = java.util.concurrent.locks.ReentrantLock()
 
     private val stateListeners =
         CopyOnWriteArrayList<(ServerManagementState) -> Unit>()
@@ -31,6 +32,7 @@ class ServerManagementClient(
     private var connection: ServerManagementConnection? = null
     private var transport: ManagementTransport? = null
     @Volatile private var connectionId = UUID.randomUUID()
+    internal val connectionGeneration: UUID get() = connectionId
 
     /** 現在の接続状態です。 */
     @Volatile

@@ -1,5 +1,10 @@
 package io.github.sushiericworkspace.sushiericservermanager.feature.moneyhistory
 
+import io.github.sushiericworkspace.sushiericdatamodel.database.host.*
+import javafx.scene.control.Button
+import javafx.scene.control.ToggleButton
+import javafx.scene.control.TextField
+import io.github.sushiericworkspace.sushiericdatamodel.database.TransactionKind
 import io.github.sushiericworkspace.sushiericservermanager.communication.management.ServerManagementClient
 import io.github.sushiericworkspace.sushiericservermanager.communication.management.ManagementTransport
 import io.github.sushiericworkspace.sushiericservermanager.communication.management.ServerManagementListener
@@ -161,24 +166,11 @@ class HistoryLoadingViewTest {
     }
 
     @Test
-    fun `選択したプレイヤーのサーバー保存を待って読み込み再読み込みも保存要求する`() {
+    fun `DB接続中はYAMLを読まず再読込で新しい検索を開き切断で行を消す`() {
         startFx()
-        val requests = CopyOnWriteArrayList<ServerManagementRequest.MoneyHistorySave>()
-        lateinit var listener: ServerManagementListener
-        val client = ServerManagementClient()
-        assertTrue(client.connect(object : ManagementTransport {
-            override fun connect(receiver: ServerManagementListener, timeout: Duration): Int {
-                listener = receiver
-                return 12345
-            }
-            override fun send(request: ServerManagementRequest): Boolean {
-                requests += request as ServerManagementRequest.MoneyHistorySave
-                return true
-            }
-            override fun disconnect() = Unit
-        }))
+        val fake = HistoryManagementFixture()
         val reads = CopyOnWriteArrayList<String>()
-        val memory = playerStore()
+        val memory = InMemoryEditorDataStore()
         val store = object : EditorDataStore by memory {
             override fun readText(relativePath: String): StoreResult<String> {
                 if (relativePath.contains("money_history")) reads += relativePath
@@ -191,35 +183,120 @@ class HistoryLoadingViewTest {
             val root = loader.load<Parent>()
             controller = loader.getController()
             controller.playerNameLookup = PlayerNameLookup { null }
-            controller.initialize(store, client)
+            controller.initialize(store, fake.client)
             Stage().apply { scene = Scene(root, 1100.0, 640.0); show() }
         }
         try {
-            awaitFx { requests.size == 1 }
+            awaitFx { table(stage).items.size == 2 }
             assertTrue(reads.isEmpty())
-            onFx {
-                assertTrue((content(stage).lookup("#statusLabel") as Label).text.contains("サーバー保存"))
-                selector(stage).selectionModel.select(1)
-            }
-            awaitFx { requests.size == 2 }
-            listener.onMessage(ServerManagementResponse.MoneyHistorySaveResult(true, nonce = requests[1].nonce))
-            awaitFx { table(stage).items.isNotEmpty() }
-            assertEquals(listOf("player_data/$SECOND/money_history/day.yml"), reads.toList())
-            listener.onMessage(ServerManagementResponse.MoneyHistorySaveResult(false, detail = "古い選択の失敗", nonce = requests[0].nonce))
+            val ends = fake.ends
             onFx { controller.reloadSelected() }
-            awaitFx { requests.size == 3 }
-            assertEquals(SECOND, requests.last().playerUuid)
-            listener.onMessage(ServerManagementResponse.MoneyHistorySaveResult(true, nonce = requests.last().nonce))
-            awaitFx { table(stage).items.isNotEmpty() && reads.size == 2 }
-            onFx {
-                assertEquals(SECOND, (selector(stage).value as HistoryPlayer).uuid)
-                assertEquals(2L, (table(stage).items.single() as MoneyHistoryRow).amount)
-                assertTrue((content(stage).lookup("#statusLabel") as Label).text.contains("件"))
-            }
+            awaitFx { table(stage).items.size == 2 && fake.ends > ends }
+            assertTrue(reads.isEmpty())
+            fake.listener.onClosed(1006, "検証切断")
+            awaitFx { table(stage).items.isEmpty() }
         } finally {
-            requests.forEach { listener.onMessage(ServerManagementResponse.MoneyHistorySaveResult(false, nonce = it.nonce)) }
             onFx { controller.dispose(); stage.close() }
-            client.disconnect()
+            fake.client.disconnect()
+        }
+    }
+
+    @Test
+    fun `ショップDB履歴を商品部分一致とUUID表示で確認し再読込で新しい集合を取得する`() {
+        startFx()
+        val starts = java.util.concurrent.atomic.AtomicInteger()
+        val memory = playerStore()
+        val rows = listOf("tab.Ä商品", "tab.other").mapIndexed { index, product ->
+            historyRecord(index + 1L).copy(kind = TransactionKind.SHOP_BUY,
+                trade = HostShopTrade(FIRST, product, 2, 10))
+        }
+        val source = HostHistorySource(java.util.UUID.randomUUID().toString()) { request ->
+            assertFalse(Platform.isFxApplicationThread())
+            val result = when (val action = request.action) {
+                HostAdapterAction.HistoryStart -> {
+                    starts.incrementAndGet()
+                    HostAdapterResult.Snapshot(
+                        HostHistorySnapshot(2, emptyList()))
+                }
+                is HostAdapterAction.HistoryPage ->
+                    HostAdapterResult.History(if (action.offset == 0) rows else emptyList())
+                else -> error("履歴検索以外の要求です。")
+            }
+            HostAdapterResponse(requestId = request.requestId,
+                status = HostAdapterStatus.SUCCESS, result = result)
+        }
+        val store = object : EditorDataStore by memory {
+            override val historySource = source
+            override fun readText(relativePath: String): StoreResult<String> = error("DB履歴でYAMLを取得しました。")
+        }
+        lateinit var view: ShopHistoryView
+        var originalUuidDisplay = false
+        val stage = onFx {
+            view = ShopHistoryView(store, ServerManagementClient())
+            Stage().apply { scene = Scene(view, 1100.0, 640.0); show() }.also {
+                originalUuidDisplay = (view.lookup(".toggle-button") as ToggleButton).isSelected
+            }
+        }
+        fun shopTable() = view.lookup(".table-view") as TableView<*>
+        try {
+            awaitFx { shopTable().items.size == 2 }
+            onFx {
+                view.lookupAll(".text-field").filterIsInstance<TextField>()
+                    .single { it.promptText == "商品IDで絞り込み" }.text = "ä商品"
+            }
+            awaitFx { shopTable().items.size == 1 }
+            onFx {
+                val toggle = view.lookup(".toggle-button") as ToggleButton
+                if (!toggle.isSelected) toggle.fire()
+                val table = shopTable()
+                assertEquals(FIRST, table.columns[3].getCellObservableValue(0).value)
+                view.lookupAll(".button").filterIsInstance<Button>().single { it.text == "更新" }.fire()
+            }
+            awaitFx { shopTable().items.size == 1 && starts.get() == 2 }
+        } finally { onFx {
+            val toggle = view.lookup(".toggle-button") as ToggleButton
+            if (toggle.isSelected != originalUuidDisplay) toggle.fire()
+            view.dispose(); stage.close()
+        } }
+    }
+
+    @Test
+    fun `同じ取得元名でも再接続前の履歴応答を画面へ反映しない`() {
+        startFx()
+        val memory = playerStore()
+        val connection = AtomicReference<Any>(Any())
+        val started = CountDownLatch(1)
+        val release = CountDownLatch(1)
+        val worker = AtomicReference<Thread>()
+        val store = object : EditorDataStore by memory {
+            override val connectionIdentity: Any get() = connection.get()
+            override fun readText(relativePath: String): StoreResult<String> {
+                if (relativePath.contains("money_history")) {
+                    worker.set(Thread.currentThread()); started.countDown()
+                    assertTrue(release.await(10, TimeUnit.SECONDS))
+                }
+                return memory.readText(relativePath)
+            }
+        }
+        lateinit var controller: MoneyHistoryController
+        val stage = onFx {
+            val loader = FXMLLoader(javaClass.getResource("/fxml/moneyhistory/money-history.fxml"))
+            val root = loader.load<Parent>()
+            controller = loader.getController()
+            controller.playerNameLookup = PlayerNameLookup { null }
+            controller.initialize(store, ServerManagementClient())
+            Stage().apply { scene = Scene(root, 1100.0, 640.0); show() }
+        }
+        try {
+            assertTrue(started.await(10, TimeUnit.SECONDS))
+            connection.set(Any()); release.countDown()
+            worker.get().join(10_000)
+            assertFalse(worker.get().isAlive)
+            awaitFx { (content(stage).lookup("#statusLabel") as Label).text.contains("取得元") }
+            onFx { assertTrue(table(stage).items.isEmpty()) }
+        } finally {
+            release.countDown()
+            onFx { controller.dispose(); stage.close() }
         }
     }
 
