@@ -16,6 +16,22 @@ import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
 
 class ShopEditorDataTest {
+    @Test
+    fun `id欠落の編集backupは在庫や比較基準を捨てて通常定義へ読み替えない`() {
+        val root = createTempDirectory("shop-missing-backup-id").toFile()
+        try {
+            val file = root.resolve("shop_data/weapons/product.yml")
+            file.parentFile.mkdirs()
+            val store = LocalEditorDataStore(root)
+            for (baseline in listOf("revision: invalid", "quantity: 4\n  revision: 7")) {
+                val yaml = "item-internal-id: missing-item\npurchase-price: 100\nstock: 4\nstock-baseline:\n  $baseline\n"
+                file.writeText(yaml)
+                assertIs<StoreResult.Failure>(store.load(EditorDataDescriptors.shop, "weapons.product"))
+                assertEquals(yaml, file.readText())
+            }
+        } finally { root.deleteRecursively() }
+    }
+
     private val item = ItemInternalId("missing-item")
     private fun product() = MutableShopProductData("weapons.swords.test", item, 100, 50, 12, true, 3)
 

@@ -144,6 +144,19 @@ class StoreSaveReferencesTest {
         doReturn(ManagerCompatibility.Compatible("0.1.0")).`when`(ssh).compatibility
     }
     @Test
+    fun `商品raw書込みは大小文字にかかわらず拒否し隣接名の通常ファイルは保存できる`() {
+        val ssh = remote()
+        val store = RemoteEditorDataStore(ssh)
+        for (path in listOf("shop_data", "SHOP_DATA", "Shop_Data/weapons/product.yml", "SHOP_DATA/weapons/product.yml")) {
+            assertEquals(StoreErrorCode.UNSUPPORTED_FORMAT,
+                assertIs<StoreResult.Failure>(store.writeText(path, "保持")).error.code)
+        }
+        verify(ssh, never()).upload(anyString(), anyString())
+        assertIs<StoreResult.Success<Unit>>(store.writeText("shop_database/settings.yml", "保持"))
+        verify(ssh, times(1)).upload(anyString(), anyString())
+    }
+
+    @Test
     fun `通常リモートの商品はDB接続なしでSFTPへ保存しない`() {
         val ssh = remote()
         val store = RemoteEditorDataStore(ssh)

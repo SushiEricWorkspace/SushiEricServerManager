@@ -118,7 +118,7 @@ object EditorDataDescriptors {
             if (!file.isFile) null else {
                 val source = file.inputStream().use { Yaml().load<Any?>(it) }
                 if (source !is Map<*, *>) null
-                else if (source.containsKey("id")) ShopManager.loadEditorBackup(file, emptySet())
+                else if (source.containsKey("id") || source.containsKey("stock-baseline")) ShopManager.loadEditorBackup(file, emptySet())
                 else ShopManager.loadMutableProduct(file, directory, emptySet())
             }
         },

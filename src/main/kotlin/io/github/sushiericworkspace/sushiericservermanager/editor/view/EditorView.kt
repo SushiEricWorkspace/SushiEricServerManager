@@ -929,7 +929,7 @@ abstract class EditorView<T : ManagedData<T, *>>(
             persist(prepared)
         }
 
-        if (operation is PendingStoreOperation.Delete && dataService.store.shopProducts != null) {
+        if (operation is PendingStoreOperation.Delete && dataAccess.descriptor == EditorDataDescriptors.shop && dataService.store.shopProducts != null) {
             saveStep({
                 val loaded = dataAccess.load(sourceId)
                 loaded to dataService.store.shopProducts?.snapshot(sourceId)
@@ -1231,7 +1231,7 @@ abstract class EditorView<T : ManagedData<T, *>>(
                 is PendingStoreOperation.Rename -> operation.sourceId
                 else -> entry.dataId
             }
-            if (operation is PendingStoreOperation.Delete && dataService.store.shopProducts != null) {
+            if (operation is PendingStoreOperation.Delete && dataAccess.descriptor == EditorDataDescriptors.shop && dataService.store.shopProducts != null) {
                 saveStep({
                     val loaded = dataAccess.load(sourceId)
                     loaded to dataService.store.shopProducts?.snapshot(sourceId)

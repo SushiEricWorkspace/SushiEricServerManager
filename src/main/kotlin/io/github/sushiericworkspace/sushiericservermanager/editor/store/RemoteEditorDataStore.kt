@@ -71,7 +71,7 @@ class RemoteEditorDataStore(
 
     override fun writeText(relativePath: String, text: String): StoreResult<Unit> {
         writeDenied()?.let { return it }
-        if (relativePath == "shop_data" || relativePath.startsWith("shop_data/")) {
+        if (relativePath.equals("shop_data", ignoreCase = true) || relativePath.startsWith("shop_data/", ignoreCase = true)) {
             return failure(StoreErrorCode.UNSUPPORTED_FORMAT, relativePath, "商品定義と在庫はD3で保存してください。")
         }
         val remotePath = resolveRemotePath(relativePath)

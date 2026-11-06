@@ -11,6 +11,8 @@ import io.github.sushiericworkspace.sushiericservermanager.editor.controller.Mai
 import io.github.sushiericworkspace.sushiericservermanager.editor.component.EditorSpinnerFactory
 import io.github.sushiericworkspace.sushiericservermanager.editor.service.EditorDataService
 import io.github.sushiericworkspace.sushiericservermanager.editor.store.*
+import io.github.sushiericworkspace.sushiericservermanager.editor.shop.ShopEditorStore
+import org.mockito.Mockito
 import javafx.animation.KeyFrame
 import javafx.animation.Timeline
 import javafx.application.Platform
@@ -945,6 +947,7 @@ class EditorSingleSaveTest {
             executeAutoSave { done.complete(it) }
         }
         fun create() { stageDataCreation(current().id) }
+        fun pendingId(id: String): Boolean = hasPendingStoreOperation(id)
         fun pending(): Boolean = hasPendingStoreOperation(current().id)
         var sidebarRefreshes = 0
         fun add(base: T, edit: T) { originalDataMap[base.id] = base; editingDataMap[base.id] = edit }
@@ -967,8 +970,69 @@ class EditorSingleSaveTest {
         override fun resolveSaveConflict(dataId: String, originalData: T, currentData: T, serverData: T): T = currentData
     }
 
+    @Test
+    fun `商品接続があっても他種別の単件削除は商品snapshotを要求しない`() {
+        verifyDeletion(EditorDataDescriptors.item, false)
+        verifyDeletion(EditorDataDescriptors.ore, false)
+        verifyDeletion(EditorDataDescriptors.recipe, false)
+    }
+
+    @Test
+    fun `商品接続があっても他種別の一括削除は商品snapshotを要求しない`() {
+        verifyDeletion(EditorDataDescriptors.item, true)
+        verifyDeletion(EditorDataDescriptors.ore, true)
+        verifyDeletion(EditorDataDescriptors.recipe, true)
+    }
+
+    private fun <T : ManagedData<T, *>> verifyDeletion(descriptor: EditorDataDescriptor<T>, batch: Boolean) = withFixture(descriptor) { fixture ->
+        val products = Mockito.mock(ShopEditorStore::class.java)
+        fixture.store.shopProducts = products
+        fx { fixture.logic.deleteId(fixture.id) }
+        if (batch) {
+            val completed = CompletableFuture<EditorView.BatchSaveResult>()
+            fx { fixture.logic.onSaveAll { completed.complete(it) } }
+            val result = completed.get(15, TimeUnit.SECONDS)
+            assertEquals(EditorView.SaveOutcome.SAVED, result.outcome)
+            assertEquals(listOf(fixture.id), result.saved)
+            assertTrue(result.failed.isEmpty())
+        } else {
+            val completed = CompletableFuture<EditorView.SaveOutcome>()
+            fx { fixture.logic.onSave(fixture.id) { completed.complete(it) } }
+            assertEquals(EditorView.SaveOutcome.SAVED, completed.get(10, TimeUnit.SECONDS))
+        }
+        assertEquals(StoreErrorCode.FILE_NOT_FOUND,
+            assertIs<StoreResult.Failure>(fixture.store.memory.load(descriptor, fixture.id)).error.code)
+        fx { assertFalse(fixture.logic.pendingId(fixture.id)) }
+        assertEquals(0, fixture.store.loads)
+        assertTrue(fixture.store.ioThreads.none { it })
+        Mockito.verifyNoInteractions(products)
+    }
+
+    @Test
+    fun `商品削除は単件と一括のどちらも読取baselineなしでは実行しない`() {
+        for (batch in listOf(false, true)) withFixture(EditorDataDescriptors.shop) { fixture ->
+            val products = Mockito.mock(ShopEditorStore::class.java)
+            fixture.store.shopProducts = products
+            fx { fixture.logic.deleteId(fixture.id) }
+            if (batch) {
+                val completed = CompletableFuture<EditorView.BatchSaveResult>()
+                fx { fixture.logic.onSaveAll { completed.complete(it) } }
+                val result = completed.get(15, TimeUnit.SECONDS)
+                assertTrue(result.saved.isEmpty())
+                assertTrue(fixture.id in result.failed)
+            } else {
+                val completed = CompletableFuture<EditorView.SaveOutcome>()
+                fx { fixture.logic.onSave(fixture.id) { completed.complete(it) } }
+                assertEquals(EditorView.SaveOutcome.FAILED, completed.get(10, TimeUnit.SECONDS))
+            }
+            assertIs<StoreResult.Success<*>>(fixture.store.memory.load(EditorDataDescriptors.shop, fixture.id))
+            fx { assertTrue(fixture.logic.pending()) }
+        }
+    }
+
     private class DelayedStore(val memory: InMemoryEditorDataStore = InMemoryEditorDataStore()) : EditorDataStore by memory {
         override var kind = EditorDataStoreKind.REMOTE
+        override var shopProducts: ShopEditorStore? = null
         val ioThreads = mutableListOf<Boolean>()
         val renames = mutableListOf<String>()
         var beforeSave: (() -> Unit)? = null
