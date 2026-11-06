@@ -300,6 +300,78 @@ class HistoryLoadingViewTest {
         }
     }
 
+    @Test fun `SSH sourceの入出金検索と表示はManagement再試行で中断せずSSH世代変更で消す`() {
+        verifyIndependentSource(false)
+    }
+
+    @Test fun `SSH sourceのショップ検索と表示はManagement再試行で中断せずSSH世代変更で消す`() {
+        verifyIndependentSource(true)
+    }
+
+    private fun verifyIndependentSource(shop: Boolean) {
+        startFx()
+        val client = ServerManagementClient()
+        val entered = CountDownLatch(1)
+        val release = CountDownLatch(1)
+        val connection = AtomicReference<Any>(Any())
+        val memory = InMemoryEditorDataStore()
+        val source = HostHistorySource(java.util.UUID.randomUUID().toString()) { request ->
+            val result = when (val action = request.action) {
+                HostAdapterAction.HistoryStart -> HostAdapterResult.Snapshot(HostHistorySnapshot(1, emptyList()))
+                is HostAdapterAction.HistoryPage -> {
+                    entered.countDown()
+                    assertTrue(release.await(10, TimeUnit.SECONDS))
+                    val row = if (shop) historyRecord().copy(kind = TransactionKind.SHOP_BUY,
+                        trade = HostShopTrade(FIRST, "tab.apple", 2, 10)) else historyRecord()
+                    HostAdapterResult.History(if (action.offset == 0) listOf(row) else emptyList())
+                }
+                else -> error("履歴以外の要求です。")
+            }
+            HostAdapterResponse(requestId = request.requestId, status = HostAdapterStatus.SUCCESS, result = result)
+        }
+        val store = object : EditorDataStore by memory {
+            override val kind = io.github.sushiericworkspace.sushiericservermanager.editor.store.EditorDataStoreKind.REMOTE
+            override val connectionIdentity: Any get() = connection.get()
+            override val historySource = source
+        }
+        val failing = object : ManagementTransport {
+            override fun connect(listener: ServerManagementListener, timeout: Duration): Int = error("Management停止中")
+            override fun disconnect() = Unit
+            override fun send(request: ServerManagementRequest) = false
+        }
+        var controller: MoneyHistoryController? = null
+        var view: ShopHistoryView? = null
+        val stage = onFx {
+            val root = if (shop) ShopHistoryView(store, client).also { view = it } else {
+                val loader = FXMLLoader(javaClass.getResource("/fxml/moneyhistory/money-history.fxml"))
+                loader.load<Parent>().also {
+                    controller = loader.getController<MoneyHistoryController>().apply {
+                        playerNameLookup = PlayerNameLookup { null }
+                        initialize(store, client)
+                    }
+                }
+            }
+            Stage().apply { scene = Scene(root, 1100.0, 640.0); show() }
+        }
+        fun rows() = if (shop) (view!!.lookup(".table-view") as TableView<*>).items else table(stage).items
+        try {
+            assertTrue(entered.await(10, TimeUnit.SECONDS))
+            assertFalse(client.connect(failing))
+            onFx { Unit }
+            release.countDown()
+            awaitFx { rows().isNotEmpty() }
+            assertFalse(client.connect(failing))
+            onFx { assertEquals(1, rows().size) }
+            connection.set(Any())
+            assertFalse(client.connect(failing))
+            awaitFx { rows().isEmpty() }
+        } finally {
+            release.countDown()
+            onFx { controller?.dispose(); view?.dispose(); stage.close() }
+            client.disconnect()
+        }
+    }
+
     private fun playerStore(): InMemoryEditorDataStore = InMemoryEditorDataStore().apply {
         listOf(FIRST, SECOND, THIRD).forEachIndexed { index, uuid ->
             writeText("player_data/$uuid/money_history/day.yml", """

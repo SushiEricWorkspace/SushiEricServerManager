@@ -2,6 +2,7 @@ package io.github.sushiericworkspace.sushiericservermanager.feature.moneyhistory
 
 import io.github.sushiericworkspace.sushiericdatamodel.database.host.*
 import io.github.sushiericworkspace.sushiericservermanager.communication.management.*
+import org.slf4j.LoggerFactory
 import java.util.UUID
 import java.util.concurrent.CompletableFuture
 import java.util.concurrent.TimeUnit
@@ -9,11 +10,23 @@ import java.util.concurrent.TimeUnit
 /** 同じManagement接続の検索handleを開閉します。拒否時にYAMLや別接続へ切り替えません。 */
 class ManagementHistorySource(private val client: ServerManagementClient,
     private val timeoutMillis: Long = 20_000) : HistorySource {
-    private val generation = client.connectionGeneration
+    private val logger = LoggerFactory.getLogger(javaClass)
+    internal val generation = client.connectionGeneration
     override fun open(filter: HostHistoryFilter): HistorySearch {
         checkHistoryWorker()
         client.historySearchLock.lockInterruptibly()
-        try { return openSearch(filter) }
+        try {
+            client.historyCleanup?.takeIf { it.first == generation }?.second?.let {
+                try { it.get(timeoutMillis, TimeUnit.MILLISECONDS) }
+                catch (error: java.util.concurrent.TimeoutException) {
+                    throw IllegalStateException("前の履歴検索の終了を待っています。再試行または再接続してください。", error)
+                }
+                catch (error: java.util.concurrent.ExecutionException) {
+                    throw IllegalStateException("前の履歴検索の終了を確認できません。再接続してください。", error.cause)
+                }
+            }
+            return openSearch(filter)
+        }
         catch (error: Throwable) { client.historySearchLock.unlock(); throw error }
     }
 
@@ -85,9 +98,12 @@ class ManagementHistorySource(private val client: ServerManagementClient,
         client.addStateListener(states)
         var interrupted = false
         var delivered = false
+        var sent = false
         val deadline = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(timeoutMillis)
         try {
-            check(client.isConnected && client.connectionGeneration == generation && client.send(request)) { "Management要求を送信できません。" }
+            check(client.isConnected && client.connectionGeneration == generation) { "検索元の接続が終了しました。" }
+            sent = client.send(request)
+            check(sent) { "Management要求を送信できません。" }
             while (true) {
                 try {
                     val response = result.get((deadline - System.nanoTime()).coerceAtLeast(1), TimeUnit.NANOSECONDS)
@@ -101,19 +117,29 @@ class ManagementHistorySource(private val client: ServerManagementClient,
                 }
             }
         } finally {
-            if (request is ServerManagementRequest.DatabaseHistoryStart && !delivered &&
+            if (request is ServerManagementRequest.DatabaseHistoryStart && sent && !delivered &&
                 client.isConnected && client.connectionGeneration == generation) {
-                val expiry = cleanup.schedule({
+                val released = CompletableFuture<Unit>()
+                client.historyCleanup = generation to released
+                result.whenComplete { response, error ->
                     client.removeMessageListener(messages)
                     client.removeStateListener(states)
-                }, 5, TimeUnit.MINUTES)
-                result.whenComplete { response, _ ->
-                    expiry.cancel(false)
-                    client.removeMessageListener(messages)
-                    client.removeStateListener(states)
-                    if (response is ServerManagementResponse.DatabaseHistory && response.success && response.handle != null &&
-                        client.isConnected && client.connectionGeneration == generation) {
-                        client.send(ServerManagementRequest.DatabaseHistoryEnd(response.handle, UUID.randomUUID().toString()))
+                    cleanup.execute {
+                        try {
+                            check(error == null) { "開始要求の結果を確認できません: ${error?.message}" }
+                            if (response is ServerManagementResponse.DatabaseHistory && response.success) {
+                                val handle = requireNotNull(response.handle)
+                                val nonce = UUID.randomUUID().toString()
+                                val ended = await(ServerManagementRequest.DatabaseHistoryEnd(handle, nonce)) {
+                                    (it as? ServerManagementResponse.DatabaseHistory)?.takeIf { value -> value.nonce == nonce }
+                                }
+                                check(ended.success && ended.handle == handle) { ended.detail ?: ended.code ?: "遅延した履歴検索を終了できません。" }
+                            }
+                            released.complete(Unit)
+                        } catch (failure: Throwable) {
+                            logger.warn("遅延した履歴検索の終了を確認できません。この接続の検索を停止します。", failure)
+                            released.completeExceptionally(failure)
+                        }
                     }
                 }
             } else {

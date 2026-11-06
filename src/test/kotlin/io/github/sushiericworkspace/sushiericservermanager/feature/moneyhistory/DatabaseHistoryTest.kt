@@ -205,8 +205,61 @@ class DatabaseHistoryTest {
         assertFails { ManagementHistorySource(fake.client, 30).readAll() }
         assertEquals(0, fake.ends)
         fake.finishStart()
+        assertTrue(fake.endSent.await(5, TimeUnit.SECONDS))
         assertEquals(1, fake.ends)
         fake.client.disconnect()
+    }
+
+    @Test fun `開始timeout後は旧StartとEndの応答が揃うまで別sourceの開始を待つ`() {
+        val fake = HistoryManagementFixture()
+        fake.delayStart = CountDownLatch(1)
+        fake.delayEnd = true
+        assertFails { ManagementHistorySource(fake.client, 500).readAll() }
+        val next = CompletableFuture.supplyAsync { ManagementHistorySource(fake.client, 2000).readAll() }
+        try {
+            assertFalse(fake.secondStart.await(150, TimeUnit.MILLISECONDS))
+            fake.delayStart = null
+            fake.finishStart()
+            assertTrue(fake.endSent.await(5, TimeUnit.SECONDS))
+            assertFalse(fake.secondStart.await(150, TimeUnit.MILLISECONDS))
+            assertFalse(next.isDone)
+            fake.delayEnd = false
+            fake.finishEnd()
+            assertEquals(2, next.get(5, TimeUnit.SECONDS).size)
+            assertEquals(2, fake.starts)
+            assertEquals(2, fake.ends)
+        } finally { fake.client.disconnect(); next.cancel(true) }
+    }
+
+    @Test fun `遅延StartのEnd拒否と失敗と応答timeoutは再接続まで次のStartを止める`() {
+        for (failure in listOf("reject", "busy", "timeout", "error")) {
+            val fake = HistoryManagementFixture()
+            try {
+                fake.delayStart = CountDownLatch(1)
+                assertFails { ManagementHistorySource(fake.client, 30).readAll() }
+                fake.endFailure = failure
+                fake.delayStart = null
+                fake.finishStart()
+                assertTrue(fake.endSent.await(5, TimeUnit.SECONDS))
+                assertFails { ManagementHistorySource(fake.client, 100).readAll() }
+                assertEquals(1, fake.starts, "Endが未確認なら新しいStartを送らない: $failure")
+                fake.client.disconnect()
+                fake.endFailure = null
+                assertTrue(fake.client.connect(fake))
+                assertEquals(2, ManagementHistorySource(fake.client).readAll().size)
+            } finally { fake.client.disconnect() }
+        }
+    }
+
+    @Test fun `未応答Startが残っていても接続終了後は新接続で検索できる`() {
+        val fake = HistoryManagementFixture()
+        fake.delayStart = CountDownLatch(1)
+        assertFails { ManagementHistorySource(fake.client, 30).readAll() }
+        fake.client.disconnect()
+        fake.delayStart = null
+        assertTrue(fake.client.connect(fake))
+        try { assertEquals(2, ManagementHistorySource(fake.client).readAll().size) }
+        finally { fake.client.disconnect() }
     }
 
     @Test fun `検索中断後も開始応答を回収してhandleを解放する`() {
@@ -235,19 +288,37 @@ internal class HistoryManagementFixture : ManagementTransport {
     val client = ServerManagementClient()
     lateinit var listener: ServerManagementListener
     val offsets = mutableListOf<Int>()
-    var ends = 0
+    @Volatile var ends = 0
+    @Volatile var starts = 0
+    val secondStart = CountDownLatch(1)
+    val endSent = CountDownLatch(1)
+    @Volatile var delayEnd = false
+    @Volatile var endFailure: String? = null
+    private var endNonce: String? = null
+    private var activeHandle = false
     var failure: String? = null
     var delayStart: CountDownLatch? = null
     private var startNonce: String? = null
     init { assertTrue(client.connect(this)) }
     override fun connect(listener: ServerManagementListener, timeout: Duration): Int { this.listener = listener; return 12345 }
-    override fun disconnect() = Unit
+    override fun disconnect() { activeHandle = false }
     fun finishStart() { listener.onMessage(ServerManagementResponse.DatabaseHistory(true, "h", nonce = startNonce)) }
+    fun finishEnd() {
+        activeHandle = false
+        listener.onMessage(ServerManagementResponse.DatabaseHistory(true, "h", nonce = endNonce))
+    }
     override fun send(request: ServerManagementRequest): Boolean {
         when (request) {
             is ServerManagementRequest.DatabaseContextRequest -> listener.onMessage(ServerManagementResponse.DatabaseContext(true,
                 ManagementDatabaseBinding(UUID.randomUUID().toString(), UUID.randomUUID().toString()), nonce = request.nonce))
             is ServerManagementRequest.DatabaseHistoryStart -> {
+                starts++
+                if (starts > 1) secondStart.countDown()
+                if (activeHandle) {
+                    listener.onMessage(ServerManagementResponse.DatabaseHistory(false, code = "BUSY", nonce = request.nonce))
+                    return true
+                }
+                activeHandle = true
                 startNonce = request.nonce
                 if (delayStart == null) finishStart() else delayStart!!.countDown()
             }
@@ -265,7 +336,15 @@ internal class HistoryManagementFixture : ManagementTransport {
             }
             is ServerManagementRequest.DatabaseHistoryEnd -> {
                 ends++
-                listener.onMessage(ServerManagementResponse.DatabaseHistory(true, "h", nonce = request.nonce))
+                endNonce = request.nonce
+                endSent.countDown()
+                when (endFailure) {
+                    "reject" -> return false
+                    "busy" -> listener.onMessage(ServerManagementResponse.DatabaseHistory(false, code = "BUSY", nonce = request.nonce))
+                    "timeout" -> Unit
+                    "error" -> listener.onError(IllegalStateException("検証用End送信失敗"))
+                    else -> if (!delayEnd) finishEnd()
+                }
             }
             else -> error("履歴以外の要求です。")
         }

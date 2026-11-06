@@ -63,9 +63,10 @@ internal class ShopHistoryView(private val store: EditorDataStore, private val c
     private var filterTask: Task<*>? = null
     private var filterGeneration = 0
     private var loading = false
+    private var activeConnection: HistoryConnection? = null
     private val connectionListener: (ServerManagementState) -> Unit = {
         Platform.runLater {
-            if (!disposed) {
+            if (!disposed && activeConnection?.isCurrent == false) {
                 generation++; historyTask?.cancel(true)
                 filterGeneration++; filterTask?.cancel(true)
                 loading = false; loadButton.isDisable = false
@@ -200,8 +201,8 @@ internal class ShopHistoryView(private val store: EditorDataStore, private val c
             status.text = it.message; table.items.clear(); return
         }
         historyTask?.cancel(true)
-        val storeIdentity = store.identity
-        val connectionIdentity = store.connectionIdentity
+        val connection = HistoryConnection(store, client)
+        activeConnection = connection
         val current = ++generation
         filterGeneration++; filterTask?.cancel(true)
         loading = true
@@ -210,8 +211,8 @@ internal class ShopHistoryView(private val store: EditorDataStore, private val c
         status.text = "ショップ売買履歴を読み込み中..."
         val task = object : Task<Pair<List<ShopHistoryEntry>, List<ShopHistoryPlayer>>>() {
             override fun call(): Pair<List<ShopHistoryEntry>, List<ShopHistoryPlayer>> {
-                check(store.connectionIdentity === connectionIdentity && store.isAvailable) { "履歴の取得元が切断・変更されました。" }
-                val source = historySource(store, client)
+                check(connection.isCurrent) { "履歴の取得元が切断・変更されました。" }
+                val source = connection.source.getOrThrow()
                 val rows = if (source == null) readShopHistory(store, first, last) { logger.warn("ショップ履歴: {}", it) }
                     else readShopHistory(source, first, last)
                 return rows to rows.distinctBy { it.playerUuid }
@@ -222,7 +223,7 @@ internal class ShopHistoryView(private val store: EditorDataStore, private val c
             loadButton.isDisable = false
             if (disposed || current != generation) return@setOnSucceeded
             loading = false
-            if (store.identity != storeIdentity || store.connectionIdentity !== connectionIdentity || !store.isAvailable) {
+            if (!connection.isCurrent) {
                 entries = emptyList(); table.items.clear(); loadedRange = null
                 status.text = "履歴の取得元が切断・変更されました。再接続してください。"
                 return@setOnSucceeded

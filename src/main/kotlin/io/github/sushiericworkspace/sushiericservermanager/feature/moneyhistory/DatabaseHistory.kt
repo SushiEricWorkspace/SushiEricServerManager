@@ -10,6 +10,15 @@ import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.util.UUID
 
+internal class HistoryConnection(private val store: EditorDataStore, private val client: ServerManagementClient) {
+    private val storeIdentity = store.identity
+    private val connectionIdentity = store.connectionIdentity
+    val source = runCatching { historySource(store, client) }
+    private val managementGeneration = (source.getOrNull() as? ManagementHistorySource)?.generation
+    val isCurrent: Boolean get() = store.isAvailable && store.identity == storeIdentity && store.connectionIdentity === connectionIdentity &&
+        (managementGeneration == null || (client.isConnected && client.connectionGeneration == managementGeneration))
+}
+
 internal fun historySource(store: EditorDataStore, client: ServerManagementClient): HistorySource? = when {
     client.isConnected -> ManagementHistorySource(client)
     store.historySource != null -> store.historySource

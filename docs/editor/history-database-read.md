@@ -5,7 +5,7 @@
 ## 接続
 
 - 通常Management: `database_context_request`でworld/runを取得し、`database_history_start/page/end`を同じ接続へ送ります。
-- 通常ローカル: `LocalHistorySource(world, shop, worldUuid)`を`LocalEditorDataStore`の`historySource`へ渡します。worldとshop_dataは同一ホストの実体の絶対パスです。DBの作成・移行・run-state初期化は行いません。
+- 通常ローカル: `LocalHistorySource(world, shop, worldUuid)`と`LocalEditorDataStore.historySource`への注入API・単体試験まで実装しています。worldとshop_dataは同一ホストの実体の絶対パスで、DBの作成・移行・run-state初期化は行いません。製品コードでのsource生成・注入とOFFLINE画面への接続は未実施で、#242の残作業です。通常利用者が画面からローカルDB履歴を表示する経路はまだありません。
 - 通常SSHでManagement未接続: サーバープロファイルの`databaseHistory`へ、world UUIDと配備・照合済みD3 runtimeの起動コマンドを設定します。既存のSSH認証・ホスト鍵検証を使用し、要求はUTF-8 stdinへ書いてEOFを送ります。稼働DBをSFTPで取得しません。
 - 管理接続: developmentの`ManagedManagementTransport`が監督writerの`database`要求へ送ります。nonceを監督操作IDとして使用し、所有bindingの補完と検査は既存proxyへ委譲します。通常Managerはdevelopmentへ依存しません。
 
@@ -30,11 +30,11 @@ worldを持たないローカル編集領域は、コピー済みYAML履歴の�
 
 DBプレイヤー一覧は履歴に記録されたUUIDと名前、既存プレイヤーディレクトリを統合し、サーバーの`usercache.json`を名前補完と履歴のないプレイヤーの列挙に使用します。名前のない履歴はUUIDで表示します。移行元の片側送金を別の取引と結合せず、記録された相手・実行者・理由・免除を保ちます。免除は既存の金額セル内に表示します。
 
-画面終了・再読込・取得中の条件変更は旧処理を中断し、検索handleを終了します。Management接続内の検索は直列化し、タブ間でhandleを競合させません。開始要求中のキャンセルは応答を回収してhandleを閉じ、開始timeoutの遅延応答も表示せず終了要求だけを送ります。接続世代が変わった応答は使いません。接続変化では表示を消し、再読込で新しい集合を開きます。
+画面終了・再読込・取得中の条件変更は旧処理を中断し、検索handleを終了します。Management接続内の検索は直列化し、タブ間でhandleを競合させません。開始要求中のキャンセルは応答を回収してhandleを閉じ、開始timeout後は、遅延StartとEndの応答を回収して終了を確認するか、元接続が終了するまで、同じ接続の次の開始要求を送信しません。Endの送信拒否・失敗・応答timeoutはログへ記録し、次の検索にも未確認状態を返します。終了を確認できない場合は再接続が必要です。接続世代が変わった応答は使いません。使用元の切断・世代変更では表示を消し、再読込で新しい集合を開きます。SSH source使用中のManagement再試行・失敗通知では検索と表示を維持します。
 
 ## 確認の範囲
 
-実SQLiteの分割・新規追加・遅延確定と再読込、元worldのファイル不変、codec、Unicodeとnano、名前不明・片側移行行、Managementの認証エラー・切断・timeout・キャンセル、SSHのstdin/EOFとtimeoutを自動試験します。JavaFXは実画面へ表示しないMonocleでFXMLと主要操作を確認します。
+LocalHistorySourceのAPI・単体試験で実SQLiteの分割・新規追加・遅延確定と再読込、元worldのファイル不変、codec、Unicodeとnano、名前不明・片側移行行、Managementの認証エラー・切断・timeout・キャンセル、SSHのstdin/EOFとtimeoutを自動試験します。JavaFXは実画面へ表示しないMonocleでFXMLと主要操作を確認します。
 
 管理接続のRunning実結合、停止中の管理sessionは.github #64の固定成果との受入が必要です。通常SSHの実ホスト・macOS GUI・実画面の物理操作・20/30/40人の集中取引と継続負荷は自動fixtureの成功と区別します。
 

@@ -68,9 +68,10 @@ class MoneyHistoryController {
     private var playersTask: Task<*>? = null
     private var filterTask: Task<*>? = null
     private var filterGeneration = 0
+    private var activeConnection: HistoryConnection? = null
     private val connectionListener: (ServerManagementState) -> Unit = {
         Platform.runLater {
-            if (!disposed) {
+            if (!disposed && activeConnection?.isCurrent == false) {
                 loadGeneration++
                 filterGeneration++; filterTask?.cancel(true)
                 historyTask?.cancel(true)
@@ -177,8 +178,8 @@ class MoneyHistoryController {
     private fun loadPlayers() {
         playersTask?.cancel(true)
         val generation = ++loadGeneration
-        runTask("money-history-players", "プレイヤー一覧を読み込み中...", isCurrent = { generation == loadGeneration }, block = {
-            readHistoryPlayers(store, logger, historySource(store, managementClient))
+        runTask("money-history-players", "プレイヤー一覧を読み込み中...", isCurrent = { generation == loadGeneration }, block = { source ->
+            readHistoryPlayers(store, logger, source)
         }) { loaded ->
             players = loaded
             players.filter { it.displayName != it.uuid }.forEach { knownPlayerNames[it.uuid] = it.displayName }
@@ -234,8 +235,7 @@ class MoneyHistoryController {
         historyTable.items.clear()
         val connected = managementClient.isConnected
         runTask("money-history-load", "${player.displayName}の${if (connected) "DB履歴を読み込み中" else "履歴を読み込み中"}...",
-            isCurrent = { generation == loadGeneration }, block = {
-                val source = historySource(store, managementClient)
+            isCurrent = { generation == loadGeneration }, block = { source ->
                 val rows = if (source == null) readRecords(player.uuid)
                     else source.readAll(HostHistoryFilter(playerUuid = player.uuid)).mapNotNull { it.moneyRow(player.uuid) }
                 LoadedMoneyHistory(rows, rows.maxByOrNull(MoneyHistoryRow::timestamp)?.playerName
@@ -418,16 +418,16 @@ class MoneyHistoryController {
         name: String,
         message: String,
         isCurrent: () -> Boolean = { true },
-        block: () -> T,
+        block: (HistorySource?) -> T,
         onSucceeded: (T) -> Unit
     ) {
         statusLabel.text = message
-        val storeIdentity = store.identity
-        val connectionIdentity = store.connectionIdentity
+        val connection = HistoryConnection(store, managementClient)
+        activeConnection = connection
         val task = object : Task<T>() {
             override fun call(): T {
-                check(store.connectionIdentity === connectionIdentity && store.isAvailable) { "履歴の取得元が切断・変更されました。" }
-                return block()
+                check(connection.isCurrent) { "履歴の取得元が切断・変更されました。" }
+                return block(connection.source.getOrThrow())
             }
         }
         task.setOnFailed {
@@ -438,7 +438,7 @@ class MoneyHistoryController {
         }
         task.setOnSucceeded {
             if (!disposed && isCurrent()) {
-                if (store.identity == storeIdentity && store.connectionIdentity === connectionIdentity && store.isAvailable) onSucceeded(task.value)
+                if (connection.isCurrent) onSucceeded(task.value)
                 else {
                     allRows = emptyList(); historyTable.items.clear(); loadingHistory = false
                     statusLabel.text = "履歴の取得元が切断・変更されました。再接続してください。"
