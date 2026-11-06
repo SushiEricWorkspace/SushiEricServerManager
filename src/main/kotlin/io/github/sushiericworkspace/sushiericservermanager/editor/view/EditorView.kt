@@ -1,5 +1,6 @@
 package io.github.sushiericworkspace.sushiericservermanager.editor.view
 
+import io.github.sushiericworkspace.sushiericdatamodel.database.host.HostProductRead
 import io.github.sushiericworkspace.sushiericdatamodel.data.core.identity.PublicId
 import io.github.sushiericworkspace.sushiericdatamodel.data.core.ManagedData
 import io.github.sushiericworkspace.sushiericdatamodel.data.ore.model.OreBaseData
@@ -81,14 +82,15 @@ abstract class EditorView<T : ManagedData<T, *>>(
     protected val dataService: EditorDataService,
     protected val dataAccess: EditorDataService.DataAccess<T>
 ) {
-    private data class PreparedSave<D : ManagedData<D, *>>(
+    internal data class PreparedSave<D : ManagedData<D, *>>(
         val dataId: String,
         val operation: PendingStoreOperation?,
         val original: D,
         val localData: D,
         val automaticallyMergedData: D?,
         val previewData: D,
-        val saveData: D?
+        val saveData: D?,
+        val productBaseline: HostProductRead? = null
     )
 
     private data class SaveDataPreview<D>(
@@ -918,24 +920,33 @@ abstract class EditorView<T : ManagedData<T, *>>(
             }
         }
 
-        fun confirm(preview: SaveDataPreview<T>?) {
+        fun confirm(preview: SaveDataPreview<T>?, productBaseline: HostProductRead? = null) {
             if (preview == null) { finish(SaveOutcome.CANCELLED); return }
             val prepared = PreparedSave(dataId, operation, original, local,
-                preview.automaticallyMergedData, preview.data, preview.data.takeUnless { operation is PendingStoreOperation.Delete })
+                preview.automaticallyMergedData, preview.data, preview.data.takeUnless { operation is PendingStoreOperation.Delete }, productBaseline)
             main.showOperation("保存する差分を確認しています")
             if (!confirmSaveChanges(prepared)) { finish(SaveOutcome.CANCELLED); return }
             persist(prepared)
         }
 
-        if (operation is PendingStoreOperation.Delete || !dataService.isRemote) {
+        if (operation is PendingStoreOperation.Delete && dataService.store.shopProducts != null) {
+            saveStep({
+                val loaded = dataAccess.load(sourceId)
+                loaded to dataService.store.shopProducts?.snapshot(sourceId)
+            }, ::fail) { (loaded, baseline) ->
+                if (loaded.second != LoadResult.SUCCESS || baseline == null) {
+                    finish(SaveOutcome.FAILED) { CustomDialog.error(ErrorType.NETWORK_ERROR).owner(main.currentStage).show() }
+                } else confirm(SaveDataPreview(local, null), baseline)
+            }
+        } else if (operation is PendingStoreOperation.Delete || !dataService.isRemote) {
             try { confirm(SaveDataPreview(local, null)) } catch (error: Exception) { fail(error) }
         } else {
             saveStep({
                 val loaded = dataAccess.load(sourceId)
                 val merge = loaded.first?.takeIf { loaded.second == LoadResult.SUCCESS }
                     ?.let { dataAccess.merge(original, local, it) }
-                loaded to merge
-            }, ::fail) { (loaded, merge) ->
+                Triple(loaded, merge, dataService.store.shopProducts?.snapshot(sourceId).takeIf { loaded.second == LoadResult.SUCCESS })
+            }, ::fail) { (loaded, merge, baseline) ->
                 if (loaded.second in listOf(LoadResult.FAILED, LoadResult.PROFILE_NOT_SELECTED, LoadResult.SFTP_INACTIVE)) {
                     finish(SaveOutcome.FAILED) {
                         CustomDialog.error(ErrorType.NETWORK_ERROR).owner(main.currentStage).show()
@@ -943,7 +954,7 @@ abstract class EditorView<T : ManagedData<T, *>>(
                     return@saveStep
                 }
                 main.showOperation("マージ・競合を確認しています")
-                confirm(prepareSaveData(dataId, sourceId, local, original, loaded, merge))
+                confirm(prepareSaveData(dataId, sourceId, local, original, loaded, merge), baseline)
             }
         }
     }
@@ -957,7 +968,7 @@ abstract class EditorView<T : ManagedData<T, *>>(
         }
     }
 
-    private fun writeSingleSave(prepared: PreparedSave<T>): StoreResult<T?> {
+    internal open fun writeSingleSave(prepared: PreparedSave<T>): StoreResult<T?> {
         val operation = prepared.operation
         if (operation is PendingStoreOperation.Delete) {
             return when (val result = dataService.store.delete(dataAccess.descriptor, operation.sourceId)) {
@@ -1203,10 +1214,10 @@ abstract class EditorView<T : ManagedData<T, *>>(
             val entry = targets[index]
             val operation = entry.operation
             main.showOperation("保存準備 $index/${targets.size} 件: ${entry.dataId}")
-            fun next(preview: SaveDataPreview<T>?) {
+            fun next(preview: SaveDataPreview<T>?, baseline: HostProductRead? = null) {
                 if (preview == null) cancelled += entry.dataId
                 else prepared += entry.copy(automaticallyMergedData = preview.automaticallyMergedData,
-                    previewData = preview.data, saveData = preview.data.takeUnless { operation is PendingStoreOperation.Delete })
+                    previewData = preview.data, saveData = preview.data.takeUnless { operation is PendingStoreOperation.Delete }, productBaseline = baseline)
                 main.showOperation("保存準備 ${index + 1}/${targets.size} 件: ${entry.dataId}")
                 Platform.runLater { prepare(index + 1) }
             }
@@ -1215,20 +1226,32 @@ abstract class EditorView<T : ManagedData<T, *>>(
                 failed[entry.dataId] = "最新データの取得・保存準備に失敗しました。"
                 Platform.runLater { prepare(index + 1) }
             }
-            if (operation is PendingStoreOperation.Delete || !dataService.isRemote) {
+            val sourceId = when (operation) {
+                is PendingStoreOperation.Delete -> operation.sourceId
+                is PendingStoreOperation.Rename -> operation.sourceId
+                else -> entry.dataId
+            }
+            if (operation is PendingStoreOperation.Delete && dataService.store.shopProducts != null) {
+                saveStep({
+                    val loaded = dataAccess.load(sourceId)
+                    loaded to dataService.store.shopProducts?.snapshot(sourceId)
+                }, ::fail) { (loaded, baseline) ->
+                    if (loaded.second != LoadResult.SUCCESS || baseline == null) fail(IllegalStateException("削除対象の取得に失敗しました。"))
+                    else next(SaveDataPreview(entry.localData, null), baseline)
+                }
+            } else if (operation is PendingStoreOperation.Delete || !dataService.isRemote) {
                 next(SaveDataPreview(entry.localData, null))
             } else {
-                val sourceId = (operation as? PendingStoreOperation.Rename)?.sourceId ?: entry.dataId
                 saveStep({
                     val loaded = dataAccess.load(sourceId)
                     val merge = loaded.first?.takeIf { loaded.second == LoadResult.SUCCESS }
                         ?.let { dataAccess.merge(entry.original, entry.localData, it) }
-                    loaded to merge
-                }, ::fail) { (loaded, merge) ->
+                    Triple(loaded, merge, dataService.store.shopProducts?.snapshot(sourceId).takeIf { loaded.second == LoadResult.SUCCESS })
+                }, ::fail) { (loaded, merge, baseline) ->
                     if (loaded.second in listOf(LoadResult.FAILED, LoadResult.PROFILE_NOT_SELECTED, LoadResult.SFTP_INACTIVE)) {
                         failed[entry.dataId] = "最新データの取得に失敗しました。接続を確認してください。"
                         Platform.runLater { prepare(index + 1) }
-                    } else next(prepareSaveData(entry.dataId, sourceId, entry.localData, entry.original, loaded, merge))
+                    } else next(prepareSaveData(entry.dataId, sourceId, entry.localData, entry.original, loaded, merge), baseline)
                 }
             }
         }

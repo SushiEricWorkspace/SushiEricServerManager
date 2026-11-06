@@ -501,6 +501,8 @@ class ConsoleController : Initializable {
                 )
                 hideSuggestions()
             }
+            is ServerManagementResponse.DatabaseContext,
+            is ServerManagementResponse.DatabaseProductResult,
             is ServerManagementResponse.Pong -> Unit
         }
     }

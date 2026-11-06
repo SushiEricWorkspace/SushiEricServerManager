@@ -146,6 +146,7 @@ class LocalEditorDataStore(
         return try {
             val data = descriptor.load(file, descriptorDirectory(descriptor))
                 ?: return failure(StoreErrorCode.INVALID_YAML, id)
+            if (descriptor.readProduct != null) data.id = id
             StoreResult.Success(data)
         } catch (e: SecurityException) {
             failure(StoreErrorCode.PERMISSION_DENIED, id, cause = e)
@@ -190,7 +191,8 @@ class LocalEditorDataStore(
             return failure(StoreErrorCode.IO_ERROR, id, cause = e)
         }
         return try {
-            descriptor.save(temporary, data, itemIds)
+            if (descriptor.readProduct != null) descriptor.saveBackup(temporary, data)
+            else descriptor.save(temporary, data, itemIds)
             replaceAtomically(temporary, target)
             StoreResult.Success(Unit)
         } catch (e: SecurityException) {

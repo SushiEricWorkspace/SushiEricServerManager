@@ -25,6 +25,8 @@ enum class StoreErrorCode {
     PERMISSION_DENIED,
     UNSUPPORTED_FORMAT,
     MANIFEST_INVALID,
+    CONFLICT,
+    PENDING_REVIEW,
     IO_ERROR
 }
 

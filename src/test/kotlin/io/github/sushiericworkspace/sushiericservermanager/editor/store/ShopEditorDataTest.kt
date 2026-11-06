@@ -1,5 +1,6 @@
 package io.github.sushiericworkspace.sushiericservermanager.editor.store
 
+import io.github.sushiericworkspace.sushiericdatamodel.data.shop.model.ShopProductStock
 import io.github.sushiericworkspace.sushiericdatamodel.data.item.model.ItemInternalId
 import io.github.sushiericworkspace.sushiericdatamodel.data.shop.ShopManager
 import java.io.File
@@ -104,4 +105,42 @@ class ShopEditorDataTest {
         assertEquals("購入価格", conflict.conflicts.single().displayName)
         assertEquals(200L, conflict.resolveWithLocal(conflict.conflicts.map { it.path }.toSet()).purchasePrice)
     }
+    @Test
+    fun `オフライン保存と自動退避は有限無限の編集値とDB読取基準を保持する`() {
+        val root = createTempDirectory("shop-offline-stock").toFile()
+        val service = EditorDataService(LocalEditorDataStore(root.resolve("data")), root.resolve("backup"))
+        try {
+            listOf<Int?>(4, null).forEach { quantity ->
+                val data = product().copy(stock = quantity,
+                    stockBaseline = ShopProductStock.Current(12, 7))
+                assertIs<StoreResult.Success<Unit>>(service.shops.saveStore(data.id, data))
+                val loaded = assertIs<StoreResult.Success<MutableShopProductData>>(service.shops.loadStore(data.id)).value
+                assertEquals(quantity, loaded.stock)
+                assertEquals(data.stockBaseline, loaded.stockBaseline)
+                assertTrue(service.shops.saveToLocalBackup("editing", data))
+                assertTrue(service.shops.saveToLocalBackup("original", data.copy(stock = 12)))
+                val pair = assertNotNull(service.shops.loadBackupPair(data.id))
+                assertEquals(quantity, pair.first.stock)
+                assertEquals(12, pair.second.stock)
+                assertEquals(data.stockBaseline, pair.first.stockBaseline)
+            }
+        } finally { service.closeIo(); root.deleteRecursively() }
+    }
+
+    @Test
+    fun `オフラインは在庫なし定義YAMLも読み不正な編集backupを定義として読み替えない`() {
+        val root = createTempDirectory("shop-offline-definition").toFile()
+        try {
+            val file = root.resolve("shop_data/weapons/product.yml")
+            ShopManager.saveMutableProduct(file, product().copy(id = "weapons.product"), setOf(item))
+            val store = LocalEditorDataStore(root)
+            val loaded = assertIs<StoreResult.Success<MutableShopProductData>>(store.load(EditorDataDescriptors.shop, "weapons.product")).value
+            assertEquals("weapons.product", loaded.id)
+            assertIs<ShopProductStock.Uninitialized>(loaded.stockBaseline)
+            file.writeText("id: weapons.product\nitem-internal-id: missing-item\npurchase-price: 100\nstock-baseline:\n  revision: invalid\n")
+            assertIs<StoreResult.Failure>(store.load(EditorDataDescriptors.shop, "weapons.product"))
+            assertTrue(file.readText().contains("revision: invalid"))
+        } finally { root.deleteRecursively() }
+    }
+
 }
