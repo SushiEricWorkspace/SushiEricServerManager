@@ -37,7 +37,7 @@
                                 <ColumnConstraints hgrow="ALWAYS" minWidth="180.0" percentWidth="50.0" />
                             </columnConstraints>
                             <children>
-                                <VBox maxWidth="1.7976931348623157E308" styleClass="home-section">
+                                <VBox fx:id="editorToolsPane" maxWidth="1.7976931348623157E308" styleClass="home-section">
                                     <children>
                                         <Label maxWidth="1.7976931348623157E308" styleClass="home-section-title" text="エディター" />
                                         <Button focusTraversable="false" maxWidth="1.7976931348623157E308" mnemonicParsing="false" onAction="#onOpenItemEditor" styleClass="button, data-btn" text="アイテム" />

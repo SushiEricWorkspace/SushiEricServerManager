@@ -1,15 +1,21 @@
 package io.github.sushiericworkspace.sushiericservermanager.editor.store
 
 import io.github.sushiericworkspace.sushiericservermanager.feature.moneyhistory.HistorySource
+import io.github.sushiericworkspace.sushiericservermanager.feature.moneyhistory.LocalHistorySource
 import io.github.sushiericworkspace.sushiericdatamodel.data.core.ManagedData
 import io.github.sushiericworkspace.sushiericdatamodel.data.core.identity.PublicId
 import io.github.sushiericworkspace.sushiericdatamodel.data.item.model.ItemInternalId
+import io.github.sushiericworkspace.sushiericdatamodel.database.run.WorldRunState
 import io.github.sushiericworkspace.sushiericdatamodel.path.SushiEricDataDirectory
+import kotlinx.serialization.decodeFromString
+import kotlinx.serialization.json.Json
 import org.slf4j.LoggerFactory
 import java.io.File
 import java.nio.file.AtomicMoveNotSupportedException
 import java.nio.file.Files
+import java.nio.file.Path
 import java.nio.file.StandardCopyOption
+import java.util.UUID
 
 class LocalEditorDataStore(
     rootDirectory: File,
@@ -18,13 +24,28 @@ class LocalEditorDataStore(
     private val rootDirectory = rootDirectory.canonicalFile
     private val logger = LoggerFactory.getLogger(javaClass)
     private val configuredHistorySource = historySource
+    private val worldRunJson = Json { classDiscriminator = "type" }
     override val historySource: HistorySource?
         get() {
             configuredHistorySource?.let { return it }
-            check(!rootDirectory.resolve("server.sqlite").exists() && !rootDirectory.resolve("world-id").exists()) {
-                "DB済みworldの履歴にはworldとshop_dataを指定した読取接続が必要です。"
+            val databaseDirectory = rootDirectory.resolve("sushieric")
+            val database = databaseDirectory.resolve("server.sqlite")
+            val marker = databaseDirectory.resolve("world-id")
+            if (!database.exists() && !marker.exists()) return null
+            check(database.isFile && marker.isFile) {
+                "DB済みworldの履歴にはworld-idとserver.sqliteが必要です。"
             }
-            return null
+            val worldUuid = UUID.fromString(marker.readText(Charsets.UTF_8).trim()).toString()
+            val runStateFile = databaseDirectory.resolve("run-state/current.json")
+            check(runStateFile.isFile) { "DB済みworldの履歴にはrun-stateが必要です。" }
+            val state = worldRunJson.decodeFromString<WorldRunState>(runStateFile.readText(Charsets.UTF_8))
+            check(state.worldUuid == worldUuid && state.paths.worldRoot == rootDirectory.path &&
+                state.paths.database == database.path) { "world markerとrun-stateのpathが一致しません。" }
+            val shopDirectory = Path.of(state.paths.shopDirectory)
+            check(shopDirectory.isAbsolute && shopDirectory.fileName.toString() == "shop_data") {
+                "run-stateのshop_data pathが不正です。"
+            }
+            return LocalHistorySource(rootDirectory.toPath(), shopDirectory, worldUuid)
         }
 
     override val kind: EditorDataStoreKind = EditorDataStoreKind.LOCAL
