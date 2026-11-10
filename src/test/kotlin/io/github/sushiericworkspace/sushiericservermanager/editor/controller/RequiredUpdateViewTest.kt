@@ -87,11 +87,19 @@ class RequiredUpdateViewTest {
                         button = root.lookup("#updateButton") as Button
                         status = root.lookup("#updateCheckLabel") as Label
                         progress = root.lookup("#updateCheckProgress") as ProgressIndicator
+                        val history = root.lookup("#historyButton") as Button
                         button.fire(); button.fire()
                         if (scenario in listOf("オフライン", "開発接続")) {
                             assertFalse(button.isVisible)
                             assertFalse(progress.isVisible)
+                            if (scenario == "オフライン") {
+                                assertTrue(history.isVisible)
+                                assertTrue(history.isManaged)
+                                assertSame(root.lookup("#editorToolsPane"), history.parent)
+                                assertFalse(root.lookup("#onlineToolsPane").isVisible)
+                            }
                         } else {
+                            assertSame(root.lookup("#onlineToolsPane"), history.parent)
                             assertTrue(button.isDisable)
                             assertTrue(progress.isVisible)
                             assertEquals("アップデートを確認中", status.text)

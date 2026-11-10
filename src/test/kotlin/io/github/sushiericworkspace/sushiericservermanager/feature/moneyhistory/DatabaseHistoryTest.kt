@@ -140,7 +140,31 @@ class DatabaseHistoryTest {
         assertEquals(directory, players.single { it.uuid == directory }.displayName)
     }
 
-    @Test fun `DB済みworldと未設定の遠隔Storeをコピー済みYAMLとして読まない`() {
+    @Test fun `LocalEditorDataStoreはworld markerから既存Host APIでDB履歴を読む`() {
+        root = root.toRealPath()
+        val world = Files.createDirectory(root.resolve("world"))
+        val shop = Files.createDirectories(root.resolve("別配置/shop_data"))
+        val worldId = UUID.randomUUID()
+        val player = DatabasePlayer(UUID.randomUUID(), "Local")
+        val lifecycle = WorldRunLifecycle.adoptInitial(world, shop, worldId, "a".repeat(64))
+        val writer = lifecycle.openOfflineWriter(lifecycle.readStatus())
+        val requestId = UUID.randomUUID()
+        val operation = writer.beginOperation(requestId, "b".repeat(64))
+        operation.openDatabase(true).use { database ->
+            database.initializeAccount(player.uuid, 100)
+            val account = database.readAccount(player.uuid)
+            database.submit(DatabaseRequest(requestId, Instant.ofEpochSecond(100), TransactionKind.MONEY,
+                listOf(MoneyChange(player, MoneyEntryType.ADMIN_ADD, 1, account.revision))))
+        }
+        writer.complete(operation.finish(HostAdapterResponse(requestId = requestId.toString(),
+            status = HostAdapterStatus.SUCCESS, result = HostAdapterResult.Edited(emptyList()))))
+        writer.close()
+
+        val source = assertNotNull(io.github.sushiericworkspace.sushiericservermanager.editor.store.LocalEditorDataStore(world.toFile()).historySource)
+        assertEquals(player.uuid.toString(), source.readAll().single().money.single().playerUuid)
+    }
+
+    @Test fun `run-stateのないDB worldをコピー済みYAMLとして読まない`() {
         val local = io.github.sushiericworkspace.sushiericservermanager.editor.store.LocalEditorDataStore(root.toFile())
         assertNull(local.historySource)
         val absent = root.resolve("未作成のworldデータ")
@@ -148,7 +172,9 @@ class DatabaseHistoryTest {
             HostHistorySource(UUID.randomUUID().toString()) { error("接続確認でDBを読みません。") })
         assertFalse(bound.isAvailable)
         assertFalse(Files.exists(absent))
-        Files.writeString(root.resolve("world-id"), UUID.randomUUID().toString())
+        val databaseDirectory = Files.createDirectories(root.resolve("sushieric"))
+        Files.writeString(databaseDirectory.resolve("world-id"), UUID.randomUUID().toString())
+        Files.createFile(databaseDirectory.resolve("server.sqlite"))
         assertFailsWith<IllegalStateException> { local.historySource }
         val memory = io.github.sushiericworkspace.sushiericservermanager.editor.store.InMemoryEditorDataStore()
         val remote = object : io.github.sushiericworkspace.sushiericservermanager.editor.store.EditorDataStore by memory {
