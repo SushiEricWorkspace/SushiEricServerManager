@@ -109,7 +109,9 @@ jobs:
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
-          java-version: '21'
+          java-version: |
+            21
+            25
 
       - uses: gradle/actions/setup-gradle@v4
 
@@ -220,7 +222,9 @@ jobs:
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
-          java-version: '21'
+          java-version: |
+            21
+            25
 
       - uses: gradle/actions/setup-gradle@v4
 

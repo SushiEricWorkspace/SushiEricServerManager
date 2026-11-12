@@ -38,9 +38,9 @@ internal fun isLocalOnlyDirectory(
 /** 公開IDで管理するデータエディタのサイドバーとCRUD操作を共通提供します。 */
 internal abstract class ManagedDataEditorView<T : ManagedData<T, *>>(
     main: MainController,
-    dataService: EditorDataService,
+    service: EditorDataService,
     dataAccess: EditorDataService.DataAccess<T>
-) : EditorView<T>(main, dataService, dataAccess) {
+) : EditorView<T>(main, service, dataAccess) {
 
     private val sidebarSearchField = TextField().apply {
         promptText = "公開IDを検索"
@@ -59,6 +59,9 @@ internal abstract class ManagedDataEditorView<T : ManagedData<T, *>>(
         onExpandedStateChanged = ::persistSidebarExpandedState,
         onExpansionChanged = ::renderSidebarResults
     )
+
+    protected val sidebarQueryActive: Boolean get() = sidebarSearchField.text.isNotBlank()
+    protected fun showAllSidebarData() { sidebarSearchField.clear() }
 
     private var sidebarDataIds: List<String> = emptyList()
     private var sidebarDirectories: List<String> = emptyList()
@@ -80,15 +83,11 @@ internal abstract class ManagedDataEditorView<T : ManagedData<T, *>>(
             registerSidebar(ids, sidebarResults)
             renderSidebarResults()
 
-            val selectableIds = ids.filterNot(::isPendingStoreDeletion)
-            if (selectableIds.isEmpty()) {
+            val selected = restoreDocumentTabs(ids.filterNot(::isPendingStoreDeletion), selectId)
+            if (selected == null) {
                 currentSelectedDataId = null
                 main.mainContentContainer.children.clear()
-            } else {
-                val requestedId = selectId?.removeSuffix(".yml")
-                val targetId = requestedId?.takeIf { it in selectableIds } ?: selectableIds.first()
-                selectTab(targetId)
-            }
+            } else selectTab(selected)
             ids.forEach(::refreshSidebarState)
             preloadSidebarDataForVisualStates(ids)
             startAutoSaveTimer()
@@ -201,31 +200,32 @@ internal abstract class ManagedDataEditorView<T : ManagedData<T, *>>(
     }
 
     private fun requestDelete(id: String) {
+        if (isUploadFrozen(id)) return
         if (storeOperationBlocked) return
         val localOnly = isLocalOnlyData(id, remoteDataIds) && !pendingOperationHasStoredSource(id)
         val confirmed = CustomDialog.confirmation()
             .title(if (localOnly) "未保存データを破棄" else "削除を保留")
-            .header(if (localOnly) "ローカルの編集内容を破棄します" else "保存時にファイルを削除します")
+            .header(if (localOnly) "ローカルの編集内容を破棄します" else "ローカル作業コピーの削除を保存時に確定します")
             .content(
                 if (localOnly) {
                     "${dataAccess.displayName}ID: $id\n\n" +
                         "サーバー上のファイルは削除せず、編集内容と自動保存を破棄します。"
                 } else {
                     "${dataAccess.displayName}ID: $id\n\n" +
-                        "削除はまだサーバーへ反映されません。保存時の確認後に削除します。"
+                        "保存時の確認後にローカル作業コピーの削除を確定します。サーバーには書き込みません。"
                 }
             )
             .okButton("削除", Color.RED)
             .owner(main.currentStage)
             .show()
-        if (!confirmed || storeOperationBlocked) return
+        if (!confirmed || storeOperationBlocked || isUploadFrozen(id)) return
 
         if (stageDataDeletion(id)) {
             onDataDeleted(id)
             main.showTimedTopLabel("$id の追加を取り消しました", Color.GREENYELLOW)
             refreshLocalSidebar()
         } else {
-            main.showTimedTopLabel("$id の削除を保留しました。保存すると反映されます", Color.GREENYELLOW)
+            main.showTimedTopLabel("$id の削除を保留しました。ローカル保存で確定します", Color.GREENYELLOW)
             refreshLocalSidebar()
         }
     }

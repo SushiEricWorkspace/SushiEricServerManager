@@ -1,0 +1,25 @@
+# 外観と共通配色
+
+上部「設定」→「外観」でライト・ダークを選択すると、表示中の画面・確認ダイアログ・Popupへ即時反映し、config.jsonのthemeへLIGHT/DARKを保存します。次の起動でも同じ配色を使用します。
+既存設定にthemeがない場合はDARKを使用し、監視間隔・一覧の展開状態・履歴UUID表示の値を保持します。未知のtheme値は既存JSON読込と同様にデコード失敗となり、JsonFileHandlerの既定値処理に従います。
+
+`variables.css`が既定のDARK共通トークン、`theme.css`の`.root.theme-light`がLIGHTの値です。背景、文字、境界、選択、hover、成功・警告・エラーを共通トークンから指定します。Minecraftデータの指定文字色やカラープレビューはテーマ色へ置き換えません。
+
+`Utility.createScene`とAlertの共通スタイルから`ThemeManager.apply`を呼び、表示時のWindow一覧で独自Stage・Dialog・Tooltipも適用します。Scene差替時も反映し、非表示になったWindowのScene監視は解除します。EXTENDED枠の標準ボタン配色にはHeaderBarのsystemColorSchemeを使用し、OS標準の形状・操作は維持します。
+
+スクロールバーはopacityと占有寸法だけを0にし、ScrollPaneやVirtualFlow、値変更、wheel・trackpad・キー操作を維持します。入力欄へフォーカスが移ると、祖先ScrollPaneの表示範囲へ入るように位置を調整します。データ一覧の仮想化と既存選択処理を変更しません。
+
+## 検証
+
+設定の既定値・既存項目保持・保存形式、開いたScene/Alert/Tooltipへの追従、Window監視の解除/再表示、一万件一覧での非表示bar・wheel/キー・末尾選択/仮想化、表示外のエラー入力欄へのフォーカスを回帰テストで確認します。
+実機は専用home/appdataとローカルデータを用い、通常・開発版それぞれで両テーマと再起動、既存Editor・確認画面・hover、HiDPIの見た目と終了を確認します。外部サーバー接続、jpackage、OS設定変更を含めません。
+
+Windowsの通常版は639件（628成功・11skip）、開発版は45件（44成功・1skip）、macOSの通常版は639件（617成功・22skip）、開発版は45件（44成功・1skip）で失敗0です。skipは既存のOS限定・実外部接続等の試験です。追加した設定3件とJavaFX6件は両OSで全件成功しました。両OSで通常・開発版のbuild/installDistと配布内容検査を完了しました。
+
+専用home/appdataの実Stageで外観Dialogからの即時保存、再起動保持、4Editorの両テーマとオフライン編集・保存・再読込、正常終了を確認しました。Windowsは100/150/200%、macOSは実outputScale 2.0で確認し、Scene.snapshotも両テーマで確認しています。確認Dialog・Tooltip・hover・一万件一覧のVirtualFlowへのScrollEventとEndキー・選択/フォーカス可視・表示外入力欄へのスクロールはJavaFX回帰試験で確認しました。
+
+標準OSボタンの配色はHeaderBar.systemColorSchemeの適用値を検証しました。物理トラックパッドの操作感と標準ボタンの実pixel配色は未確認です。OSのドラッグ/Snap popup/システムメニュー開閉/異DPI間移動やstandalone MacのOS表示名は#245から引き継ぐ制約で、本Issueの成功へ置き換えません。
+
+テーマ変更後のCSS反映は次pulseを待って検査します。同一FXコール内で連続切替えした直後のsnapshotを描画完了の証拠にはしません。
+
+通常の本体・developmentのGradle testタスクも、temporaryDir下へuser.home/LOCALAPPDATA/APPDATA/XDG_CONFIG_HOMEを固定します。設定を書き換えるFX試験は保存先が指定の隔離root配下であることを設定読込前に検査し、隔離設定なしのIDE等の起動では保存前に停止します。外部integrationのopt-in値は変更しません。

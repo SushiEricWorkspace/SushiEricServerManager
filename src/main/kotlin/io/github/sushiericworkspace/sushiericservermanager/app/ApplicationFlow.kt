@@ -1,8 +1,13 @@
 package io.github.sushiericworkspace.sushiericservermanager.app
 
+import io.github.sushiericworkspace.sushiericservermanager.editor.offline.OfflineManifestRepository
+import io.github.sushiericworkspace.sushiericservermanager.editor.offline.ManifestReadResult
+import io.github.sushiericworkspace.sushiericservermanager.editor.service.EditorDataService
+import io.github.sushiericworkspace.sushiericservermanager.editor.store.StoreErrorCode
+import io.github.sushiericworkspace.sushiericservermanager.editor.store.StoreResult
+import io.github.sushiericworkspace.sushiericservermanager.editor.store.StoreError
+
 import io.github.sushiericworkspace.sushiericservermanager.config.FilePath
-import io.github.sushiericworkspace.sushiericservermanager.editor.offline.OfflineWorkspaceMigrator
-import io.github.sushiericworkspace.sushiericservermanager.editor.offline.WorkspaceMigrationResult
 import io.github.sushiericworkspace.sushiericservermanager.editor.session.EditorSession
 import io.github.sushiericworkspace.sushiericservermanager.editor.store.LocalEditorDataStore
 import io.github.sushiericworkspace.sushiericservermanager.ui.dialog.CustomDialog
@@ -19,6 +24,7 @@ import javafx.scene.control.Button
 import javafx.scene.control.ProgressIndicator
 import javafx.scene.control.DialogPane
 import io.github.sushiericworkspace.sushiericservermanager.editor.view.EditorWindowManager
+import io.github.sushiericworkspace.sushiericservermanager.feature.modconfig.ModConfigWindowManager
 import javafx.scene.layout.VBox
 import javafx.stage.Stage
 import org.slf4j.LoggerFactory
@@ -49,7 +55,6 @@ object ApplicationFlow {
 
         stage.title = appWindowTitle("動作モード選択")
         stage.scene = Utility.createScene(AppScreen.MODE_SELECT, customRoot = root)
-        stage.isResizable = false
         stage.show()
     }
 
@@ -133,26 +138,32 @@ object ApplicationFlow {
                 fail("退避に失敗しました。編集内容を保持しています。終了操作で再試行してください。")
                 return@prepareCloseAll
             }
-            label.text = "接続を終了中"
-            thread(isDaemon = true, name = "editor-disconnect") {
-                try {
-                    EditorSession.resetMode()
-                    Platform.runLater {
-                        try {
-                            EditorWindowManager.completeCloseAll()
-                            roots.forEach { (root, disabled) -> root.isDisable = disabled }
-                            windows.forEach { it.close() }
-                            completed()
-                        } finally {
-                            progress.close()
-                            closingConnection = false
-                            Platform.setImplicitExit(implicitExit)
+            ModConfigWindowManager.prepareClose { modBackedUp ->
+                if (!modBackedUp) {
+                    fail("Mod設定を退避できませんでした。編集内容と接続を保持しています。処理完了後に終了操作をやり直してください。")
+                    return@prepareClose
+                }
+                label.text = "接続を終了中"
+                thread(isDaemon = true, name = "editor-disconnect") {
+                    try {
+                        EditorSession.resetMode()
+                        Platform.runLater {
+                            try {
+                                EditorWindowManager.completeCloseAll()
+                                roots.forEach { (root, disabled) -> root.isDisable = disabled }
+                                windows.forEach { it.close() }
+                                completed()
+                            } finally {
+                                progress.close()
+                                closingConnection = false
+                                Platform.setImplicitExit(implicitExit)
+                            }
                         }
-                    }
-                } catch (error: Exception) {
-                    logger.error("接続の終了を確認できませんでした。接続と編集内容を保全します。", error)
-                    Platform.runLater {
-                        fail("接続の終了が未確認です。編集内容と接続データを保全しました。別の接続へ切り替えません。")
+                    } catch (error: Exception) {
+                        logger.error("接続の終了を確認できませんでした。接続と編集内容を保全します。", error)
+                        Platform.runLater {
+                            fail("接続の終了が未確認です。編集内容と接続データを保全しました。別の接続へ切り替えません。")
+                        }
                     }
                 }
             }
@@ -161,26 +172,35 @@ object ApplicationFlow {
 
     private fun prepareOffline(stage: Stage) {
         val root = FilePath.OFFLINE_DIR.toFile()
-        val result = OfflineWorkspaceMigrator(root).migrateToCurrent()
+        val store = LocalEditorDataStore(root)
+        val service = EditorDataService(store)
+        val result = try {
+            when (val manifest = OfflineManifestRepository(root).read()) {
+                is ManifestReadResult.FutureVersion ->
+                    error("未対応の保存形式です。元データは変更していません。")
+                is ManifestReadResult.Invalid ->
+                    throw IllegalStateException("保存形式を確認できません。元データは変更していません。", manifest.cause)
+                else -> Unit
+            }
+            service.prepareLocalDocuments()
+        } catch (error: Exception) {
+            StoreResult.Failure(
+                StoreError(
+                    StoreErrorCode.IO_ERROR, cause = error))
+        }
         Platform.runLater {
             when (result) {
-                is WorkspaceMigrationResult.Success -> {
-                    val store = LocalEditorDataStore(root)
-                    EditorSession.startOfflineSession(store)
+                is StoreResult.Success -> {
+                    EditorSession.startOfflineSession(store, service)
                     stage.close()
                     Utility.navigateToHome("オフライン")
                 }
-                is WorkspaceMigrationResult.Failure -> {
-                    logger.error(
-                        "オフラインワークスペースを準備できませんでした: code={}, detail={}",
-                        result.error.code,
-                        result.error.detail,
-                        result.error.cause
-                    )
-                    CustomDialog.error()
-                        .title("オフラインデータエラー")
+                is StoreResult.Failure -> {
+                    service.closeIo()
+                    logger.error("ローカル文書を準備できませんでした。元データは保持しています。", result.error.cause)
+                    CustomDialog.error().title("オフラインデータエラー")
                         .header("オフラインデータを開けませんでした")
-                        .content("${result.error.code}: ${result.error.detail.orEmpty()}")
+                        .content("元のオフラインデータと退避を保持しています。保存形式と保存先を確認してください。")
                         .show()
                     showModeSelection(stage)
                 }
@@ -191,7 +211,7 @@ object ApplicationFlow {
     fun showPreparing(stage: Stage, message: String) {
         WindowSizePersistence.suspend(stage)
         stage.scene = Utility.createScene(
-            AppScreen.WIDGETS_ONLY,
+            AppScreen.STARTUP_PREPARING,
             width = 420.0,
             height = 140.0,
             customRoot = VBox(Label(message)).apply {

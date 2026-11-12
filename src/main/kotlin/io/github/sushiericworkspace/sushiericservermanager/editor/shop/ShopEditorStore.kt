@@ -10,6 +10,21 @@ import io.github.sushiericworkspace.sushiericservermanager.editor.store.*
 class ShopEditorStore(private val session: ShopSaveSession, private val writable: () -> Boolean = { true }) {
     private val snapshots = mutableMapOf<String, HostProductRead>()
 
+    internal fun prepareUpload(edit: HostAdapterAction.Edit): HostAdapterRequest {
+        check(writable()) { "この接続は読取専用です。" }
+        return session.prepare(edit)
+    }
+
+    internal fun upload(request: HostAdapterRequest, reconcile: Boolean = false): StoreResult<Unit> = try {
+        check(writable()) { "この接続は読取専用です。" }
+        val response = if (reconcile) session.reconcile(request) else session.execute(request)
+        if (response.status == HostAdapterStatus.SUCCESS && response.result is HostAdapterResult.Edited)
+            StoreResult.Success(Unit)
+        else failure(request.requestId, response)
+    } catch (error: Exception) {
+        StoreResult.Failure(StoreError(StoreErrorCode.PENDING_REVIEW, request.requestId, error.message, error))
+    }
+
     fun load(id: String): StoreResult<HostProductRead> = try {
         val response = session.read(listOf(id))
         val products = response.result as? HostAdapterResult.Products

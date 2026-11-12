@@ -146,7 +146,7 @@ dependencies {
     implementation("org.bouncycastle:bcprov-jdk18on:1.78")
 
     testImplementation(kotlin("test"))
-    testImplementation("org.mockito:mockito-core:5.14.2")
+    testImplementation("org.mockito:mockito-core:5.18.0")
 }
 
 val combatCoreMetadata = configurations.create("combatCoreMetadata") {
@@ -172,7 +172,9 @@ configurations.configureEach {
     resolutionStrategy.cacheDynamicVersionsFor(0, "seconds")
 }
 
-kotlin { jvmToolchain(21) }
+kotlin { jvmToolchain(25) }
+
+java { toolchain.languageVersion.set(JavaLanguageVersion.of(25)) }
 
 tasks.withType<JavaCompile> {
     options.encoding = "UTF-8"
@@ -180,7 +182,7 @@ tasks.withType<JavaCompile> {
 
 tasks.withType<org.jetbrains.kotlin.gradle.tasks.KotlinCompile> {
     compilerOptions {
-        freeCompilerArgs.add("-Xjdk-release=21")
+        freeCompilerArgs.add("-Xjdk-release=25")
     }
 }
 
@@ -231,6 +233,7 @@ application {
 tasks.withType<Test>().configureEach {
     useJUnitPlatform()
     val config = layout.buildDirectory.dir("test-config/$name").get().asFile
+    systemProperty("sushieric.test.configRoot", config.absolutePath)
     environment("LOCALAPPDATA", config.resolve("localappdata").absolutePath)
     environment("APPDATA", config.resolve("appdata").absolutePath)
     environment("XDG_CONFIG_HOME", config.resolve("xdg").absolutePath)
@@ -349,7 +352,7 @@ tasks.register<Exec>("packageWindowsAppImage") {
     workingDir = projectDir
 
     commandLine(
-        "jpackage",
+        File(System.getProperty("java.home"), "bin/jpackage.exe").absolutePath,
         "--type", "app-image",
         "--name", appName,
         "--app-version", packageVersion,
@@ -379,7 +382,7 @@ tasks.register<Exec>("packageWindowsAppImage") {
  */
 val windowsInstallerResources = layout.buildDirectory.dir("windows-installer-resources")
 
-// JDK 21のjpackageはネストしたper-user配置の親へRemoveFolderを生成せず、WiX ICE64で失敗する。
+// jpackageはネストしたper-user配置の親へRemoveFolderを生成せず、WiX ICE64で失敗する。
 // JDK自身のテンプレートを使用し、空の親だけを削除する定義を補う。データや親の再帰削除は行わない。
 tasks.register("prepareWindowsInstallerResources") {
     doLast {
@@ -392,7 +395,7 @@ tasks.register("prepareWindowsInstallerResources") {
             URI.create("jrt:/jdk.jpackage/jdk/jpackage/internal/resources/main.wxs")
         ))
         val adjusted = if (parent == null) template else {
-            // DirectoryのIDはJDK 21のWixAppImageFragmentBuilderと同じ規則で導出する。
+            // DirectoryのIDはJDKのWixAppImageFragmentBuilderと同じ規則で導出する。
             val key = "Folder@" + "TARGETDIR\\LocalAppDataFolder\\$parent".lowercase(Locale.ROOT)
             val directoryId = "dir" + UUID.nameUUIDFromBytes(key.toByteArray(Charsets.UTF_8)).toString().replace("-", "")
             val component = """
@@ -494,7 +497,7 @@ tasks.register<Exec>("packageMacAppImage") {
     workingDir = projectDir
 
     commandLine(
-        "jpackage",
+        File(System.getProperty("java.home"), "bin/jpackage").absolutePath,
         "--type", "app-image",
         "--name", appName,
         "--app-version", packageVersion,
@@ -524,7 +527,7 @@ tasks.register<Exec>("packageMacDmg") {
     workingDir = projectDir
 
     commandLine(
-        "jpackage",
+        File(System.getProperty("java.home"), "bin/jpackage").absolutePath,
         "--type", "dmg",
         "--name", appName,
         "--app-version", packageVersion,
@@ -638,10 +641,39 @@ val verifyReleaseContents = tasks.register("verifyReleaseContents") {
     val runtime = configurations.runtimeClasspath
     inputs.files(tasks.jar.flatMap { it.archiveFile }, runtime, combatCoreMetadata)
     doLast {
-        check(runtime.get().allDependencies.none { it is ProjectDependency && it.dependencyProject.path == ":development" }) {
+        check(runtime.get().allDependencies.none { it is ProjectDependency && it.path == ":development" }) {
             "通常runtimeがdevelopmentモジュールへ依存しています。"
         }
         verifyDistributionFiles(runtime.get().files + tasks.jar.get().archiveFile.get().asFile)
+
+        check(runtime.get().files.none { it.name.startsWith("minecraft-text-") }) {
+            "製品runtimeに不要なMinecraft文字描画ライブラリが含まれています。"
+        }
+        ZipFile(tasks.jar.get().archiveFile.get().asFile).use { jar ->
+            val entries = jar.entries().asSequence().filterNot { it.isDirectory }.toList()
+            check(entries.none { it.name.startsWith("fonts/Minecraft-") ||
+                it.name.startsWith("assets/minecraft/") || it.name.startsWith("colorfont/") }) {
+                "製品JARにMinecraft抽出素材または開発fixtureが含まれています。"
+            }
+            val manifest = Properties().apply {
+                load(jar.getInputStream(jar.getEntry("preview-assets.properties")
+                    ?: error("プレビュー素材一覧が製品JARにありません")))
+            }
+            manifest.stringPropertyNames().forEach { path ->
+                val entry = jar.getEntry(path) ?: error("プレビュー素材が製品JARにありません: $path")
+                val hash = jar.getInputStream(entry).use { stream ->
+                    val digest = MessageDigest.getInstance("SHA-256")
+                    val buffer = ByteArray(8192)
+                    while (true) {
+                        val read = stream.read(buffer)
+                        if (read < 0) break
+                        digest.update(buffer, 0, read)
+                    }
+                    digest.digest().joinToString("") { "%02x".format(it) }
+                }
+                check(hash == manifest.getProperty(path)) { "配布用プレビュー素材のhashが不一致です: $path" }
+            }
+        }
         if (dataModelReleaseVersion != null) {
             check(runtime.get().files.none { it.name.startsWith("sushieric-datamodel-editor-dev-") }) {
                 "正式配布へ開発SushiEricDataModelが混入しています。"

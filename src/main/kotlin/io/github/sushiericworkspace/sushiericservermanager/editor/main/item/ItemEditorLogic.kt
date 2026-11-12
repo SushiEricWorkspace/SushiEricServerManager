@@ -17,6 +17,9 @@ import io.github.sushiericworkspace.sushiericdatamodel.data.item.model.LoreSecti
 import io.github.sushiericworkspace.sushiericservermanager.ui.dialog.CustomDialog
 import io.github.sushiericworkspace.sushiericservermanager.editor.main.item.diff.ItemDiffField
 import io.github.sushiericworkspace.sushiericservermanager.editor.service.EditorDataService
+import io.github.sushiericworkspace.sushiericservermanager.editor.service.EditorDocumentKey
+import io.github.sushiericworkspace.sushiericservermanager.editor.service.EditorDocumentSource
+import io.github.sushiericworkspace.sushiericservermanager.editor.render.ItemPreviewContent
 import io.github.sushiericworkspace.sushiericservermanager.editor.view.EditorSidebar
 import io.github.sushiericworkspace.sushiericservermanager.editor.view.buildSidebarRows
 import io.github.sushiericworkspace.sushiericservermanager.editor.view.isLocalOnlyData
@@ -113,12 +116,12 @@ internal fun createItemValidationRepairRegistry(
 
 class ItemEditorLogic(
     main: MainController,
-    dataService: EditorDataService,
+    service: EditorDataService,
     private val headSkinTextureLookup: HeadSkinTextureLookup = MojangHeadSkinTextureLookup()
 ) : EditorView<MutableItemBaseData>(
     main = main,
-    dataService = dataService,
-    dataAccess = dataService.items
+    dataService = service,
+    dataAccess = service.items
 ) {
     override val validationRepairRegistry = createItemValidationRepairRegistry(headSkinTextureLookup)
 
@@ -165,11 +168,12 @@ class ItemEditorLogic(
         }
     }
 
-    private val treeCache = mutableMapOf<String, TreeItem<TreeRow>>()
+    private val treeCache = mutableMapOf<EditorDocumentKey, TreeItem<TreeRow>>()
 
-    private val expandedStateCache = mutableMapOf<String, MutableMap<String, Boolean>>()
+    private val expandedStateCache = mutableMapOf<EditorDocumentKey, MutableMap<String, Boolean>>()
 
-    private val loreTreeUiIdMemory = LoreTreeUiIdMemory()
+    private val loreMemories = mutableMapOf<EditorDocumentSource, LoreTreeUiIdMemory>()
+    private val loreTreeUiIdMemory get() = loreMemories.getOrPut(dataService.documentSource) { LoreTreeUiIdMemory() }
 
     private val previewImageView = ImageView().apply {
         isPreserveRatio = true
@@ -255,7 +259,11 @@ class ItemEditorLogic(
         onMove = ::moveData,
         expandedState = sidebarExpandedState,
         onExpandedStateChanged = ::persistSidebarExpandedState,
-        onExpansionChanged = ::renderSidebarResults
+        onExpansionChanged = ::renderSidebarResults,
+        previewData = { node, id ->
+            val content = id?.let { editingDataMap[it]?.let(ItemPreviewContent::item) ?: ItemPreviewContent.unavailable(it) }
+            dataService.itemPreviews.installContent(node, content, "editing")
+        }
     )
 
     private var sidebarItemIds: List<String> = emptyList()
@@ -278,15 +286,11 @@ class ItemEditorLogic(
             registerSidebar(ids, sidebarResults)
             renderSidebarResults()
 
-            val selectableIds = ids.filterNot(::isPendingStoreDeletion)
-            if (selectableIds.isEmpty()) {
+            val selected = restoreDocumentTabs(ids.filterNot(::isPendingStoreDeletion), selectId)
+            if (selected == null) {
                 currentSelectedDataId = null
                 main.mainContentContainer.children.clear()
-            } else {
-                val requestedId = selectId?.removeSuffix(".yml")
-                val targetId = requestedId?.takeIf { it in selectableIds } ?: selectableIds.first()
-                selectTab(targetId)
-            }
+            } else selectTab(selected)
 
             ids.forEach(::refreshSidebarState)
             preloadSidebarDataForVisualStates(ids)
@@ -440,52 +444,53 @@ class ItemEditorLogic(
     }
 
     private fun finishRename(oldId: String, newId: String) {
-        treeCache.remove(oldId)?.let { treeCache[newId] = it }
-        expandedStateCache.remove(oldId)?.let { expandedStateCache[newId] = it }
+        treeCache.remove(documentKey(oldId))?.let { treeCache[documentKey(newId)] = it }
+        expandedStateCache.remove(documentKey(oldId))?.let { expandedStateCache[documentKey(newId)] = it }
         loreTreeUiIdMemory.renameItem(oldItemId = oldId, newItemId = newId)
 
     }
 
     private fun requestDelete(id: String) {
+        if (isUploadFrozen(id)) return
         if (storeOperationBlocked) return
         val localOnly = isLocalOnlyData(id, remoteDataIds) && !pendingOperationHasStoredSource(id)
         val confirmed = CustomDialog.confirmation()
             .title("削除を保留")
-            .header(if (localOnly) "保存時にローカル編集内容を破棄します" else "保存時にファイルを削除します")
+            .header(if (localOnly) "ローカルの未保存編集を破棄します" else "ローカル作業コピーの削除を保存時に確定します")
             .content(
                 if (localOnly) {
                     listOf(
                         "アイテムID: $id",
                         "",
-                        "削除はまだ反映されません。保存時の確認後に編集内容と自動保存を破棄します。"
+                        "未保存の編集内容とその退避を破棄します。"
                     )
                 } else {
                     listOf(
                         "アイテムID: $id",
                         "",
-                        "削除はまだサーバーへ反映されません。",
-                        "保存時の確認後にファイルを削除します。"
+                        "保存時の確認後にローカル作業コピーの削除を確定します。",
+                        "サーバーには書き込みません。"
                     )
                 }
             )
             .okButton("削除", Color.RED)
             .owner(main.currentStage)
             .show()
-        if (!confirmed || storeOperationBlocked) return
+        if (!confirmed || storeOperationBlocked || isUploadFrozen(id)) return
 
         if (stageDataDeletion(id)) {
             removeCachedData(id)
             main.showTimedTopLabel("$id の追加を取り消しました", Color.GREENYELLOW)
             refreshLocalSidebar()
         } else {
-            main.showTimedTopLabel("$id の削除を保留しました。保存すると反映されます", Color.GREENYELLOW)
+            main.showTimedTopLabel("$id の削除を保留しました。ローカル保存で確定します", Color.GREENYELLOW)
             refreshLocalSidebar()
         }
     }
 
     private fun removeCachedData(id: String) {
-        treeCache.remove(id)
-        expandedStateCache.remove(id)
+        treeCache.remove(documentKey(id))
+        expandedStateCache.remove(documentKey(id))
         loreTreeUiIdMemory.clearItem(id)
     }
 
@@ -493,10 +498,18 @@ class ItemEditorLogic(
         removeCachedData(id)
     }
 
+    override fun captureLoreHistoryIds(id: String): Map<String, List<String>> = editingDataMap[id]?.let { data ->
+        loreTreeUiIdMemory.snapshot(id, data.display.mutableLore.map { it.size })
+    }.orEmpty()
+
+    override fun restoreLoreHistoryIds(id: String, ids: Map<String, List<String>>) {
+        loreTreeUiIdMemory.restore(id, ids)
+    }
+
     override fun onHistoryDataRestored(id: String) {
         // 復元したデータから入力欄を作り直す必要はあるが、
         // ユーザーが開いていたツリーの状態はUndo/Redo後も維持する。
-        treeCache.remove(id)
+        treeCache.remove(documentKey(id))
     }
 
     override fun resolveSaveConflict(
@@ -505,7 +518,7 @@ class ItemEditorLogic(
         currentData: MutableItemBaseData,
         serverData: MutableItemBaseData
     ): MutableItemBaseData? {
-        val dialog = RewriteConfirmation(originalData, serverData)
+        val dialog = RewriteConfirmation(originalData, serverData, currentData, dataService.itemPreviews)
         val currentStage = main.sidebarContainer.scene.window as? Stage
 
         if (currentStage != null) {
@@ -622,13 +635,14 @@ class ItemEditorLogic(
     override fun setupMainContent(selectData: MutableItemBaseData) {
         previewCanvas = PreviewCanvas(
             itemData = selectData,
-            imageView = previewImageView
+            imageView = previewImageView,
+            previews = dataService.itemPreviews
         )
 
         previewCanvas?.refreshPreview()
         if (simulatorImport == null) simulatorImport = ItemSimulatorImport(
             main.mainContentContainer, simulatorButton, simulatorImportMessage,
-            busy = { closeBusy || storeOperationBlocked || EditorSession.dataService !== dataService },
+            busy = { closeBusy || storeOperationBlocked || EditorSession.dataService !== connectedService },
             snapshot = { currentSelectedDataId?.let { editingDataMap[it] }?.let {
                 SimulatorImportedItem.fromEdited(it)
             } },
@@ -665,14 +679,14 @@ class ItemEditorLogic(
         currentInternalIdField.tooltip = AppTooltip.create(selectData.internalId.value)
 
         // キャッシュからルートオブジェクトを取得、なければ初期展開状態で登録
-        val rootItem = treeCache.getOrPut(selectData.id) {
+        val rootItem = treeCache.getOrPut(documentKey(selectData.id)) {
             TreeItem<TreeRow>(TreeRow.Folder.Lore).apply {
                 isExpanded = true
                 anchorRowOnBranchToggle(this)
             }
         }
 
-        val expandedMap = expandedStateCache.getOrPut(selectData.id) { mutableMapOf() }
+        val expandedMap = expandedStateCache.getOrPut(documentKey(selectData.id)) { mutableMapOf() }
 
         // 構造を再構築する
         createItemTreeBuilder(
@@ -1282,6 +1296,7 @@ class ItemEditorLogic(
             }
         }
 
+        var activeDrag: () -> Boolean = { false }
         treeView.setCellFactory {
             LoreDragDropTreeCell(
                 itemData = selectData,
@@ -1290,7 +1305,18 @@ class ItemEditorLogic(
                 onRefresh = { row -> handleRefresh(row) },
                 loreTreeUiIdMemory = loreTreeUiIdMemory,
                 folderGraphicFactory = folderGraphicFactory,
-                contextMenuFactory = contextMenuFactory
+                contextMenuFactory = contextMenuFactory,
+                retainDraft = { key, field, valid -> retainInputDraft(selectData.id, key, field, valid) },
+                moveDraft = { from, to -> moveInputDraft(selectData.id, from, to) },
+                beforeDrag = {
+                    if (editingDataMap[selectData.id] !== selectData) false else {
+                        main.mainContentContainer.requestFocus()
+                        recordHistorySnapshot(selectData.id)
+                        activeDrag = editingGuard(selectData.id)
+                        activeDrag()
+                    }
+                },
+                beforeDrop = { activeDrag() }
             )
         }
     }
@@ -1420,7 +1446,7 @@ class ItemEditorLogic(
         val currentData = editingDataMap[currentItemId] ?: return
         val targetItem = findTreeItemByRow(treeView.root, targetRow) ?: return
 
-        val expandedMap = expandedStateCache.getOrPut(currentItemId) {
+        val expandedMap = expandedStateCache.getOrPut(documentKey(currentItemId)) {
             mutableMapOf()
         }
 

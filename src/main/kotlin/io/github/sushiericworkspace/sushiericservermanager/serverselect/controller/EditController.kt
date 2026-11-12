@@ -231,7 +231,8 @@ class EditController : Initializable {
             generatedKey = type == AuthenticationType.GENERATED_KEY,
             keyFormat = if (type == AuthenticationType.GENERATED_KEY) currentKeyFormat else null,
             remoteOperatingSystem = input.remoteOperatingSystem.storedValue,
-            managementPort = input.managementPort
+            managementPort = input.managementPort,
+            profileId = originalProfile.profileId
         )
     }
 

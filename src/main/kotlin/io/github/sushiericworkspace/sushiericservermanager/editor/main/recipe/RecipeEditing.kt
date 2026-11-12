@@ -23,3 +23,28 @@ internal fun recipeSlots(ingredients: RecipeIngredients): Map<Int, ItemInternalI
     is RecipeIngredients.Shaped -> ingredients.slots
     is RecipeIngredients.Shapeless -> ingredients.items.withIndex().associate { it.index to it.value }
 }
+
+
+/** 指定マスだけを置き換え、形状なしでは既存のList契約へ空きを詰めます。 */
+internal fun setRecipeSlot(data: MutableRecipeData, slot: Int, item: ItemInternalId?): Boolean {
+    val slots = recipeSlots(data.ingredients).toMutableMap()
+    if (item == null) slots.remove(slot) else slots[slot] = item
+    return updateRecipeSlots(data, slots)
+}
+
+/** 移動元と置換先を一度に反映し、他の盤外材料も保持します。 */
+internal fun moveRecipeSlot(data: MutableRecipeData, from: Int, to: Int): Boolean {
+    if (from == to) return false
+    val slots = recipeSlots(data.ingredients).toMutableMap()
+    val item = slots.remove(from) ?: return false
+    slots[to] = item
+    return updateRecipeSlots(data, slots)
+}
+
+private fun updateRecipeSlots(data: MutableRecipeData, slots: Map<Int, ItemInternalId>): Boolean {
+    val next = if (data.shaped) RecipeIngredients.Shaped(slots)
+        else RecipeIngredients.Shapeless(slots.toSortedMap().values.toList())
+    if (next == data.ingredients) return false
+    data.ingredients = next
+    return true
+}

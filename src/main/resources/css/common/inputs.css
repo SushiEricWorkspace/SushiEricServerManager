@@ -82,7 +82,7 @@
 
 .spinner .increment-arrow,
 .spinner .decrement-arrow {
-    -fx-background-color: white;
+    -fx-background-color: -fx-text-color;
 }
 
 .combo-box .list-cell {
@@ -101,7 +101,7 @@
 }
 
 .combo-box .arrow {
-    -fx-background-color: white;
+    -fx-background-color: -fx-text-color;
 }
 
 .combo-box-popup .list-view {

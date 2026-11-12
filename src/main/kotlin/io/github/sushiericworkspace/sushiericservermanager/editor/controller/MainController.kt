@@ -1,12 +1,16 @@
 package io.github.sushiericworkspace.sushiericservermanager.editor.controller
 
+import io.github.sushiericworkspace.sushiericservermanager.app.AppFrame
+import io.github.sushiericworkspace.sushiericservermanager.app.workspace.WorkspaceManager
 import io.github.sushiericworkspace.sushiericservermanager.editor.result.ValidationResult
 import io.github.sushiericworkspace.sushiericservermanager.editor.view.EditorView
 import io.github.sushiericworkspace.sushiericservermanager.ui.dialog.ValidatedInputDialog
-import io.github.sushiericworkspace.sushiericservermanager.ui.shortcut.EditorShortcut
 import io.github.sushiericworkspace.sushiericservermanager.ui.shortcut.ShortcutManager
-import javafx.animation.PauseTransition
+import io.github.sushiericworkspace.sushiericservermanager.util.toCssHex
+import io.github.sushiericworkspace.sushiericservermanager.app.NotificationState
+import io.github.sushiericworkspace.sushiericservermanager.editor.session.EditorSession
 import javafx.fxml.FXML
+import javafx.scene.control.ScrollPane
 import javafx.scene.control.ProgressIndicator
 import javafx.scene.control.Button
 import javafx.scene.control.Label
@@ -14,12 +18,14 @@ import javafx.scene.layout.HBox
 import javafx.scene.layout.VBox
 import javafx.scene.paint.Color
 import javafx.stage.Stage
-import javafx.util.Duration
 
 class MainController {
+    @FXML private lateinit var rootPane: ScrollPane
+    val shortcutRoot: javafx.scene.Node get() = rootPane
     @FXML lateinit var actionButtonContainer: HBox
     @FXML lateinit var sidebarContainer: VBox
     @FXML lateinit var mainContentContainer: HBox
+    @FXML lateinit var idTabContainer: VBox
     @FXML private lateinit var topInfoLabel: Label
     @FXML private lateinit var operationProgress: ProgressIndicator
     @FXML private lateinit var importProgress: ProgressIndicator
@@ -29,6 +35,8 @@ class MainController {
 
     /** 編集を止めずにローカル取り込みの工程を表示します。負値は不定進捗です。 */
     fun showImportProgress(phase: String, progress: Double) {
+        val notice = importNotice ?: notices.start(notificationScope(), "import", phase).also { importNotice = it }
+        notices.fraction(notice, phase, progress)
         importStatus.text = phase
         importStatus.isVisible = true
         importStatus.isManaged = true
@@ -38,6 +46,8 @@ class MainController {
     }
 
     fun finishImportProgress() {
+        importNotice?.let(notices::finish)
+        importNotice = null
         importStatus.isVisible = false
         importStatus.isManaged = false
         importProgress.isVisible = false
@@ -54,11 +64,19 @@ class MainController {
         sidebarRetry.setOnAction { onRetry?.invoke() }
     }
 
+    /** アップロード・読戻し中の選択文書は、別の画面処理が完了しても編集を再開しません。 */
+    internal var documentFrozen: Boolean = false
+        set(value) {
+            field = value
+            mainContentContainer.isDisable = value || operationRunning || loadingRunning
+        }
+
     var operationRunning: Boolean = false
         private set
 
-    fun showOperation(phase: String) {
-        clearTopLabelTimer()
+    fun showOperation(phase: String, target: String? = null) {
+        operationNotice?.let { notices.update(it, phase) }
+            ?: run { operationNotice = notices.start(notificationScope().let { if (target == null) it else it.copy(target = target) }, "operation", phase) }
         operationRunning = true
         operationProgress.isVisible = true
         operationProgress.isManaged = true
@@ -69,12 +87,14 @@ class MainController {
     }
 
     fun finishOperation() {
+        operationNotice?.let(notices::finish)
+        operationNotice = null
         operationRunning = false
         operationProgress.isVisible = false
         operationProgress.isManaged = false
         actionButtonContainer.isDisable = false
         sidebarContainer.isDisable = false
-        mainContentContainer.isDisable = false
+        mainContentContainer.isDisable = documentFrozen
         setTopLabel("")
     }
 
@@ -83,7 +103,8 @@ class MainController {
 
     /** 読み込みの工程を表示します。選択取得中もサイドバーから別のデータを選べます。 */
     fun showLoading(phase: String, lockSidebar: Boolean = false) {
-        clearTopLabelTimer()
+        loadingNotice?.let(notices::finish)
+        loadingNotice = notices.start(notificationScope(), "loading", phase)
         loadingRunning = true
         operationProgress.isVisible = true
         operationProgress.isManaged = true
@@ -94,29 +115,46 @@ class MainController {
     }
 
     fun finishLoading() {
+        loadingNotice?.let(notices::finish)
+        loadingNotice = null
         if (!loadingRunning) return
         loadingRunning = false
         operationProgress.isVisible = false
         operationProgress.isManaged = false
         actionButtonContainer.isDisable = false
         sidebarContainer.isDisable = false
-        mainContentContainer.isDisable = false
+        mainContentContainer.isDisable = documentFrozen
         setTopLabel("")
     }
 
     /** 背景退避の状態を非モーダルに表示し、編集中の操作を維持します。 */
-    fun showBackupStatus(text: String, color: Color = Color.WHITE) {
-        if (operationRunning || loadingRunning) return
-        clearTopLabelTimer()
-        setTopLabel(text, color)
+    internal fun showBackupStatus(text: String, color: Color = Color.WHITE,
+                                  scope: NotificationState.Scope = notificationScope().copy(target = ""), saved: Boolean? = null) {
+        if (saved == true) notices.resolve(scope, "backup")
+        if (saved == false) notices.condition(scope, "backup", text, NotificationState.Severity.ERROR)
+        if (color == Color.GREENYELLOW) notices.toast(scope, text, severity(color))
     }
 
-    private var topLabelTimer: PauseTransition? = null
+    private val notices get() = EditorSession.notifications
+    private val initialScope = notices.scope("", "Editor")
+    internal var notificationScope: () -> NotificationState.Scope = { initialScope }
+    private var operationNotice: NotificationState.Operation? = null
+    internal val operationToken: NotificationState.Operation? get() = operationNotice
+    private var loadingNotice: NotificationState.Operation? = null
+    private var importNotice: NotificationState.Operation? = null
+
+    private fun severity(color: Color): NotificationState.Severity = when (color) {
+        Color.GREENYELLOW -> NotificationState.Severity.SUCCESS
+        Color.ORANGE -> NotificationState.Severity.WARNING
+        Color.RED, Color.ORANGERED -> NotificationState.Severity.ERROR
+        else -> NotificationState.Severity.INFO
+    }
 
     val currentStage: Stage?
         get() = sidebarContainer.scene?.window as? Stage
 
     fun switchView(logic: EditorView<*>) {
+        clearShortcuts()
         actionButtonContainer.children.clear()
         sidebarContainer.children.clear()
         mainContentContainer.children.clear()
@@ -124,21 +162,27 @@ class MainController {
 
         logic.setupActions(actionButtonContainer)
         logic.start()
+    }
 
-        if (mainContentContainer.scene != null) {
-            setupEditorShortcuts(logic)
-        } else {
-            mainContentContainer.sceneProperty().addListener { _, _, newScene ->
-                if (newScene != null) {
-                    setupEditorShortcuts(logic)
-                }
-            }
+    internal fun refreshEditorMenus(logic: EditorView<*>) {
+        (actionButtonContainer.scene?.root as? AppFrame)?.let { frame ->
+            val workspace = WorkspaceManager.current?.takeIf { it.contains(rootPane) }
+            if (workspace != null) workspace.editorMenus(rootPane) { frame.useEditorMenus(actionButtonContainer, logic::refreshActionMenuState) }
+            else frame.useEditorMenus(actionButtonContainer, logic::refreshActionMenuState)
         }
     }
 
     fun setTopLabel(text: String, textColor: Color = Color.WHITE) {
         topInfoLabel.text = text
-        topInfoLabel.textFill = textColor
+        val color = when (textColor) {
+            Color.WHITE -> "-fx-text-color"
+            Color.GREENYELLOW -> "-fx-success-color"
+            Color.RED, Color.ORANGERED -> "-fx-danger-color"
+            Color.ORANGE -> "-fx-warning-color"
+            Color.DODGERBLUE -> "-fx-accent-color"
+            else -> textColor.toCssHex()
+        }
+        topInfoLabel.style = "-fx-text-fill: $color;"
     }
 
     /**
@@ -152,16 +196,7 @@ class MainController {
     }
 
     fun showTimedTopLabel(text: String, textColor: Color = Color.WHITE, delaySeconds: Double = 2.0) {
-        if (operationRunning || loadingRunning) return
-        setTopLabel(text, textColor)
-        topLabelTimer?.stop()
-        topLabelTimer = PauseTransition(Duration.seconds(delaySeconds)).apply {
-            setOnFinished {
-                setTopLabel("")
-                topLabelTimer = null
-            }
-            play()
-        }
+        notices.toast(notificationScope(), text, severity(textColor), delaySeconds)
     }
 
     /**
@@ -175,50 +210,9 @@ class MainController {
         showTimedTopLabel(text, parseColor(hexColor), delaySeconds)
     }
 
-    fun clearTopLabelTimer() {
-        topLabelTimer?.stop()
-        topLabelTimer = null
-    }
-
-    /**
-     * 現在のエディタに対して保存ショートカットを登録します。
-     */
-    private fun setupEditorShortcuts(logic: EditorView<*>) {
-        val scene = mainContentContainer.scene ?: return
-
-        ShortcutManager.register(
-            scene = scene,
-            shortcut = EditorShortcut.SAVE
-        ) {
-            if (!logic.storeOperationBlocked) logic.onSave()
-        }
-        ShortcutManager.register(scene, EditorShortcut.SAVE_ALL) {
-            if (!logic.storeOperationBlocked) logic.onSaveAll()
-        }
-        listOf(
-            EditorShortcut.SYNC to logic::onSynchronizeSelected,
-            EditorShortcut.SYNC_ALL to logic::onSynchronizeAll,
-            EditorShortcut.CREATE_DATA to logic::onCreateData,
-            EditorShortcut.CREATE_DIRECTORY to logic::onCreateDirectory,
-            EditorShortcut.REPAIR_WARNING to logic::repairSelectedWarnings,
-            EditorShortcut.REPAIR_ALL_WARNINGS to logic::repairAllWarnings,
-            EditorShortcut.FOCUS_ERROR to logic::focusSelectedError,
-            EditorShortcut.FOCUS_ALL_ERRORS to logic::focusAllErrors
-        ).forEach { (shortcut, action) ->
-            ShortcutManager.register(scene, shortcut) { if (!logic.storeOperationBlocked) action() }
-        }
-        ShortcutManager.registerHistoryShortcuts(
-            scene = scene,
-            onUndo = { !logic.storeOperationBlocked && logic.onUndo() },
-            onRedo = { !logic.storeOperationBlocked && logic.onRedo() }
-        )
-    }
-
-    /**
-     * 現在のエディタ画面に登録されたショートカットを解除します。
-     */
+    /** この機能領域の操作登録だけを解除します。他領域の登録は残します。 */
     fun clearShortcuts() {
-        ShortcutManager.unregisterAll(mainContentContainer.scene)
+        ShortcutManager.unregister(shortcutRoot)
     }
 
     /**

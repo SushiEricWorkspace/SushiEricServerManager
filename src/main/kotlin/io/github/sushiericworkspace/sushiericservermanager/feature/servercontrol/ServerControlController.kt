@@ -7,6 +7,8 @@ import io.github.sushiericworkspace.sushiericservermanager.config.ServerControlC
 import io.github.sushiericworkspace.sushiericservermanager.config.RemoteOperatingSystem
 import io.github.sushiericworkspace.sushiericservermanager.editor.session.EditorSession
 import io.github.sushiericworkspace.sushiericservermanager.ui.dialog.CustomDialog
+import javafx.animation.KeyFrame
+import javafx.animation.Timeline
 import javafx.application.Platform
 import javafx.fxml.FXML
 import javafx.fxml.Initializable
@@ -17,6 +19,7 @@ import javafx.scene.control.TextField
 import javafx.scene.layout.BorderPane
 import javafx.stage.FileChooser
 import javafx.stage.Stage
+import javafx.util.Duration
 import java.io.File
 import java.net.URL
 import java.time.LocalTime
@@ -57,11 +60,49 @@ class ServerControlController : Initializable {
 
     /** 実行中かを表します。実行が終わるまで次の操作を受け付けません。 */
     private var running = false
+    private var disposed = false
+    private var generation = 0L
+    private var displayedClient = EditorSession.sshManager.sshClient
+    private var displayedProfile = currentProfileName()
+    private val connectionRefresh = Timeline(KeyFrame(Duration.seconds(1.0), { refreshConnection() })).apply {
+        cycleCount = Timeline.INDEFINITE
+    }
 
     override fun initialize(location: URL?, resources: ResourceBundle?) {
         savedCommands = ServerControlCommandsManager.loadFor(currentProfileName())
 
         applyToFields(savedCommands)
+        refreshControls()
+        connectionRefresh.play()
+    }
+
+    /** 領域終了後の遅延結果を拒否し、接続表示の更新を停止します。 */
+    fun dispose() {
+        if (disposed) return
+        disposed = true
+        generation++
+        connectionRefresh.stop()
+    }
+
+    private fun refreshConnection() {
+        if (disposed) return
+        val client = EditorSession.sshManager.sshClient
+        if (client !== displayedClient) {
+            generation++
+            if (running) {
+                statusLabel.text = "接続が変更されました。送信済み操作の結果は未確認です。再送していません。"
+                appendOutput(statusLabel.text)
+                running = false
+            }
+            displayedClient = client
+            val profile = currentProfileName()
+            if (client != null && profile != displayedProfile) {
+                displayedProfile = profile
+                savedCommands = ServerControlCommandsManager.loadFor(profile)
+                applyToFields(savedCommands)
+                outputArea.clear()
+            }
+        }
         refreshControls()
     }
 
@@ -81,6 +122,8 @@ class ServerControlController : Initializable {
     @FXML
     @Suppress("unused")
     fun handleSave() {
+        refreshConnection()
+        if (disposed || running) return
         val profileName = currentProfileName()
 
         if (profileName.isNullOrBlank()) {
@@ -139,6 +182,9 @@ class ServerControlController : Initializable {
     @FXML
     @Suppress("unused")
     fun handleImport() {
+        refreshConnection()
+        if (disposed || running) return
+        val importGeneration = generation
         val file =
             FileChooser().apply {
                 title = "サーバー操作コマンドの読み込み"
@@ -156,6 +202,10 @@ class ServerControlController : Initializable {
             return
         }
 
+        confirmImported(imported, importGeneration)
+    }
+
+    private fun confirmImported(imported: ServerControlCommandSet, importGeneration: Long) {
         val confirmed =
             CustomDialog.confirmation()
                 .title("コマンドの読み込み")
@@ -177,6 +227,8 @@ class ServerControlController : Initializable {
             return
         }
 
+        refreshConnection()
+        if (disposed || importGeneration != generation) return
         applyToFields(imported)
         statusLabel.text = "コマンドを読み込みました。保存すると次回から使用します。"
         refreshControls()
@@ -188,7 +240,8 @@ class ServerControlController : Initializable {
      * 実行はSSHの応答を待つため、画面を止めないよう別スレッドで行います。
      */
     private fun execute(control: ServerControlCommand) {
-        if (running) {
+        refreshConnection()
+        if (disposed || running) {
             return
         }
 
@@ -217,13 +270,17 @@ class ServerControlController : Initializable {
             return
         }
 
+        val target = currentProfileName().orEmpty()
+        val operationGeneration = generation
         val confirmed =
             CustomDialog.confirmation()
                 .title("${control.displayName}の確認")
-                .header("サーバーを${control.displayName}しますか？")
+                .header("対象「$target」を${control.displayName}しますか？")
                 .content(
                     listOf(
-                        "次のコマンドをSSHで実行します。",
+                        "対象: $target",
+                        "作業ディレクトリ: ${describe(savedCommands.workingDirectory)}",
+                        "次のコマンドをSSHで即時実行します。保存・送信予約には追加しません。",
                         "",
                         commandLine
                     )
@@ -235,13 +292,17 @@ class ServerControlController : Initializable {
             return
         }
 
-        setRunning(true, "${control.displayName}を実行しています...")
+        refreshConnection()
+        if (disposed || operationGeneration != generation || client !== displayedClient) return
+        setRunning(true, "対象「$target」の${control.displayName}を実行しています...")
         appendOutput("> $commandLine")
 
         Thread({
             val result = commandRunner.run(client, commandLine)
 
             Platform.runLater {
+                refreshConnection()
+                if (disposed || operationGeneration != generation || client !== displayedClient) return@runLater
                 showResult(control, result)
                 setRunning(false, statusLabel.text)
             }
@@ -256,13 +317,15 @@ class ServerControlController : Initializable {
         result: SshCommandResult?
     ) {
         if (result == null) {
-            statusLabel.text = "${control.displayName}のコマンドを実行できませんでした。"
-            appendOutput("コマンドを実行できませんでした。接続の状態を確認してください。")
+            statusLabel.text = "${control.displayName}の実行結果を確認できませんでした。"
+            appendOutput("応答を取得できず、送信済み操作の結果は未確認です。接続先で状態を確認してください。")
             return
         }
 
         statusLabel.text =
-            if (result.isSuccess) {
+            if (result.exitStatus == null) {
+                "${control.displayName}の終了状態は未確認です。"
+            } else if (result.isSuccess) {
                 "${control.displayName}のコマンドが正常に終了しました。"
             } else {
                 "${control.displayName}のコマンドが終了コード ${result.exitStatus} で終了しました。"

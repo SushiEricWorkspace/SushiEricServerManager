@@ -7,6 +7,7 @@ import java.io.File
 import io.github.sushiericworkspace.sushiericdatamodel.data.shop.model.mutable.MutableShopProductData
 import io.github.sushiericworkspace.sushiericservermanager.editor.merge.ShopDataMerger
 import io.github.sushiericworkspace.sushiericservermanager.editor.service.EditorDataService
+import io.github.sushiericworkspace.sushiericservermanager.editor.service.LocalDocumentVersion
 import kotlin.io.path.createTempDirectory
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -133,6 +134,12 @@ class ShopEditorDataTest {
                 val loaded = assertIs<StoreResult.Success<MutableShopProductData>>(service.shops.loadStore(data.id)).value
                 assertEquals(quantity, loaded.stock)
                 assertEquals(data.stockBaseline, loaded.stockBaseline)
+                val observed = when (val result = service.shops.observeStore(data.id)) {
+                    is StoreResult.Success -> result.value.second
+                    is StoreResult.Failure -> error(result.error.toString())
+                }
+                val versions = mapOf(data.id to LocalDocumentVersion(observed.key, observed.revision))
+                assertIs<StoreResult.Success<*>>(service.shops.saveLocalDocument(data.id, data.copy(stock = 12), emptyMap(), versions = versions))
                 assertTrue(service.shops.saveToLocalBackup("editing", data))
                 assertTrue(service.shops.saveToLocalBackup("original", data.copy(stock = 12)))
                 val pair = assertNotNull(service.shops.loadBackupPair(data.id))

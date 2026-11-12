@@ -78,7 +78,7 @@ object EditorSpinnerFactory {
             editor.textFormatter = TextFormatter<String> { change ->
                 val newText = change.controlNewText
 
-                if (newText.matches(Regex("\\d*"))) {
+                if (editor.properties["retain-input-draft"] == true || newText.matches(Regex("\\d*"))) {
                     change
                 } else {
                     null
@@ -86,6 +86,8 @@ object EditorSpinnerFactory {
             }
 
             fun commitEditorValue() {
+                if (editor.properties["retain-input-draft"] == true &&
+                    editor.text.toIntOrNull()?.let { it in min..max } != true) return
                 val fixedValue = editor.text
                     .toIntOrNull()
                     ?.coerceIn(min, max)
@@ -170,10 +172,12 @@ object EditorSpinnerFactory {
             }
 
             editor.textFormatter = TextFormatter<String> { change ->
-                if (change.controlNewText.matches(Regex("\\d*"))) change else null
+                if (editor.properties["retain-input-draft"] == true || change.controlNewText.matches(Regex("\\d*"))) change else null
             }
 
             fun commitEditorValue() {
+                if (editor.properties["retain-input-draft"] == true &&
+                    editor.text.toLongOrNull()?.let { it in min..max } != true) return
                 val fixedValue = normalizeLongSpinnerValue(editor.text, min, max)
                 if (valueFactory.value != fixedValue) {
                     valueFactory.value = fixedValue
@@ -230,7 +234,7 @@ object EditorSpinnerFactory {
             editor.textFormatter = TextFormatter<String> { change ->
                 val newText = change.controlNewText
 
-                if (newText.matches(Regex("\\d*(\\.\\d*)?"))) {
+                if (editor.properties["retain-input-draft"] == true || newText.matches(Regex("\\d*(\\.\\d*)?"))) {
                     change
                 } else {
                     null
@@ -249,6 +253,8 @@ object EditorSpinnerFactory {
             }
 
             fun commitEditorValue() {
+                if (editor.properties["retain-input-draft"] == true &&
+                    editor.text.toDoubleOrNull()?.let { it.isFinite() && it in min..max } != true) return
                 val fixedValue = editor.text
                     .toDoubleOrNull()
                     ?.let { fix(it) }

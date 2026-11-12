@@ -85,7 +85,7 @@ object NumericSpinnerFactory {
         spinner.editor.textFormatter = TextFormatter<String> { change ->
             val newText = change.controlNewText
 
-            if (newText.matches(regex)) {
+            if (spinner.editor.properties["retain-input-draft"] == true || newText.matches(regex)) {
                 change
             } else {
                 null
@@ -169,7 +169,7 @@ object NumericSpinnerFactory {
         spinner.editor.textFormatter = TextFormatter<String> { change ->
             val newText = change.controlNewText
 
-            if (newText.matches(regex)) {
+            if (spinner.editor.properties["retain-input-draft"] == true || newText.matches(regex)) {
                 change
             } else {
                 null
@@ -185,6 +185,7 @@ object NumericSpinnerFactory {
         spinner.editor.focusedProperty().addListener { _, _, focused ->
             if (!focused) {
                 val parsed = spinner.editor.text.toIntOrNull()
+                if (spinner.editor.properties["retain-input-draft"] == true && (parsed == null || parsed !in min..max)) return@addListener
 
                 if (parsed == null) {
                     val currentValue = getter().coerceIn(min, max)

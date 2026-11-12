@@ -4,25 +4,23 @@ import javafx.scene.input.KeyCode
 import javafx.scene.input.KeyCodeCombination
 import javafx.scene.input.KeyCombination
 
-/**
- * エディタで使用するショートカットキーの種類。
- *
- * 今は保存のみだが、今後「検索」「新規作成」「削除」などを追加する場合は、
- * このenumに項目を増やす。
- */
+/** 操作IDと既定キー。有効範囲が重なる操作だけをキー競合として扱います。 */
 enum class EditorShortcut(
     val displayName: String,
-    val combination: KeyCodeCombination
+    val combination: KeyCodeCombination?,
+    val scopes: Set<ShortcutScope> = setOf(ShortcutScope.EDITOR),
+    val available: Boolean = true
 ) {
     SAVE(
-        displayName = "保存",
+        displayName = "ローカル保存",
         combination = KeyCodeCombination(
             KeyCode.S,
             KeyCombination.SHORTCUT_DOWN
-        )
+        ),
+        scopes = setOf(ShortcutScope.EDITOR, ShortcutScope.MOD_CONFIG)
     ),
     SAVE_ALL(
-        displayName = "すべて保存",
+        displayName = "すべてローカル保存",
         combination = KeyCodeCombination(
             KeyCode.S,
             KeyCombination.SHORTCUT_DOWN,
@@ -30,14 +28,14 @@ enum class EditorShortcut(
         )
     ),
     SYNC(
-        displayName = "同期",
+        displayName = "サーバーから取得",
         combination = KeyCodeCombination(
             KeyCode.R,
             KeyCombination.SHORTCUT_DOWN
         )
     ),
     SYNC_ALL(
-        displayName = "すべて同期",
+        displayName = "サーバーからすべて取得",
         combination = KeyCodeCombination(
             KeyCode.R,
             KeyCombination.SHORTCUT_DOWN,
@@ -62,11 +60,12 @@ enum class EditorShortcut(
     /**
      * 保存内容を再読み込みします。
      *
-     * 同期（SHORTCUT+R）とは別の画面で使うため、一般的な再読み込みのキーを割り当てます。
+     * サーバーから取得（SHORTCUT+R）とは別の画面で使うため、一般的な再読み込みのキーを割り当てます。
      */
     RELOAD(
         displayName = "再読み込み",
-        combination = KeyCodeCombination(KeyCode.F5)
+        combination = KeyCodeCombination(KeyCode.F5),
+        scopes = setOf(ShortcutScope.MOD_CONFIG)
     ),
     UNDO(
         displayName = "元に戻す",
@@ -84,10 +83,10 @@ enum class EditorShortcut(
         )
     ),
     REDO_ALTERNATIVE(
-        displayName = "やり直す",
+        displayName = "やり直す（別キー）",
         combination = KeyCodeCombination(
             KeyCode.Y,
-            KeyCombination.CONTROL_DOWN
+            KeyCombination.SHORTCUT_DOWN
         )
     ),
     REPAIR_WARNING(
@@ -123,5 +122,11 @@ enum class EditorShortcut(
             KeyCombination.ALT_DOWN,
             KeyCombination.SHIFT_DOWN
         )
-    )
+    ),
+    IMPORT_LOCAL("ローカルデータを取り込む", null),
+    UPLOAD("保存済み内容をサーバーへアップロード…", null,
+        scopes = setOf(ShortcutScope.EDITOR, ShortcutScope.MOD_CONFIG))
 }
+
+/** 同時に操作を受け付ける機能の種類です。文書の識別は登録先Nodeで行います。 */
+enum class ShortcutScope(val displayName: String) { EDITOR("エディター"), MOD_CONFIG("Mod設定") }

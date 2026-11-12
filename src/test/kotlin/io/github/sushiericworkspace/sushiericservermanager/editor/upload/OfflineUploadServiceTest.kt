@@ -250,4 +250,40 @@ class OfflineUploadServiceTest {
             root.deleteRecursively()
         }
     }
+    @Test
+    fun workingGenerationIsUsedInsteadOfLegacyRoot() {
+        val root = createTempDirectory("offline-working-source").toFile()
+        try {
+            LocalEditorDataStore(root).save(EditorDataDescriptors.item, "legacy", validItem("legacy"))
+            val original = root.resolve("item_data/stats/legacy.yml")
+            val bytes = original.readBytes()
+            val modified = original.lastModified()
+            val working = InMemoryEditorDataStore("working").apply {
+                save(EditorDataDescriptors.item, "saved", validItem("saved"))
+            }
+            val service = OfflineUploadService(root, InMemoryEditorDataStore("target"), workingStore = working)
+            val scan = assertIs<UploadScanResult.Success>(service.scan(UploadDataCategory.ITEM))
+            assertEquals(listOf("saved"), scan.entries.map { it.key.id })
+            kotlin.test.assertContentEquals(bytes, original.readBytes())
+            assertEquals(modified, original.lastModified())
+            assertTrue(!root.resolve(".editor").exists())
+        } finally { root.deleteRecursively() }
+    }
+
+    @Test
+    fun typedImportCarriesSavedRawFromTheSameSnapshot() {
+        val root = createTempDirectory("offline-raw-import").toFile()
+        try {
+            val local = validItem("one")
+            val store = InMemoryEditorDataStore("working").apply { save(EditorDataDescriptors.item, "one", local) }
+            val result = OfflineUploadService(root, InMemoryEditorDataStore("target"), workingStore = store)
+                .loadForEditing(EditorDataDescriptors.item, setOf(UploadKey(UploadDataCategory.ITEM, "one")),
+                    emptySet(), "", sourceDocuments = mapOf("one" to (local to mapOf("detail.cooldown" to "-"))))
+            assertTrue(result.failed.isEmpty())
+            assertEquals("-", result.entries.single().raw["detail.cooldown"])
+            assertEquals(local.display.displayName, result.entries.single().data.display.displayName)
+            assertTrue(!root.resolve(".editor").exists())
+        } finally { root.deleteRecursively() }
+    }
+
 }

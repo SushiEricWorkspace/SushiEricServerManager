@@ -9,6 +9,8 @@ import io.github.sushiericworkspace.sushiericservermanager.ui.dialog.CustomDialo
 import io.github.sushiericworkspace.sushiericservermanager.util.Utility
 import io.github.sushiericworkspace.sushiericservermanager.ui.dialog.ErrorType
 import io.github.sushiericworkspace.sushiericservermanager.config.ServerProfile
+import io.github.sushiericworkspace.sushiericservermanager.config.WorkspaceFeature
+import io.github.sushiericworkspace.sushiericservermanager.app.workspace.WorkspaceManager
 import io.github.sushiericworkspace.sushiericservermanager.editor.main.item.ItemEditorLogic
 import io.github.sushiericworkspace.sushiericservermanager.editor.main.ore.OreEditorLogic
 import io.github.sushiericworkspace.sushiericservermanager.editor.service.EditorDataService
@@ -17,6 +19,7 @@ import io.github.sushiericworkspace.sushiericservermanager.editor.view.EditorVie
 import io.github.sushiericworkspace.sushiericservermanager.editor.view.EditorWindowManager
 import io.github.sushiericworkspace.sushiericservermanager.feature.console.ConsoleWindowManager
 import io.github.sushiericworkspace.sushiericservermanager.feature.dashboard.DashboardWindowManager
+import io.github.sushiericworkspace.sushiericservermanager.feature.dashboard.DashboardFormat
 import io.github.sushiericworkspace.sushiericservermanager.feature.simulator.SimulatorWindowManager
 import io.github.sushiericworkspace.sushiericservermanager.feature.modconfig.ModConfigWindowManager
 import io.github.sushiericworkspace.sushiericservermanager.feature.servercontrol.ServerControlWindowManager
@@ -45,7 +48,7 @@ import java.util.ResourceBundle
 
 /**
  * サーバー接続後のメイン操作画面（ホーム画面）を管理するコントローラー。
- * ファイルリストの表示、SSHセッションの維持、および切断処理を担当します。
+ * 接続とサーバーの要約、機能の入口、および切断操作を担当します。
  */
 class HomeController internal constructor(
     private val checkUpdate: () -> UpdateCheckResult,
@@ -126,7 +129,7 @@ class HomeController internal constructor(
     /**
      * 監視情報を表示へ反映します。
      *
-     * 値を受信していない場合は空表示にし、取得元と状態が分かるようにします。
+     * 未受信は未取得と示し、詳細な指標はDashboardへ表示します。
      * CPU使用率などOSレベルの情報は取得元が異なるため、ここでは扱いません。
      */
     private fun applyMonitorSnapshot(snapshot: ServerMonitorSnapshot) {
@@ -140,49 +143,11 @@ class HomeController internal constructor(
         monitorLabel.isVisible = true
 
         val server = snapshot.server
-        val jvm = snapshot.jvm
-
-        if (server == null || jvm == null) {
-            monitorLabel.text = "サーバー監視：値なし"
-            return
-        }
-
-        monitorLabel.text = buildString {
-            append("TPS ")
-            append(String.format("%.2f", server.ticksPerSecond))
-            append(" / MSPT ")
-            append(String.format("%.2f", server.millisPerTick))
-            append(System.lineSeparator())
-
-            append("プレイヤー ")
-            append(server.onlinePlayerCount)
-            append(" / ")
-            append(server.maxPlayerCount)
-            append("　稼働 ")
-            append(formatUptime(server.uptimeSeconds))
-            append(System.lineSeparator())
-
-            append("Heap ")
-            append(formatMegabytes(jvm.heapUsedBytes))
-            append(" / ")
-            append(jvm.heapMaxBytes?.let(::formatMegabytes) ?: "不明")
-            append("　Thread ")
-            append(jvm.threadCount)
+        monitorLabel.text = if (server == null) "サーバー要約：未取得" else {
+            "プレイヤー ${DashboardFormat.players(server.onlinePlayerCount, server.maxPlayerCount)}　" +
+                "TPS ${DashboardFormat.ticksPerSecond(server.ticksPerSecond)}"
         }
     }
-
-    /** 稼働時間を時分秒へ整形します。 */
-    private fun formatUptime(seconds: Long): String {
-        val hours = seconds / 3600
-        val minutes = (seconds % 3600) / 60
-        val remaining = seconds % 60
-
-        return "%d:%02d:%02d".format(hours, minutes, remaining)
-    }
-
-    /** バイト数をMiB表記へ整形します。 */
-    private fun formatMegabytes(bytes: Long): String =
-        "%,d MiB".format(bytes / (1024 * 1024))
 
     /** 現在接続中のサーバープロファイル */
     private var selectedProfile: ServerProfile? = null
@@ -209,15 +174,11 @@ class HomeController internal constructor(
          * 接続は非同期で進むため、状態が変わるたびに表示を更新する。
          * 通知はUIスレッド以外から届くのでrunLaterで移す。
          */
-        EditorSession.managementClient.addStateListener { state ->
-            Platform.runLater { applyManagementState(state) }
-        }
+        setWorkspaceVisible(true)
 
         applyMonitorSnapshot(EditorSession.serverMonitor.snapshot)
 
-        EditorSession.serverMonitor.addListener { snapshot ->
-            Platform.runLater { applyMonitorSnapshot(snapshot) }
-        }
+
 
         val online = mode == AppMode.ONLINE
         if (!online) {
@@ -248,16 +209,13 @@ class HomeController internal constructor(
         homeSections.columnConstraints[1].percentWidth = if (online) 50.0 else 0.0
         modeSelectButton.isManaged = online
         modeSelectButton.isVisible = online
-        backButton.text = if (mode == AppMode.ONLINE) "サーバー選択へ戻る" else "モード選択へ戻る"
-
-        // Platform.runLater を使って Stage が確実に生成された後に処理
-        javafx.application.Platform.runLater {
-            val stage = rootPane.scene?.window as? javafx.stage.Stage
-            stage?.setOnCloseRequest {
-                it.consume()
-                Utility.closeConnection { Platform.exit() }
-            }
+        backButton.text = when {
+            EditorSession.connection != null -> "切断して動作モード選択へ"
+            online -> "切断してサーバー選択へ"
+            else -> "動作モード選択へ戻る"
         }
+
+
     }
 
     /**
@@ -386,12 +344,12 @@ class HomeController internal constructor(
     @Suppress("unused")
     fun onOpenItemEditor() {
         openManagedDataEditor(
-            key = "ITEM_EDITOR",
+            key = WorkspaceFeature.ITEM_EDITOR,
             title = "アイテムエディタ",
             logicFactory = { mainController, service ->
                 ItemEditorLogic(
                     main = mainController,
-                    dataService = service
+                    service = service
                 )
             }
         )
@@ -401,7 +359,7 @@ class HomeController internal constructor(
     @FXML @Suppress("unused")
     fun onOpenShopEditor() {
         openManagedDataEditor(
-            key = "SHOP_EDITOR",
+            key = WorkspaceFeature.SHOP_EDITOR,
             title = "ショップエディター",
             logicFactory = { controller, service -> ShopEditorLogic(controller, service) }
         )
@@ -411,7 +369,7 @@ class HomeController internal constructor(
     @FXML @Suppress("unused")
     fun onOpenRecipeEditor() {
         openManagedDataEditor(
-            key = "RECIPE_EDITOR",
+            key = WorkspaceFeature.RECIPE_EDITOR,
             title = "レシピエディター",
             logicFactory = { controller, service -> RecipeEditorLogic(controller, service) }
         )
@@ -422,7 +380,7 @@ class HomeController internal constructor(
     @Suppress("unused")
     fun onOpenConsole() {
         if (EditorSession.mode != AppMode.ONLINE) return
-        ConsoleWindowManager.open(rootPane.scene?.window)
+        ConsoleWindowManager.open()
     }
 
     /** オンラインでもサーバーへ書き込まない手動シミュレーターを開きます。 */
@@ -437,7 +395,7 @@ class HomeController internal constructor(
     @Suppress("unused")
     fun onOpenDashboard() {
         if (EditorSession.mode != AppMode.ONLINE) return
-        DashboardWindowManager.open(rootPane.scene?.window)
+        DashboardWindowManager.open()
     }
 
     /** サーバープロセスを操作するServer Controlを開きます。 */
@@ -445,7 +403,7 @@ class HomeController internal constructor(
     @Suppress("unused")
     fun onOpenServerControl() {
         if (EditorSession.mode != AppMode.ONLINE) return
-        ServerControlWindowManager.open(rootPane.scene?.window)
+        ServerControlWindowManager.open()
     }
 
     /** Mod共通設定（config.yml）の編集画面を開きます。 */
@@ -466,7 +424,7 @@ class HomeController internal constructor(
             return
         }
 
-        ModConfigWindowManager.open(rootPane.scene?.window, service)
+        ModConfigWindowManager.open(service)
     }
 
     /** 入出金と実績の履歴閲覧ビューを開きます。 */
@@ -474,11 +432,11 @@ class HomeController internal constructor(
     @Suppress("unused")
     fun onOpenMoneyHistory() {
         val service = EditorSession.dataService ?: return
-        MoneyHistoryWindowManager.open(rootPane.scene?.window, service.store)
+        MoneyHistoryWindowManager.open(service.store)
     }
 
     private fun openManagedDataEditor(
-        key: String,
+        key: WorkspaceFeature,
         title: String,
         logicFactory: (MainController, EditorDataService) -> EditorView<*>
     ) {
@@ -509,15 +467,69 @@ class HomeController internal constructor(
     @Suppress("unused")
     fun onOpenOreEditor() {
         openManagedDataEditor(
-            key = "ORE_EDITOR",
+            key = WorkspaceFeature.ORE_EDITOR,
             title = "鉱石エディタ",
             logicFactory = { mainController, service ->
                 OreEditorLogic(
                     main = mainController,
-                    dataService = service
+                    service = service
                 )
             }
         )
+    }
+
+    @Volatile private var workspaceListening = false
+    @Volatile private var workspaceGeneration = 0L
+    private var workspaceStateListener: ((ServerManagementState) -> Unit)? = null
+    private var workspaceMonitorListener: ((ServerMonitorSnapshot) -> Unit)? = null
+
+    internal fun setWorkspaceVisible(visible: Boolean) {
+        if (workspaceListening == visible) return
+        val generation = ++workspaceGeneration
+        workspaceListening = visible
+        if (visible) {
+            val stateListener: (ServerManagementState) -> Unit = { state ->
+                Platform.runLater { if (workspaceListening && generation == workspaceGeneration) applyManagementState(state) }
+            }
+            val monitorListener: (ServerMonitorSnapshot) -> Unit = { snapshot ->
+                Platform.runLater { if (workspaceListening && generation == workspaceGeneration) applyMonitorSnapshot(snapshot) }
+            }
+            workspaceStateListener = stateListener
+            workspaceMonitorListener = monitorListener
+            EditorSession.managementClient.addStateListener(stateListener)
+            EditorSession.serverMonitor.addListener(monitorListener)
+            applyManagementState(EditorSession.managementClient.state)
+            applyMonitorSnapshot(EditorSession.serverMonitor.snapshot)
+        } else {
+            workspaceStateListener?.let(EditorSession.managementClient::removeStateListener)
+            workspaceMonitorListener?.let(EditorSession.serverMonitor::removeListener)
+            workspaceStateListener = null
+            workspaceMonitorListener = null
+            requiredUpdateTask?.cancel()
+        }
+    }
+
+    internal fun workspaceFeatureAvailable(feature: WorkspaceFeature): Boolean = when {
+        feature == WorkspaceFeature.HOME -> true
+        feature.editor -> EditorSession.dataService?.store?.isAvailable == true
+        feature == WorkspaceFeature.SERVER_CONTROL -> EditorSession.mode == AppMode.ONLINE && EditorSession.connection == null
+        else -> EditorSession.mode == AppMode.ONLINE
+    }
+
+    internal fun openWorkspaceFeature(feature: WorkspaceFeature) {
+        if (!workspaceFeatureAvailable(feature)) return
+        when (feature) {
+            WorkspaceFeature.HOME -> WorkspaceManager.focus(feature)
+            WorkspaceFeature.ITEM_EDITOR -> onOpenItemEditor()
+            WorkspaceFeature.ORE_EDITOR -> onOpenOreEditor()
+            WorkspaceFeature.SHOP_EDITOR -> onOpenShopEditor()
+            WorkspaceFeature.RECIPE_EDITOR -> onOpenRecipeEditor()
+            WorkspaceFeature.DASHBOARD -> onOpenDashboard()
+            WorkspaceFeature.CONSOLE -> onOpenConsole()
+            WorkspaceFeature.SERVER_CONTROL -> onOpenServerControl()
+            WorkspaceFeature.MOD_CONFIG -> onOpenModConfig()
+            WorkspaceFeature.MONEY_HISTORY -> onOpenMoneyHistory()
+        }
     }
 
     private companion object {

@@ -50,6 +50,7 @@ class LocalEditorDataStore(
 
     override val kind: EditorDataStoreKind = EditorDataStoreKind.LOCAL
     override val identity: String = "offline"
+    override val offlineDirectory: File get() = rootDirectory
     override val isAvailable: Boolean
         get() = if (configuredHistorySource != null) rootDirectory.isDirectory
             else rootDirectory.exists() || rootDirectory.mkdirs()

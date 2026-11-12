@@ -1,5 +1,8 @@
 package io.github.sushiericworkspace.sushiericservermanager.editor.tree
 
+import javafx.animation.Timeline
+import javafx.animation.KeyFrame
+import javafx.util.Duration
 import javafx.scene.control.TreeCell
 import javafx.scene.control.TreeItem
 import javafx.scene.input.ClipboardContent
@@ -39,14 +42,34 @@ open class EditorTreeCell<R : EditorTreeRow>(
     private val moveHandler: TreeMoveHandler<R>,
     private val onRefresh: (R) -> Unit,
     private val folderGraphicFactory: EditorFolderGraphicFactory<R>? = null,
-    private val contextMenuFactory: EditorContextMenuFactory<R>? = null
+    private val contextMenuFactory: EditorContextMenuFactory<R>? = null,
+    private val beforeDrag: () -> Boolean = { true },
+    private val beforeDrop: () -> Boolean = { true }
 ) : TreeCell<R>() {
 
     companion object {
         private var draggedTreeItem: TreeItem<*>? = null
+        private var draggedTreeView: javafx.scene.control.TreeView<*>? = null
+        private var activeScrollCell: EditorTreeCell<*>? = null
+    }
+
+    private var scrollDirection = 0
+    private val edgeScroll = Timeline(KeyFrame(Duration.millis(80.0), {
+        val tree = treeView
+        if (draggedTreeItem == null || tree !== draggedTreeView || scene == null || tree?.scene?.window?.isShowing != true || activeScrollCell !== this) {
+            stopScrolling()
+        } else tree.scrollTo((index + scrollDirection).coerceIn(0, (tree.expandedItemCount - 1).coerceAtLeast(0)))
+    })).apply { cycleCount = Timeline.INDEFINITE }
+
+    private fun stopScrolling() {
+        edgeScroll.stop()
+        scrollDirection = 0
+        if (activeScrollCell === this) activeScrollCell = null
     }
 
     init {
+        sceneProperty().addListener { _, _, next -> if (next == null) stopScrolling() }
+        setOnDragExited { stopScrolling() }
         if (!styleClass.contains("custom-tree-cell")) {
             styleClass.add("custom-tree-cell")
         }
@@ -61,8 +84,10 @@ open class EditorTreeCell<R : EditorTreeRow>(
 
         setOnDragDetected { event ->
             val currentItem = treeItem ?: return@setOnDragDetected
-            if (currentItem.value.kind == EditorTreeRow.Kind.Folder) {
+            if (currentItem.value.kind == EditorTreeRow.Kind.Folder && beforeDrag()) {
+                activeScrollCell?.stopScrolling()
                 draggedTreeItem = currentItem
+                draggedTreeView = treeView
                 startDragAndDrop(TransferMode.MOVE).setContent(
                     ClipboardContent().apply { putString("") }
                 )
@@ -74,9 +99,17 @@ open class EditorTreeCell<R : EditorTreeRow>(
             val source = castDraggedTreeItem()
             val target = treeItem
 
-            if (dragValidator.canDrop(source, target)) {
+            if (treeView === draggedTreeView && dragValidator.canDrop(source, target)) {
                 event.acceptTransferModes(TransferMode.MOVE)
-            }
+                val tree = treeView
+                val y = tree.sceneToLocal(event.sceneX, event.sceneY).y
+                scrollDirection = when { y < 32 -> -1; y > tree.height - 32 -> 1; else -> 0 }
+                if (scrollDirection == 0) stopScrolling() else {
+                    if (activeScrollCell !== this) activeScrollCell?.stopScrolling()
+                    activeScrollCell = this
+                    edgeScroll.play()
+                }
+            } else stopScrolling()
             event.consume()
         }
 
@@ -84,7 +117,7 @@ open class EditorTreeCell<R : EditorTreeRow>(
             val source = castDraggedTreeItem()
             val target = treeItem
 
-            val success = if (source != null && target != null) {
+            val success = if (source != null && target != null && beforeDrop()) {
                 try {
                     val moved = moveHandler.move(source, target)
                     if (moved) {
@@ -99,17 +132,23 @@ open class EditorTreeCell<R : EditorTreeRow>(
                 false
             }
 
+            activeScrollCell?.stopScrolling()
+            draggedTreeItem = null
+            draggedTreeView = null
             event.isDropCompleted = success
             event.consume()
         }
 
         setOnDragDone { event ->
             draggedTreeItem = null
+            draggedTreeView = null
+            activeScrollCell?.stopScrolling()
             event.consume()
         }
     }
 
     override fun updateItem(row: R?, empty: Boolean) {
+        stopScrolling()
         super.updateItem(row, empty)
 
         styleClass.removeAll("folder-cell", "item-cell")

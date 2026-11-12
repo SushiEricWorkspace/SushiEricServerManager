@@ -8,6 +8,9 @@ import kotlinx.serialization.Serializable
  * 追加項目はすべてデフォルト値を持たせ、既存のconfig.jsonをそのまま読み込めるようにします。
  *
  * @property monitorIntervalTicks 監視情報の更新間隔。サーバー側のtick数で指定します。
+ * @property shortcuts 操作IDごとのキー上書き。未登録は既定値、空文字は割当解除です。
+ * @property workspaceLayouts profileごとの分割配置とIDタブ。編集データ自体は含みません。
+ * @property theme 全画面とダイアログに適用する配色。
  * @property showPlayerUuidInHistory 入出金履歴のプレイヤー選択欄でUUIDを表示するか。
  * @property windowSizes 画面種別ごとの装飾込み通常外寸と最大化状態。
  */
@@ -16,6 +19,9 @@ data class AppSettings(
     val monitorIntervalTicks: Int = DEFAULT_MONITOR_INTERVAL_TICKS,
     val sidebarDirectoryExpanded: Map<String, Map<String, Boolean>> = emptyMap(),
     val showPlayerUuidInHistory: Boolean = false,
+    val theme: AppTheme = AppTheme.DARK,
+    val shortcuts: Map<String, String> = emptyMap(),
+    val workspaceLayouts: Map<String, WorkspaceLayout> = emptyMap(),
     val windowSizes: Map<String, WindowSize> = emptyMap()
 ) {
     /**
@@ -42,6 +48,10 @@ data class AppSettings(
         val MONITOR_INTERVAL_TICKS_RANGE: IntRange = 1..1200
     }
 }
+
+/** 画面全体の配色です。既定値DARKは現在の暗色表示を維持します。 */
+@Serializable
+enum class AppTheme { LIGHT, DARK }
 
 /**
  * config.jsonへアプリケーション設定を読み書きします。

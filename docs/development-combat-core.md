@@ -1,6 +1,6 @@
 # 固定開発依存とManager起動
 
-通常ManagerはEditor用DataModel、CombatCore、Coreが使用するMod用DataModelを固定して使います。IDE同期・通常`:run`・`:development:run`は同じroot設定を読みます。JDK21を使用してください。
+通常ManagerはEditor用DataModel、CombatCore、Coreが使用するMod用DataModelを固定して使います。IDE同期・通常`:run`・`:development:run`は同じroot設定を読みます。ManagerにはJDK 25を使用してください。固定DataModelとCombatCoreの発行は各リポジトリのJDK指定に従います。
 
 ## 明示的な準備
 

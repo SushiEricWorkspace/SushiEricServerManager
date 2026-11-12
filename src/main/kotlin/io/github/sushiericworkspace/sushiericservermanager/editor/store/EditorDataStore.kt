@@ -3,6 +3,7 @@ package io.github.sushiericworkspace.sushiericservermanager.editor.store
 import io.github.sushiericworkspace.sushiericservermanager.editor.shop.ShopEditorStore
 import io.github.sushiericworkspace.sushiericservermanager.feature.moneyhistory.HistorySource
 import io.github.sushiericworkspace.sushiericdatamodel.data.core.ManagedData
+import io.github.sushiericworkspace.sushiericservermanager.editor.service.EditorDocumentSource
 
 interface EditorDataStore {
     val kind: EditorDataStoreKind
@@ -10,11 +11,19 @@ interface EditorDataStore {
     /** world結合済みDBの読取元。nullのローカルストアはコピー済みオフライン文書です。 */
     val historySource: HistorySource? get() = null
     val identity: String
-    /** ローカル取り込み元の隔離領域。nullの場合はアプリ共通のオフライン領域を使います。 */
+    /** 文書保存元の固定識別。通信接続の可用性やrun識別とは独立します。 */
+    val documentSource: EditorDocumentSource
+        get() = when (kind) {
+            EditorDataStoreKind.REMOTE -> error("リモートStoreには安定した論理保存元が必要です。")
+            else -> EditorDocumentSource.Local
+        }
+    /** 既存ローカル原本のrootです。LOCAL Storeは取込元を明示します。 */
     val offlineDirectory: java.io.File? get() = null
     /** 画面のI/O結果を認証済み接続へ固定する識別子。再接続時には別の実体を返します。 */
     val connectionIdentity: Any get() = this
     val isAvailable: Boolean
+    /** 接続と互換性の既存書込制限です。サーバーの比較書込能力は表しません。 */
+    val isWritable: Boolean get() = isAvailable
 
     fun <T : ManagedData<T, *>> list(
         descriptor: EditorDataDescriptor<T>

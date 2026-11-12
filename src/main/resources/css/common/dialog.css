@@ -48,13 +48,13 @@
 }
 
 .dialog-pane .btn-primary {
-    -fx-background-color: -fx-accent-color;
-    -fx-border-color: transparent;
+    -fx-text-fill: -fx-accent-color;
+    -fx-border-color: -fx-accent-color;
 }
 
 .dialog-pane .btn-danger {
-    -fx-background-color: -fx-danger-color;
-    -fx-border-color: transparent;
+    -fx-text-fill: -fx-danger-color;
+    -fx-border-color: -fx-danger-color;
 }
 
 .dialog-pane .btn-cancel {
@@ -114,4 +114,9 @@
 
 .rewrite-confirmation-root .button:hover {
     -fx-background-color: -fx-line-color;
+}
+
+.dialog-pane .button:focused {
+    -fx-border-color: -fx-accent-color;
+    -fx-border-width: 2px;
 }

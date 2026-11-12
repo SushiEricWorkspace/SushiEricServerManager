@@ -2,6 +2,9 @@ package io.github.sushiericworkspace.sushiericservermanager.util
 
 import io.github.sushiericworkspace.sushiericdatamodel.path.SushiEricDataDirectory
 import io.github.sushiericworkspace.sushiericdatamodel.path.SushiEricPath
+import io.github.sushiericworkspace.sushiericservermanager.app.AppFrame
+import io.github.sushiericworkspace.sushiericservermanager.app.workspace.WorkspaceManager
+import io.github.sushiericworkspace.sushiericservermanager.editor.controller.HomeController
 import io.github.sushiericworkspace.sushiericservermanager.app.WindowSizePersistence
 import io.github.sushiericworkspace.sushiericservermanager.app.WindowSizing
 import io.github.sushiericworkspace.sushiericservermanager.app.AppScreen
@@ -9,6 +12,7 @@ import io.github.sushiericworkspace.sushiericservermanager.app.ApplicationFlow
 import io.github.sushiericworkspace.sushiericservermanager.app.appWindowTitle
 import io.github.sushiericworkspace.sushiericservermanager.editor.session.EditorSession
 import io.github.sushiericworkspace.sushiericservermanager.config.ServerProfile
+import io.github.sushiericworkspace.sushiericservermanager.ui.theme.ThemeManager
 import javafx.fxml.FXMLLoader
 import javafx.scene.Parent
 import javafx.scene.Scene
@@ -46,7 +50,6 @@ object Utility {
             Stage().apply {
                 title = appWindowTitle("サーバー選択")
                 scene = createScene(AppScreen.SERVER_SELECT, 600.0, 400.0)
-                isResizable = false
                 show()
             }
         }
@@ -106,6 +109,7 @@ object Utility {
         windowKey: String? = screen.takeUnless { it == AppScreen.BASE || it == AppScreen.WIDGETS_ONLY }?.name
     ): Scene {
         // customRoot が渡された場合は最優先で使う
+        var homeController: HomeController? = null
         val root: Parent = if (customRoot != null) {
             customRoot
         } else {
@@ -116,16 +120,22 @@ object Utility {
             val fxmlUrl = AppScreen::class.java.getResource(fxmlPath)
                 ?: throw IllegalArgumentException("FXMLファイルが見つかりません: $fxmlPath")
 
-            FXMLLoader.load<Parent>(fxmlUrl)
+            val loader = FXMLLoader(fxmlUrl)
+            loader.load<Parent>().also { if (screen == AppScreen.HOME) homeController = loader.getController() }
         }
 
-        val w = width ?: root.prefWidth(-1.0)
-        val h = height ?: root.prefHeight(-1.0)
+        val framedRoot = if (AppFrame.includes(screen)) AppFrame(screen, root) else root
+        homeController?.let { controller ->
+            val frame = framedRoot as AppFrame
+            frame.center = WorkspaceManager.install(frame, root, controller)
+        }
+        val w = maxOf(width ?: framedRoot.prefWidth(-1.0), framedRoot.minWidth(-1.0))
+        val h = height ?: framedRoot.prefHeight(-1.0)
 
         val scene = if (width != null || height != null) {
-            Scene(root, w, h)
+            Scene(framedRoot, w, h)
         } else {
-            Scene(root)
+            Scene(framedRoot)
         }
 
         val cssPath = if (screen.css.endsWith(".css")) {
@@ -149,6 +159,10 @@ object Utility {
             logger.error("Scene: スタイルシートの適用中にエラーが発生しました ($cssPath)", e)
         }
 
+        if (AppFrame.includes(screen)) {
+            scene.stylesheets.add(requireNotNull(CSSResourceContext::class.java.getResource("/css/common/app-frame.css")).toExternalForm())
+        }
+        ThemeManager.apply(scene)
         WindowSizing.install(scene)
         windowKey?.let { WindowSizePersistence.install(scene, it) }
         return scene
@@ -166,5 +180,6 @@ object Utility {
         if (cssUrl != null) {
             this.dialogPane.stylesheets.add(cssUrl)
         }
+        dialogPane.scene?.let(ThemeManager::apply)
     }
 }

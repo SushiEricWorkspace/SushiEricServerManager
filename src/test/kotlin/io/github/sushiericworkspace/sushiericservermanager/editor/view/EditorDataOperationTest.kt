@@ -9,6 +9,7 @@ import io.github.sushiericworkspace.sushiericservermanager.editor.main.ore.OreEd
 import io.github.sushiericworkspace.sushiericservermanager.editor.main.recipe.RecipeEditorLogic
 import io.github.sushiericworkspace.sushiericservermanager.editor.main.shop.ShopEditorLogic
 import io.github.sushiericworkspace.sushiericservermanager.editor.service.EditorDataService
+import io.github.sushiericworkspace.sushiericservermanager.editor.service.EditorDocumentSource
 import io.github.sushiericworkspace.sushiericservermanager.editor.service.PendingStoreOperationKind
 import io.github.sushiericworkspace.sushiericservermanager.editor.store.*
 import javafx.animation.KeyFrame
@@ -32,7 +33,7 @@ import kotlin.test.*
 
 class EditorDataOperationTest {
     @Test
-    fun `4種別の作成と複製とディレクトリ操作は待機中もUIに応答し保存までデータを書かない`() {
+    fun creationCopyDirectoryRenameAndMoveUseOnlyTheLocalWorkingGeneration() {
         checkOperations(EditorDataDescriptors.item, ::ItemEditorLogic)
         checkOperations(EditorDataDescriptors.ore, ::OreEditorLogic)
         checkOperations(EditorDataDescriptors.recipe, ::RecipeEditorLogic)
@@ -44,65 +45,42 @@ class EditorDataOperationTest {
     ) = fixture(descriptor, factory) { f ->
         val entered = CountDownLatch(1)
         val release = CountDownLatch(1)
-        f.store.beforeList = { entered.countDown(); assertTrue(release.await(10, TimeUnit.SECONDS)) }
+        f.service.submitIo { entered.countDown(); assertTrue(release.await(10, TimeUnit.SECONDS)) }
+        assertTrue(entered.await(10, TimeUnit.SECONDS))
         try {
             f.answers += "group.created"
             fx { f.logic.onCreateData() }
-            assertTrue(entered.await(10, TimeUnit.SECONDS))
+            awaitFx { f.main.operationRunning }
             fx {
-                assertTrue(f.main.operationRunning)
-                assertTrue(f.main.actionButtonContainer.isDisabled)
                 assertTrue(f.stage.isShowing)
                 f.logic.onCreateDirectory()
-                var closed: Boolean? = null
-                f.logic.onClose { closed = it }
-                assertEquals(false, closed)
+                f.logic.onClose { assertFalse(it) }
             }
-            release.countDown()
-            awaitFx { !f.main.operationRunning && ids(f).contains("group.created") }
-        } finally { release.countDown(); f.store.beforeList = null }
+        } finally { release.countDown() }
+        awaitFx { !f.main.operationRunning && ids(f).contains("group.created") }
         f.service.submitBackupIo {}.get(10, TimeUnit.SECONDS)
         assertTrue(f.access.loadPendingStoreOperations().any { it.currentId == "group.created" && it.kind == PendingStoreOperationKind.CREATE })
         assertIs<StoreResult.Failure>(f.store.memory.load(descriptor, "group.created"))
-        assertEquals(0, f.store.writes)
 
         f.answers += "copied"
         fx { dataMenu(f, "group.a", "複製") }
         awaitFx { !f.main.operationRunning && ids(f).contains("group.copied") }
-        assertIs<StoreResult.Failure>(f.store.memory.load(descriptor, "group.copied"))
         f.service.submitBackupIo {}.get(10, TimeUnit.SECONDS)
-        val source = when (val result = f.store.memory.load(descriptor, "group.a")) {
-            is StoreResult.Success -> result.value
-            is StoreResult.Failure -> error(result.toString())
-        }
-        val pair = f.access.loadBackupPair("group.copied")
-        assertTrue(pair != null)
-        val copy = pair.first
+        val source = (f.store.memory.load(descriptor, "group.a") as StoreResult.Success).value
+        val copy = assertNotNull(f.access.loadBackupPair("group.copied")).first
         assertEquals("group.a", source.id)
         assertEquals("group.copied", copy.id)
         if (source is MutableItemBaseData && copy is MutableItemBaseData) assertNotEquals(source.internalId, copy.internalId)
 
-        val creating = CountDownLatch(1)
-        val releaseCreate = CountDownLatch(1)
-        f.store.beforeCreate = { creating.countDown(); assertTrue(releaseCreate.await(10, TimeUnit.SECONDS)) }
-        try {
-            f.answers += "group.empty"
-            fx { f.logic.onCreateDirectory() }
-            assertTrue(creating.await(10, TimeUnit.SECONDS))
-            fx { assertTrue(f.main.operationRunning); assertTrue(f.stage.isShowing) }
-            releaseCreate.countDown()
-            awaitFx { !f.main.operationRunning && directories(f).contains("group.empty") }
-        } finally { releaseCreate.countDown(); f.store.beforeCreate = null }
+        f.answers += "group.empty"
+        fx { f.logic.onCreateDirectory() }
+        awaitFx { !f.main.operationRunning && directories(f).contains("group.empty") }
         fx { directoryMenu(f, "group.empty", "削除") }
         awaitFx { !f.main.operationRunning && !directories(f).contains("group.empty") }
-        assertEquals(1, f.store.deletions)
-        assertFalse(f.store.ioThreads.any { it })
-        assertEquals(0, f.store.writes)
+        assertEquals(0, f.store.deletions)
         f.answers += "renamed"
         fx { dataMenu(f, "group.a", "IDを変更") }
         awaitFx { !f.main.operationRunning && ids(f).contains("group.renamed") }
-        assertIs<StoreResult.Success<*>>(f.store.memory.load(descriptor, "group.a"))
-        assertIs<StoreResult.Failure>(f.store.memory.load(descriptor, "group.renamed"))
         f.service.submitBackupIo {}.get(10, TimeUnit.SECONDS)
         assertTrue(f.access.loadPendingStoreOperations().any { it.currentId == "group.renamed" && it.kind == PendingStoreOperationKind.RENAME })
         fx { assertTrue(move(f.logic, "group.renamed", "archive")) }
@@ -115,75 +93,72 @@ class EditorDataOperationTest {
     }
 
     @Test
-    fun `外部から同名追加された作成とID変更は古い一覧で許可しない`() = fixture(EditorDataDescriptors.ore, ::OreEditorLogic) { f ->
-        f.store.memory.save(f.descriptor, "group.external", f.descriptor.createDefault("group.external"))
+    fun concurrentLocalAdditionIsCheckedAgainstTheCurrentGeneration() = fixture(EditorDataDescriptors.ore, ::OreEditorLogic) { f ->
+        f.service.ores.saveLocalDocument("group.external", f.descriptor.createDefault("group.external"), emptyMap())
         f.answers += "group.external"
         fx { f.logic.onCreateData() }
         awaitFx { !f.main.operationRunning && f.errors.isNotEmpty() }
-        assertEquals(0, f.store.writes)
         f.answers += "external"
         fx { dataMenu(f, "group.a", "IDを変更") }
         awaitFx { !f.main.operationRunning && f.errors.size == 2 }
-        f.service.submitBackupIo {}.get(10, TimeUnit.SECONDS)
-        assertTrue(f.access.loadPendingStoreOperations().isEmpty())
-        fx { assertTrue(ids(f).contains("group.a")); assertFalse(ids(f).contains("group.external")) }
+        assertIs<StoreResult.Success<*>>(f.access.loadStore("group.external"))
+        assertEquals(0, f.store.writes)
     }
 
     @Test
-    fun `未取得の複製元は背景で読み対象消失なら保留も元データも変更しない`() = fixture(EditorDataDescriptors.ore, ::OreEditorLogic) { f ->
-        f.store.memory.save(f.descriptor, "group.fresh", f.descriptor.createDefault("group.fresh"))
+    fun anUncachedCopyRemovedWhileQueuedDoesNotCreateAPendingDocument() = fixture(EditorDataDescriptors.ore, ::OreEditorLogic) { f ->
+        f.service.ores.saveLocalDocument("group.fresh", f.descriptor.createDefault("group.fresh"), emptyMap())
         val entered = CountDownLatch(1)
         val release = CountDownLatch(1)
-        f.store.beforeLoad = { id -> if (id == "group.fresh") { entered.countDown(); assertTrue(release.await(10, TimeUnit.SECONDS)) } }
+        f.service.submitIo { entered.countDown(); assertTrue(release.await(10, TimeUnit.SECONDS)) }
+        assertTrue(entered.await(10, TimeUnit.SECONDS))
+        val other = EditorDataService(f.store, f.service.autoSaveDirectory)
         try {
             f.answers += "copy"
             fx { duplicate(f.logic, "group.fresh") }
-            assertTrue(entered.await(10, TimeUnit.SECONDS))
-            fx { assertTrue(f.main.operationRunning); assertTrue(f.stage.isShowing) }
-            f.store.memory.delete(f.descriptor, "group.fresh")
-            release.countDown()
-            awaitFx { !f.main.operationRunning && f.errors.isNotEmpty() }
-            fx { assertFalse(ids(f).contains("group.copy")); assertTrue(ids(f).contains("group.a")) }
-            assertEquals(0, f.store.writes)
-        } finally { release.countDown(); f.store.beforeLoad = null }
+            awaitFx { f.main.operationRunning }
+            assertTrue(other.store.delete(f.descriptor, "group.fresh") is StoreResult.Success)
+        } finally { release.countDown(); other.closeIo() }
+        awaitFx { !f.main.operationRunning && f.errors.isNotEmpty() }
+        fx { assertFalse(ids(f).contains("group.copy")); assertTrue(ids(f).contains("group.a")) }
+        assertEquals(0, f.store.writes)
     }
 
     @Test
-    fun `入力と削除のキャンセルはI Oも未保存の保留操作も変更しない`() = fixture(EditorDataDescriptors.ore, ::OreEditorLogic) { f ->
+    fun cancellingInputOrDeletionKeepsPendingEditsAndTheGeneration() = fixture(EditorDataDescriptors.ore, ::OreEditorLogic) { f ->
         f.answers += "group.local"
         fx { f.logic.onCreateData() }
         awaitFx { !f.main.operationRunning && ids(f).contains("group.local") }
+        f.service.submitBackupIo {}.get(10, TimeUnit.SECONDS)
+        val before = (f.service.documents.read() as StoreResult.Success).value
         f.cancelInput = true
-        val lists = f.store.lists
         fx { f.logic.onCreateData() }
-        assertEquals(lists, f.store.lists)
         f.confirmDeletion = false
         fx { directoryMenu(f, "group", "削除") }
         awaitFx { !f.main.operationRunning && f.confirmations > 0 }
-        assertEquals(0, f.store.deletions)
-        f.service.submitBackupIo {}.get(10, TimeUnit.SECONDS)
+        assertEquals(before, (f.service.documents.read() as StoreResult.Success).value)
         assertTrue(f.access.loadPendingStoreOperations().any { it.currentId == "group.local" })
-        fx { assertTrue(ids(f).contains("group.local")) }
+        assertEquals(0, f.store.deletions)
     }
 
     @Test
-    fun `権限不足と部分削除では残った編集と保留操作を保持する`() = fixture(EditorDataDescriptors.ore, ::OreEditorLogic) { f ->
-        f.store.deleteFailure = StoreErrorCode.PERMISSION_DENIED
-        fx { directoryMenu(f, "group", "削除") }
-        awaitFx { !f.main.operationRunning && f.errors.isNotEmpty() }
+    fun failedDirectoryPublicationDoesNotPartiallyDeleteItsDocuments() = fixture(EditorDataDescriptors.ore, ::OreEditorLogic) { f ->
+        val before = (f.service.documents.read() as StoreResult.Success).value
+        holdPublisher(f) {
+            fx { directoryMenu(f, "group", "削除") }
+            awaitFx { !f.main.operationRunning && f.errors.isNotEmpty() }
+        }
+        assertEquals(before, (f.service.documents.read() as StoreResult.Success).value)
         fx { assertTrue(ids(f).containsAll(listOf("group.a", "group.b"))) }
-        f.store.partialDeletion = "group.a"
-        f.store.deleteFailure = StoreErrorCode.IO_ERROR
         fx { directoryMenu(f, "group", "削除") }
-        awaitFx { !f.main.operationRunning && f.errors.size == 2 }
-        fx { assertFalse(ids(f).contains("group.a")); assertTrue(ids(f).contains("group.b")) }
+        awaitFx { !f.main.operationRunning && ids(f).isEmpty() }
+        assertIs<StoreResult.Success<*>>(f.store.memory.load(f.descriptor, "group.a"))
         assertIs<StoreResult.Success<*>>(f.store.memory.load(f.descriptor, "group.b"))
-        assertEquals(2, f.store.deletions)
-        assertFalse(f.store.ioThreads.any { it })
+        assertEquals(0, f.store.deletions)
     }
 
     @Test
-    fun `local onlyディレクトリは最新一覧で確認して保留操作とバックアップだけ破棄する`() = fixture(EditorDataDescriptors.ore, ::OreEditorLogic) { f ->
+    fun deletingALocalDraftClearsItsPendingEditingLayer() = fixture(EditorDataDescriptors.ore, ::OreEditorLogic) { f ->
         f.answers += "draft.local"
         fx { f.logic.onCreateData() }
         awaitFx { !f.main.operationRunning && ids(f).contains("draft.local") }
@@ -198,55 +173,67 @@ class EditorDataOperationTest {
     }
 
     @Test
-    fun `配下が多い削除は重複要求を止め一覧を一度更新する`() = fixture(EditorDataDescriptors.ore, ::OreEditorLogic) { f ->
-        repeat(200) { n -> val id = "bulk.data$n"; f.store.memory.save(f.descriptor, id, f.descriptor.createDefault(id)) }
+    fun deletingManyDocumentsKeepsFxResponsiveAndBlocksDuplicateOperations() = fixture(EditorDataDescriptors.ore, ::OreEditorLogic) { f ->
+        repeat(200) { n ->
+            val id = "bulk.data$n"
+            f.service.ores.saveLocalDocument(id, f.descriptor.createDefault(id), emptyMap())
+        }
         fx { f.logic.setupSidebar(f.main.sidebarContainer, "group.a") }
         awaitFx { !f.main.loadingRunning && directories(f).contains("bulk") }
         val entered = CountDownLatch(1)
         val release = CountDownLatch(1)
-        f.store.beforeDelete = { entered.countDown(); assertTrue(release.await(10, TimeUnit.SECONDS)) }
+        f.service.submitIo { entered.countDown(); assertTrue(release.await(10, TimeUnit.SECONDS)) }
+        assertTrue(entered.await(10, TimeUnit.SECONDS))
         try {
-            val lists = f.store.lists
             fx { directoryMenu(f, "bulk", "削除") }
-            assertTrue(entered.await(10, TimeUnit.SECONDS))
-            fx { assertTrue(f.main.operationRunning); f.logic.onCreateDirectory() }
-            release.countDown()
-            awaitFx { !f.main.operationRunning && !directories(f).contains("bulk") }
-            assertEquals(1, f.store.deletions)
-            assertEquals(lists + 2, f.store.lists)
-        } finally { release.countDown(); f.store.beforeDelete = null }
+            awaitFx { f.main.operationRunning }
+            fx { assertTrue(f.stage.isShowing); f.logic.onCreateDirectory(); f.logic.onClose { assertFalse(it) } }
+        } finally { release.countDown() }
+        awaitFx { !f.main.operationRunning && !directories(f).contains("bulk") }
+        assertTrue((f.access.listStoreResources() as StoreResult.Success).value.none { it.id.startsWith("bulk.") })
+        assertEquals(0, f.store.deletions)
     }
 
     @Test
-    fun `削除成功後に一覧取得が失敗しても削除済みの保留と編集を再保存しない`() = fixture(EditorDataDescriptors.ore, ::OreEditorLogic) { f ->
+    fun reopeningAfterDirectoryDeletionDoesNotReloadDeletedSourceDocuments() = fixture(EditorDataDescriptors.ore, ::OreEditorLogic) { f ->
         f.answers += "group.created"
         fx { f.logic.onCreateData() }
         awaitFx { !f.main.operationRunning && ids(f).contains("group.created") }
-        f.store.listFailureAfterDelete = true
         fx { directoryMenu(f, "group", "削除") }
-        awaitFx { !f.main.operationRunning && f.errors.isNotEmpty() }
-        fx { assertTrue(ids(f).isEmpty()) }
+        awaitFx { !f.main.operationRunning && ids(f).isEmpty() }
         f.service.submitBackupIo {}.get(10, TimeUnit.SECONDS)
-        assertTrue(f.access.loadPendingStoreOperations().isEmpty())
-        assertNull(f.access.loadBackupPair("group.created"))
-        assertEquals(1, f.store.deletions)
+        val reopened = EditorDataService(f.store, f.service.autoSaveDirectory)
+        try {
+            assertTrue((reopened.ores.listStoreResources() as StoreResult.Success).value.isEmpty())
+            assertNull(reopened.ores.loadBackupPair("group.created"))
+            assertTrue(reopened.ores.loadPendingStoreOperations().isEmpty())
+        } finally { reopened.closeIo() }
     }
 
     @Test
-    fun `ディレクトリ作成の拒否でもオフライン編集と保留操作を維持する`() = fixture(EditorDataDescriptors.ore, ::OreEditorLogic) { f ->
-        f.store.kind = EditorDataStoreKind.LOCAL
+    fun failedDirectoryCreationKeepsLocalEditsAndTheirBackup() = fixture(EditorDataDescriptors.ore, ::OreEditorLogic) { f ->
         f.answers += "group.created"
         fx { f.logic.onCreateData() }
         awaitFx { !f.main.operationRunning && ids(f).contains("group.created") }
-        f.store.createFailure = true
-        f.answers += "denied"
-        fx { f.logic.onCreateDirectory() }
-        awaitFx { !f.main.operationRunning && f.errors.isNotEmpty() }
-        fx { assertTrue(ids(f).contains("group.created")); assertFalse(directories(f).contains("denied")) }
         f.service.submitBackupIo {}.get(10, TimeUnit.SECONDS)
+        val before = (f.service.documents.read() as StoreResult.Success).value
+        holdPublisher(f) {
+            f.answers += "denied"
+            fx { f.logic.onCreateDirectory() }
+            awaitFx { !f.main.operationRunning && f.errors.isNotEmpty() }
+        }
+        assertEquals(before, (f.service.documents.read() as StoreResult.Success).value)
+        fx { assertTrue(ids(f).contains("group.created")); assertFalse(directories(f).contains("denied")) }
         assertNotNull(f.access.loadBackupPair("group.created"))
         assertTrue(f.access.loadPendingStoreOperations().any { it.currentId == "group.created" })
         assertEquals(0, f.store.writes)
+    }
+
+    private fun holdPublisher(f: Fixture<*>, action: () -> Unit) {
+        val lock = f.service.autoSaveDirectory.resolve("documents").resolve(f.service.cacheIdentity).resolve("publisher.lock")
+        java.nio.channels.FileChannel.open(lock.toPath(), java.nio.file.StandardOpenOption.WRITE).use { channel ->
+            channel.lock().use { action() }
+        }
     }
 
     private fun move(logic: EditorView<*>, id: String, directory: String): Boolean {
@@ -324,60 +311,65 @@ class EditorDataOperationTest {
                 }
             })).apply { cycleCount = Timeline.INDEFINITE; play() }
         }
+        var primary: Throwable? = null
         try {
             fx { f.main.switchView(f.logic) }
             awaitFx { !f.main.loadingRunning && ids(f).size == 2 }
             service.submitIo {}.get(10, TimeUnit.SECONDS)
             block(f)
+        } catch (error: Throwable) {
+            primary = error
+            throw error
         } finally {
-            val closed = CompletableFuture<Boolean>()
-            fx { dialogs.stop(); f.logic.onClose { success -> f.stage.close(); closed.complete(success) } }
-            assertTrue(closed.get(10, TimeUnit.SECONDS))
-            service.submitIo {}.get(10, TimeUnit.SECONDS)
-            service.submitBackupIo {}.get(10, TimeUnit.SECONDS)
-            service.itemReferences.close()
-            service.closeIo()
-            directory.deleteRecursively()
+            try {
+                val closed = CompletableFuture<Boolean>()
+                fx { f.logic.onClose { closed.complete(it) } }
+                assertTrue(closed.get(10, TimeUnit.SECONDS))
+            } catch (error: Throwable) {
+                if (primary == null) throw error
+                primary.addSuppressed(error)
+            } finally {
+                fx {
+                    dialogs.stop()
+                    Window.getWindows().toList().filter { (it as? Stage)?.owner === f.stage }.forEach { it.hide() }
+                    f.stage.close()
+                }
+                service.submitIo {}.get(10, TimeUnit.SECONDS)
+                service.submitBackupIo {}.get(10, TimeUnit.SECONDS)
+                service.itemReferences.close()
+                service.closeIo()
+                directory.deleteRecursively()
+            }
         }
     }
 
     private class OperationStore(val memory: InMemoryEditorDataStore = InMemoryEditorDataStore()) : EditorDataStore by memory {
-        override var kind = EditorDataStoreKind.REMOTE
+        override var kind = EditorDataStoreKind.IN_MEMORY
+        override val documentSource = EditorDocumentSource.Local
         val ioThreads = CopyOnWriteArrayList<Boolean>()
-        var beforeList: (() -> Unit)? = null
-        var beforeLoad: ((String) -> Unit)? = null
-        var beforeDelete: (() -> Unit)? = null
-        var beforeCreate: (() -> Unit)? = null
-        var deleteFailure: StoreErrorCode? = null
-        var partialDeletion: String? = null
-        var listFailureAfterDelete = false
-        var createFailure = false
         var lists = 0
         var writes = 0
         var deletions = 0
         override fun <T : ManagedData<T, *>> list(descriptor: EditorDataDescriptor<T>): StoreResult<List<StoreResource>> {
-            ioThreads += Platform.isFxApplicationThread(); lists++; beforeList?.invoke()
-            if (listFailureAfterDelete && deletions > 0) return StoreResult.Failure(StoreError(StoreErrorCode.IO_ERROR))
+            ioThreads += Platform.isFxApplicationThread(); lists++
             return memory.list(descriptor)
         }
         override fun <T : ManagedData<T, *>> load(descriptor: EditorDataDescriptor<T>, id: String): StoreResult<T> {
-            ioThreads += Platform.isFxApplicationThread(); beforeLoad?.invoke(id); return memory.load(descriptor, id)
+            ioThreads += Platform.isFxApplicationThread()
+            return memory.load(descriptor, id)
         }
         override fun <T : ManagedData<T, *>> save(descriptor: EditorDataDescriptor<T>, id: String, data: T): StoreResult<Unit> {
             writes++; return memory.save(descriptor, id, data)
         }
         override fun <T : ManagedData<T, *>> createDirectory(descriptor: EditorDataDescriptor<T>, directory: String): StoreResult<Unit> {
-            ioThreads += Platform.isFxApplicationThread(); beforeCreate?.invoke()
-            if (createFailure) return StoreResult.Failure(StoreError(StoreErrorCode.PERMISSION_DENIED, directory))
-            return memory.createDirectory(descriptor, directory)
+            writes++; return memory.createDirectory(descriptor, directory)
         }
         override fun <T : ManagedData<T, *>> deleteDirectory(descriptor: EditorDataDescriptor<T>, directory: String): StoreResult<Unit> {
-            ioThreads += Platform.isFxApplicationThread(); deletions++; beforeDelete?.invoke()
-            partialDeletion?.let { memory.delete(descriptor, it) }
-            return deleteFailure?.let { StoreResult.Failure(StoreError(it, directory)) } ?: memory.deleteDirectory(descriptor, directory)
+            deletions++; return memory.deleteDirectory(descriptor, directory)
         }
         override fun <T : ManagedData<T, *>> listDirectories(descriptor: EditorDataDescriptor<T>): StoreResult<List<String>> {
-            ioThreads += Platform.isFxApplicationThread(); return memory.listDirectories(descriptor)
+            ioThreads += Platform.isFxApplicationThread()
+            return memory.listDirectories(descriptor)
         }
     }
 

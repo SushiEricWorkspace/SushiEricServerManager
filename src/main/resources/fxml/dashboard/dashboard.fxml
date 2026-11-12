@@ -13,7 +13,7 @@
     <content>
         <VBox styleClass="dashboard-content">
             <children>
-                <Label styleClass="dashboard-title" text="Dashboard" />
+                <Label styleClass="dashboard-title" text="ダッシュボード" />
 
                 <Label styleClass="dashboard-section-title" text="接続" />
                 <GridPane styleClass="dashboard-grid">
@@ -53,6 +53,9 @@
                     <Label styleClass="dashboard-label" text="JVMヒープ:" GridPane.rowIndex="5" />
                     <Label fx:id="heapValue" styleClass="dashboard-value"
                            GridPane.columnIndex="1" GridPane.rowIndex="5" />
+                    <Label styleClass="dashboard-label" text="スレッド:" GridPane.rowIndex="6" />
+                    <Label fx:id="threadsValue" styleClass="dashboard-value"
+                           GridPane.columnIndex="1" GridPane.rowIndex="6" />
                 </GridPane>
 
                 <Label styleClass="dashboard-section-title" text="ホストOS（SSH）" />

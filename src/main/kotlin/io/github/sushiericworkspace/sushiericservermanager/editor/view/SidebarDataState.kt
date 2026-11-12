@@ -8,7 +8,7 @@ internal enum class SidebarValidationStatus(val text: String) {
  * サイドバーに表示するデータの状態を、互いに独立したフラグとして保持します。
  *
  * @property validationStatus 検証用データの取得状態。警告・エラーとは独立して保持します。
- * @property localOnly サーバーへ未保存で、ローカルの編集キャッシュにだけ存在する状態。
+ * @property localOnly ローカル保存済みデータにはなく、編集キャッシュにだけ存在する状態。
  * @property pendingDeletion 保存時に削除される保留状態。
  */
 internal data class SidebarDataState(
@@ -18,7 +18,9 @@ internal data class SidebarDataState(
     val hasErrors: Boolean,
     val localOnly: Boolean = false,
     val pendingDeletion: Boolean = false,
-    val validationStatus: SidebarValidationStatus = SidebarValidationStatus.CHECKED
+    val validationStatus: SidebarValidationStatus = SidebarValidationStatus.CHECKED,
+    val serverTracked: Boolean = false,
+    val unreflected: Boolean? = null
 ) {
     val styleClasses: List<String>
         get() = buildList {
@@ -35,14 +37,20 @@ internal data class SidebarDataState(
         if (validationStatus != SidebarValidationStatus.CHECKED) append(" [${validationStatus.text}]")
         if (hasErrors) append(" ⚠")
         if (hasWarnings) append(" ⚠")
+        if (serverTracked && unreflected != false) append(if (unreflected == true) " [未アップロード]" else " [基準未取得]")
     }
 
     fun description(): String? {
         val states = buildList {
             if (selected) add("選択中")
             if (validationStatus != SidebarValidationStatus.CHECKED) add(validationStatus.text)
-            if (pendingDeletion) add("削除保留") else if (localOnly) add("サーバー未保存")
+            if (pendingDeletion) add("削除保留") else if (localOnly) add("ローカルに未保存")
             if (modified) add("未保存の変更あり")
+            if (serverTracked) add(when (unreflected) {
+                true -> "未アップロード"
+                false -> "最後に取得した基準と一致"
+                null -> "サーバー基準未取得"
+            })
             if (hasWarnings) add("警告あり")
             if (hasErrors) add("エラーあり")
         }

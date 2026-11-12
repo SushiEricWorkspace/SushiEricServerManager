@@ -37,7 +37,8 @@ class HostMetricsMonitor(
             }
         }
 
-    private var task: ScheduledFuture<*>? = null
+    @Volatile private var task: ScheduledFuture<*>? = null
+    private var generation = 0L
 
     /** 最新の取得結果です。取得していない場合は値を持ちません。 */
     @Volatile
@@ -82,8 +83,9 @@ class HostMetricsMonitor(
             return
         }
 
+        val currentGeneration = ++generation
         task = scheduler.scheduleWithFixedDelay(
-            ::collect,
+            { collect(currentGeneration) },
             0,
             intervalSeconds,
             TimeUnit.SECONDS
@@ -93,19 +95,22 @@ class HostMetricsMonitor(
     /**
      * 定期取得を停止し、保持している値を破棄します。
      */
-    @Synchronized
     fun stop() {
-        task?.cancel(false)
-        task = null
-
-        publish(HostMetrics.EMPTY)
+        val stoppedGeneration = synchronized(this) {
+            generation++
+            task?.cancel(false)
+            task = null
+            metrics = HostMetrics.EMPTY
+            generation
+        }
+        publish(HostMetrics.EMPTY, stoppedGeneration)
     }
 
-    private fun collect() {
+    private fun collect(expectedGeneration: Long) {
         val client = sshManager.sshClient
 
         if (client == null || !client.isConnected) {
-            publish(HostMetrics.EMPTY)
+            publish(HostMetrics.EMPTY, expectedGeneration)
             return
         }
 
@@ -119,7 +124,7 @@ class HostMetricsMonitor(
             commandRunner.run(client, HostMetricsCommands.build(platform))
 
         if (result == null) {
-            publish(HostMetrics.EMPTY)
+            publish(HostMetrics.EMPTY, expectedGeneration)
             return
         }
 
@@ -131,19 +136,19 @@ class HostMetricsMonitor(
             )
         }
 
-        publish(HostMetricsParser.parse(platform, result.output))
+        publish(HostMetricsParser.parse(platform, result.output), expectedGeneration)
     }
 
-    private fun publish(
-        next: HostMetrics
-    ) {
-        metrics = next
-
-        listeners.forEach { listener ->
+    private fun publish(next: HostMetrics, expectedGeneration: Long) {
+        val currentListeners = synchronized(this) {
+            if (generation != expectedGeneration) return
+            metrics = next
+            listeners.toList()
+        }
+        currentListeners.forEach { listener ->
+            if (synchronized(this) { generation != expectedGeneration }) return
             runCatching { listener(next) }
-                .onFailure {
-                    logger.warn("ホストOSの状態の通知に失敗しました。", it)
-                }
+                .onFailure { logger.warn("ホストOSの状態の通知に失敗しました。", it) }
         }
     }
 

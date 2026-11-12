@@ -26,5 +26,10 @@
 
 .check-box:selected .mark,
 .check-box:indeterminate .mark {
-    -fx-background-color: white;
+    -fx-background-color: -fx-text-color;
+}
+
+.check-box:focused > .box {
+    -fx-border-color: -fx-accent-color;
+    -fx-border-width: 2px;
 }

@@ -5,6 +5,8 @@ import io.github.sushiericworkspace.sushiericdatamodel.data.item.model.mutable.M
 import io.github.sushiericworkspace.sushiericservermanager.app.AppScreen
 import io.github.sushiericworkspace.sushiericservermanager.util.Utility.applyCommonStyle
 import io.github.sushiericworkspace.sushiericservermanager.util.Utility.createScene
+import io.github.sushiericworkspace.sushiericservermanager.editor.render.ItemPreviewService
+import io.github.sushiericworkspace.sushiericservermanager.editor.render.itemPreviewReviews
 import javafx.geometry.Insets
 import javafx.geometry.Pos
 import javafx.scene.control.Alert
@@ -24,10 +26,15 @@ import javafx.scene.text.Text
 import javafx.scene.text.TextFlow
 import org.slf4j.LoggerFactory
 
-class RewriteConfirmation(
+class RewriteConfirmation internal constructor(
     private val originalData: MutableItemBaseData,
-    private val serverData: MutableItemBaseData
+    private val serverData: MutableItemBaseData,
+    private val currentData: MutableItemBaseData,
+    private val previews: ItemPreviewService
 ) : javafx.stage.Stage() {
+
+    constructor(originalData: MutableItemBaseData, serverData: MutableItemBaseData) :
+        this(originalData, serverData, originalData, ItemPreviewService())
 
     private val logger = LoggerFactory.getLogger(javaClass)
 
@@ -92,7 +99,7 @@ class RewriteConfirmation(
                 // 3. 確認メッセージのテキストを構築
                 val messageFlow = TextFlow().apply {
                     lineSpacing = 4.0
-                    style = "-fx-background-color: #252538; -fx-padding: 15px; -fx-background-radius: 5px;"
+                    style = "-fx-background-color: -fx-bg-shallow; -fx-padding: 15px; -fx-background-radius: 0;"
                 }
 
                 // アイテムの内部値から表示用文言を安全に引くためのローカル関数
@@ -115,30 +122,30 @@ class RewriteConfirmation(
                 messageFlow.children.apply {
                     // 導入文
                     add(Text("保存しますか？未選択項目はサーバー側に合わせて上書きされます。\n\n").apply {
-                        style = "-fx-fill: #ffffff; -fx-font-size: 13px;"
+                        style = "-fx-fill: -fx-text-color; -fx-font-size: 13px;"
                     })
 
                     // --- 上書きセクション ---
                     add(Text("【上書きする項目（ローカルを優先）】\n").apply {
-                        style = "-fx-fill: #ff4d4d; -fx-font-weight: bold; -fx-font-size: 13px;"
+                        style = "-fx-fill: -fx-danger-color; -fx-font-weight: bold; -fx-font-size: 13px;"
                     })
                     if (currentChecked.isEmpty()) {
-                        add(Text(" ・ （なし）\n").apply { style = "-fx-fill: #8b8d99;" })
+                        add(Text(" ・ （なし）\n").apply { style = "-fx-fill: -fx-text-muted-color;" })
                     } else {
                         currentChecked.forEach { field ->
-                            add(Text(" ・ ${getDiffText(field)}\n").apply { style = "-fx-fill: #ffccd5; -fx-font-family: 'Consolas';" })
+                            add(Text(" ・ ${getDiffText(field)}\n").apply { style = "-fx-fill: -fx-danger-color; -fx-font-family: 'Consolas';" })
                         }
                     }
 
                     // --- 破棄セクション ---
                     add(Text("\n【破棄する項目（サーバー側を維持）】\n").apply {
-                        style = "-fx-fill: #4ea8de; -fx-font-weight: bold; -fx-font-size: 13px;"
+                        style = "-fx-fill: -fx-accent-color; -fx-font-weight: bold; -fx-font-size: 13px;"
                     })
                     if (uncheckedFields.isEmpty()) {
-                        add(Text(" ・ （なし）\n").apply { style = "-fx-fill: #8b8d99;" })
+                        add(Text(" ・ （なし）\n").apply { style = "-fx-fill: -fx-text-muted-color;" })
                     } else {
                         uncheckedFields.forEach { field ->
-                            add(Text(" ・ ${getDiffText(field)}\n").apply { style = "-fx-fill: #a2d2ff; -fx-font-family: 'Consolas';" })
+                            add(Text(" ・ ${getDiffText(field)}\n").apply { style = "-fx-fill: -fx-accent-color; -fx-font-family: 'Consolas';" })
                         }
                     }
                 }
@@ -189,12 +196,14 @@ class RewriteConfirmation(
 
             children.addAll(
                 Label("警告: リモートサーバー上のデータが更新されています！\n(対象アイテム: ${originalData.id})").apply {
-                    style = "-fx-font-size: 14px; -fx-font-weight: bold; -fx-text-fill: #d90429;"
+                    style = "-fx-font-size: 14px; -fx-font-weight: bold; -fx-text-fill: -fx-danger-color;"
                     isWrapText = true
                 },
                 Label("サーバー上のデータを上書きして、現在の編集内容で保存しますか？\n上書きする項目にチェックを入れてください。").apply {
                     isWrapText = true
                 },
+                previews.review(itemPreviewReviews("比較元", originalData, null) +
+                    itemPreviewReviews("編集中", currentData, null) + itemPreviewReviews("サーバー", serverData, null)),
                 diffTreeView.apply {
                     VBox.setVgrow(this, Priority.ALWAYS)
                 },

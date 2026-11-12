@@ -2,6 +2,7 @@ package io.github.sushiericworkspace.sushiericservermanager.editor.view
 
 import io.github.sushiericworkspace.sushiericdatamodel.data.core.identity.PublicId
 import io.github.sushiericworkspace.sushiericservermanager.ui.AppTooltip
+import javafx.scene.Node
 import javafx.geometry.Insets
 import javafx.geometry.Pos
 import javafx.scene.control.Button
@@ -28,7 +29,8 @@ internal class EditorSidebar(
     private val onMove: (String, String) -> Boolean,
     private val expandedState: MutableMap<String, Boolean>,
     private val onExpandedStateChanged: () -> Unit,
-    private val onExpansionChanged: () -> Unit
+    private val onExpansionChanged: () -> Unit,
+    private val previewData: (Node, String?) -> Unit = { _, _ -> }
 ) : ListView<SidebarRow>() {
     private val visibleCells = mutableSetOf<SidebarCell>()
     private val visibleDataCells = mutableMapOf<String, SidebarCell>()
@@ -160,6 +162,7 @@ internal class EditorSidebar(
                 graphic = null
                 button.id = null
                 button.tooltip = null
+                previewData(button, null)
                 button.accessibleText = null
                 button.styleClass.removeAll(SidebarDataState.STYLE_CLASSES + "sidebar-directory-button")
                 return
@@ -210,6 +213,7 @@ internal class EditorSidebar(
                 warning.isManaged = false
                 button.accessibleText = directory.fullPath
                 button.tooltip = null
+                previewData(button, null)
             } else if (row is SidebarRow.Data) {
                 val state = stateFor(row.fullId)
                 button.id = row.fullId
@@ -228,6 +232,7 @@ internal class EditorSidebar(
                 warning.isManaged = state.hasWarnings
                 button.accessibleText = listOfNotNull(PublicId.normalizeForLoad(row.fullId), state.description()).joinToString(" / ")
                 button.tooltip = state.description()?.let(AppTooltip::create)
+                previewData(button, row.fullId)
             }
         }
     }

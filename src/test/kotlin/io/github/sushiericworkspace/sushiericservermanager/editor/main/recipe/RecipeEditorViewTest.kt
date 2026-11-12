@@ -1,5 +1,6 @@
 package io.github.sushiericworkspace.sushiericservermanager.editor.main.recipe
 
+import io.github.sushiericworkspace.sushiericservermanager.editor.render.ItemPreviewService
 import io.github.sushiericworkspace.sushiericdatamodel.data.item.model.ItemInternalId
 import io.github.sushiericworkspace.sushiericdatamodel.data.recipe.model.RecipeIngredients
 import io.github.sushiericworkspace.sushiericdatamodel.data.recipe.model.RecipeSize
@@ -27,6 +28,13 @@ import io.github.sushiericworkspace.sushiericservermanager.editor.view.SidebarTr
 import io.github.sushiericworkspace.sushiericservermanager.ui.dialog.ItemTreeSelectionDialog
 import io.github.sushiericworkspace.sushiericservermanager.ui.dialog.ItemTreeSelection
 import io.github.sushiericworkspace.sushiericservermanager.ui.dialog.createRecipeSaveContent
+import org.junit.jupiter.api.io.TempDir
+import java.io.File
+import javafx.concurrent.Task
+import io.github.sushiericworkspace.sushiericservermanager.editor.service.EditorDocumentSource
+import io.github.sushiericworkspace.sushiericservermanager.editor.store.EditorDataStore
+import io.github.sushiericworkspace.sushiericservermanager.editor.store.EditorDataStoreKind
+import kotlin.test.assertFalse
 import org.junit.jupiter.api.condition.EnabledOnOs
 import org.junit.jupiter.api.condition.OS
 import java.util.concurrent.CountDownLatch
@@ -42,6 +50,39 @@ import kotlin.test.assertNull
 /** WindowsのJavaFXでFXMLと入力を確認します。実サーバーやユーザーの保存データには触れません。 */
 @EnabledOnOs(OS.WINDOWS)
 class RecipeEditorViewTest {
+    @TempDir lateinit var directory: File
+
+    @Test
+    fun `参照一覧の読込中は保存元切替を拒否し終了待機を保持する`() {
+        lateinit var service: EditorDataService
+        val closed = java.util.concurrent.CompletableFuture<Boolean>()
+        onFxThread {
+            val loader = FXMLLoader(javaClass.getResource(AppScreen.BASE.fxml!!))
+            val root = loader.load<Parent>()
+            Scene(root)
+            val remote = object : EditorDataStore by InMemoryEditorDataStore() {
+                override val kind = EditorDataStoreKind.REMOTE
+                override val documentSource = EditorDocumentSource.Server("recipe-busy", "declared/root")
+            }
+            service = EditorDataService(remote, directory.resolve("app"))
+            val logic = RecipeEditorLogic(loader.getController(), service)
+            val field = RecipeEditorLogic::class.java.getDeclaredField("catalogTask").apply { isAccessible = true }
+            val task = object : Task<Unit>() { override fun call() = Unit }
+            field.set(logic, task)
+            try {
+                assertTrue(logic.closeBusy)
+                var accepted: Boolean? = null
+                logic.openDocument(service.recipes.documentKey("one")) { accepted = it }
+                assertEquals(false, accepted)
+            } finally { field.set(logic, null) }
+            assertFalse(logic.closeBusy)
+            logic.onClose { closed.complete(it) }
+        }
+        assertTrue(closed.get(10, TimeUnit.SECONDS))
+        service.closeIo()
+    }
+
+
     @Test
     fun `FXMLをロードして選択ボタンを表示し盤サイズと完成数を編集できる`() = onFxThread {
         val loader = FXMLLoader(javaClass.getResource(AppScreen.BASE.fxml!!))
@@ -59,7 +100,7 @@ class RecipeEditorViewTest {
         val material = assertIs<Button>(root.lookup("#recipe-ingredient-0"))
         assertTrue(material.text.contains("test-ingredient"))
         val result = assertIs<Button>(root.lookup("#recipe-result"))
-        assertEquals("アイテムを選択...", result.text)
+        assertEquals("空き", result.text)
         val count = assertIs<TextField>(root.lookup("#recipe-count"))
         count.text = "2"
         assertEquals(2, data.resultCount)
@@ -124,11 +165,11 @@ class RecipeEditorViewTest {
             assertIs<TextField>(pane.lookup("#item-selection-search")).text = "swords.test"
             assertEquals(1, tree.root.children.size)
         }
-        assertEquals(ItemTreeSelection.Selected(item.internalId), ItemTreeSelectionDialog.show(null, listOf(item), item.internalId))
+        assertEquals(ItemTreeSelection.Selected(item.internalId), ItemTreeSelectionDialog.show(null, listOf(item), item.internalId, ItemPreviewService()))
         act("選択を解除")
-        assertEquals(ItemTreeSelection.Cleared, ItemTreeSelectionDialog.show(null, listOf(item), item.internalId))
+        assertEquals(ItemTreeSelection.Cleared, ItemTreeSelectionDialog.show(null, listOf(item), item.internalId, ItemPreviewService()))
         act(ButtonType.CANCEL.text)
-        assertNull(ItemTreeSelectionDialog.show(null, listOf(item), ItemInternalId("missing")))
+        assertNull(ItemTreeSelectionDialog.show(null, listOf(item), ItemInternalId("missing"), ItemPreviewService()))
         interactionFailure?.let { throw it }
     }
 

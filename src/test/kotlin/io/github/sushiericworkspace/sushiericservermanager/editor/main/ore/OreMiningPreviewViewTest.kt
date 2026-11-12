@@ -5,6 +5,7 @@ import io.github.sushiericworkspace.sushiericdatamodel.data.ore.model.mutable.Mu
 import io.github.sushiericworkspace.sushiericservermanager.app.AppScreen
 import io.github.sushiericworkspace.sushiericservermanager.editor.controller.MainController
 import io.github.sushiericworkspace.sushiericservermanager.editor.service.EditorDataService
+import io.github.sushiericworkspace.sushiericservermanager.editor.service.LocalDocumentRecord
 import io.github.sushiericworkspace.sushiericservermanager.editor.store.*
 import javafx.application.Platform
 import javafx.fxml.FXMLLoader
@@ -108,9 +109,11 @@ class OreMiningPreviewViewTest {
                 logic.onSave { saved.complete(it) }
             }
             assertEquals(SaveOutcome.SAVED, saved.get(20, TimeUnit.SECONDS))
-            val persisted = assertIs<StoreResult.Success<MutableOreBaseData>>(store.load(EditorDataDescriptors.ore, "ore")).value
+            val document = assertIs<StoreResult.Success<List<LocalDocumentRecord>>>(service.ores.localDocuments()).value.single()
+            val persisted = service.ores.decodeDocument("ore", assertNotNull(document.saved))
             assertEquals(original.copy(hardness = 10.0), persisted)
             assertEquals(original.completed, persisted.completed)
+            assertEquals(original, assertIs<StoreResult.Success<MutableOreBaseData>>(store.load(EditorDataDescriptors.ore, "ore")).value)
             onFx { stage.width = 800.0; stage.height = 600.0 }
             val resizeDeadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(10)
             var resized = false

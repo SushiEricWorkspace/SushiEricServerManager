@@ -3,8 +3,8 @@ package io.github.sushiericworkspace.sushiericservermanager.editor.upload
 import io.github.sushiericworkspace.sushiericdatamodel.data.core.ManagedData
 import io.github.sushiericworkspace.sushiericservermanager.config.FilePath
 import io.github.sushiericworkspace.sushiericservermanager.editor.service.EditorDataService
+import io.github.sushiericworkspace.sushiericservermanager.editor.store.StoreResult
 import io.github.sushiericworkspace.sushiericservermanager.editor.store.EditorDataDescriptor
-import io.github.sushiericworkspace.sushiericservermanager.editor.store.EditorDataStore
 import io.github.sushiericworkspace.sushiericservermanager.ui.dialog.CustomDialog
 import javafx.concurrent.Task
 import javafx.stage.Stage
@@ -21,7 +21,7 @@ object LocalDataUploader {
     private val logger = LoggerFactory.getLogger(LocalDataUploader::class.java)
 
     /**
-     * 未保存の編集としての読み込みを開始します。サーバーへの反映は通常の保存で行います。
+     * 未保存の編集としての読み込みを開始します。保存はローカルに保持し、サーバーへのアップロードとは分離します。
      *
      * @param owner ダイアログの親ウィンドウ。
      * @param dataService 元データの読み込み先と接続単位のI/Oキュー。保存は行いません。
@@ -51,7 +51,7 @@ object LocalDataUploader {
         onBusyChanged(true)
         onProgress("ローカルデータを走査しています", -1.0)
         val scanTask = object : Task<UploadScanResult>() {
-            override fun call(): UploadScanResult = service(dataService.store).scan(category)
+            override fun call(): UploadScanResult = service(dataService).scan(category)
         }
         scanTask.setOnSucceeded {
             if (!isActive()) { onBusyChanged(false); return@setOnSucceeded }
@@ -112,7 +112,7 @@ object LocalDataUploader {
                 .header("${overwrite.size} 件の編集内容をローカルデータで置き換えます")
                 .content(listOf(
                     overwrite.joinToString("\n") { it.targetId },
-                    "サーバーへの反映は、エディターで確認して保存した後に行います。"
+                    "ローカル保存とサーバーへのアップロードは別操作です。"
                 ))
                 .owner(owner)
                 .show()
@@ -122,16 +122,24 @@ object LocalDataUploader {
         onBeforeLoad()
         onProgress("ローカルデータを読み込みます 0/${selection.keys.size} 件", 0.0)
         val loadTask = object : Task<LocalEditImportResult<T>>() {
-            override fun call(): LocalEditImportResult<T> = service(dataService.store).loadForEditing(
-                descriptor = descriptor,
-                selected = selection.keys,
-                overwriteApproved = overwrite.mapTo(linkedSetOf()) { it.key },
-                destination = selection.destination,
-                onProgress = { completed, total, name ->
-                    updateMessage("ローカルデータを読み込み中 $completed/$total 件${name?.let { ": $it" }.orEmpty()}")
-                    updateProgress(completed.toLong(), total.toLong())
+            override fun call(): LocalEditImportResult<T> {
+                val documents = when (val result = dataService.localService.documentAccess(descriptor).savedDocumentsForImport()) {
+                    is StoreResult.Success -> result.value
+                    is StoreResult.Failure -> return LocalEditImportResult(emptyList(),
+                        selection.keys.map { UploadItemFailure(it, result.error) })
                 }
-            )
+                return service(dataService).loadForEditing(
+                    descriptor = descriptor,
+                    selected = selection.keys,
+                    overwriteApproved = overwrite.mapTo(linkedSetOf()) { it.key },
+                    destination = selection.destination,
+                    sourceDocuments = documents,
+                    onProgress = { completed, total, name ->
+                        updateMessage("ローカルデータを読み込み中 $completed/$total 件${name?.let { ": $it" }.orEmpty()}")
+                        updateProgress(completed.toLong(), total.toLong())
+                    }
+                )
+            }
         }
         loadTask.messageProperty().addListener { _, _, message ->
             if (isActive()) onProgress(message, loadTask.progress)
@@ -152,7 +160,7 @@ object LocalDataUploader {
                         .title("ローカルデータの読み込み結果")
                         .header("読み込み ${result.entries.size} 件、失敗 ${result.failed.size} 件")
                         .content(listOf(
-                            "未保存の編集として読み込みました。内容を確認し、保存するとサーバーへ反映されます。ローカルデータは保持されています。",
+                            "未保存の編集として読み込みました。保存するとローカルに保持されます。サーバーへのアップロードは別操作です。取込元のローカルデータも保持されています。",
                             failureText
                         ))
                         .owner(owner)
@@ -171,8 +179,12 @@ object LocalDataUploader {
         dataService.executeIo(loadTask)
     }
 
-    private fun service(remoteStore: EditorDataStore) =
-        OfflineUploadService(workspaceRoot = remoteStore.offlineDirectory ?: FilePath.OFFLINE_DIR.toFile(), remoteStore = remoteStore)
+    private fun service(dataService: EditorDataService) =
+        OfflineUploadService(
+            workspaceRoot = FilePath.OFFLINE_DIR.toFile(),
+            remoteStore = dataService.store,
+            workingStore = dataService.localService.store
+        )
 
     private fun showError(owner: Stage?, code: String, detail: String?) {
         CustomDialog.error()

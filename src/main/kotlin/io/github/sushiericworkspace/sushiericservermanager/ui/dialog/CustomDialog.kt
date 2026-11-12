@@ -2,6 +2,8 @@ package io.github.sushiericworkspace.sushiericservermanager.ui.dialog
 
 import io.github.sushiericworkspace.sushiericservermanager.util.Utility.applyCommonStyle
 import io.github.sushiericworkspace.sushiericservermanager.util.toCssHex
+import javafx.scene.Node
+import javafx.scene.control.ScrollPane
 import javafx.application.Platform
 import javafx.scene.control.*
 import javafx.scene.layout.VBox
@@ -24,6 +26,7 @@ class CustomDialog private constructor(private val type: Alert.AlertType) {
     private var title: String = if (type == Alert.AlertType.ERROR) "システムエラー" else "確認"
     private var header: String? = if (type == Alert.AlertType.ERROR) "予期しないエラーが発生しました" else "処理を続行しますか？"
     private var contentText: String = ""
+    private var additional: Node? = null
     private var scrollableContent: Boolean = false
     private var owner: Stage? = null
 
@@ -79,6 +82,9 @@ class CustomDialog private constructor(private val type: Alert.AlertType) {
     fun content(contentLines: List<String>) = apply {
         this.contentText = contentLines.joinToString("\n")
     }
+
+    /** 既存本文を保ち、FXスレッドで作った確認用Nodeを本文の下に追加する。 */
+    fun additionalContent(node: Node) = apply { additional = node }
 
     /** 長い複数行本文を、折り返し可能なスクロール領域で表示します。 */
     fun scrollableContent() = apply {
@@ -156,6 +162,15 @@ class CustomDialog private constructor(private val type: Alert.AlertType) {
                         prefRowCount = 18
                     }
                     dialogPane.prefWidth = 760.0
+                }
+
+                this@CustomDialog.additional?.let { extra ->
+                    val body = dialogPane.content ?: Label(this@CustomDialog.contentText).apply { isWrapText = true }
+                    dialogPane.content = ScrollPane(VBox(8.0, body, extra)).apply {
+                        isFitToWidth = true
+                        prefViewportWidth = 760.0
+                        prefViewportHeight = 560.0
+                    }
                 }
 
                 // --- エラー用: スタックトレースの展開 ---

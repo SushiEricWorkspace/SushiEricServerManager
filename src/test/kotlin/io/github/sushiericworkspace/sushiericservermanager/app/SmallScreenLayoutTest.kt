@@ -14,6 +14,7 @@ import io.github.sushiericworkspace.sushiericservermanager.editor.upload.UploadD
 import io.github.sushiericworkspace.sushiericservermanager.editor.upload.UploadScanResult
 import io.github.sushiericworkspace.sushiericservermanager.ui.dialog.*
 import io.github.sushiericworkspace.sushiericservermanager.update.UpdateCheckResult
+import io.github.sushiericworkspace.sushiericservermanager.editor.render.ItemPreviewService
 import javafx.scene.layout.StackPane
 import javafx.stage.Window
 import kotlin.test.assertEquals
@@ -208,9 +209,10 @@ class SmallScreenLayoutTest {
                 println("#293 実Editor ${view.javaClass.simpleName} stage=${stage.width}x${stage.height} scene=${stage.scene.width}x${stage.scene.height}")
                 assertTrue(main.sidebarContainer.children.isNotEmpty())
                 checkActions(root, root)
-                val file = main.actionButtonContainer.children.filterIsInstance<MenuButton>().first()
-                assertReachable(root, file)
-                assertTrue(file.items.any { it.text.startsWith("保存") })
+                val menuBar = root.lookup("#applicationMenu") as MenuBar
+                assertReachable(root, menuBar)
+                val file = menuBar.menus.first()
+                assertTrue(file.items.any { it.id == "action-save" })
                 file.show()
                 assertTrue(file.isShowing, "保存メニューを開けません")
                 file.hide()
@@ -229,12 +231,13 @@ class SmallScreenLayoutTest {
 
     @Test fun `小さい補助ダイアログで本文と決定取消へ到達し取消で元データを変えない`() {
         val owner = onFx { Stage().apply { scene = javafx.scene.Scene(StackPane(), 600.0, 400.0); show() } }
+        val previews = ItemPreviewService()
         try {
-            checkDialog("ドロップアイテム編集", "キャンセル") { DropItemEditorDialog.show(owner, mutableListOf(), emptyList()) {} }
+            checkDialog("ドロップアイテム編集", "キャンセル") { DropItemEditorDialog.show(owner, mutableListOf(), emptyList(), previews) {} }
             val potion = MutablePotionData()
             checkDialog("ポーション効果編集", "OK") { PotionEffectEditorDialog.show(potion) {} }
             assertTrue(potion.effects.isEmpty())
-            checkDialog("アイテムを選択", ButtonType.CANCEL.text) { ItemTreeSelectionDialog.show(owner, emptyList(), null) }
+            checkDialog("アイテムを選択", ButtonType.CANCEL.text) { ItemTreeSelectionDialog.show(owner, emptyList(), null, previews) }
             checkDialog("保存競合の解決", ButtonType.CANCEL.text) {
                 MergeConflictDialog.show(owner, "test", listOf(DataConflict(DataFieldPath.property("name", "名前"), "名前", "元", "ローカル", "サーバー")))
             }
@@ -246,7 +249,7 @@ class SmallScreenLayoutTest {
             }
             val result = checkDialog("入力 #293", "決定") { ValidatedInputDialog.show("入力 #293") { ValidationResult.Success } }
             assertEquals("", result)
-        } finally { onFx { owner.close() } }
+        } finally { onFx { previews.close(); owner.close() } }
     }
 
     private fun checkDialog(title: String, action: String, show: () -> Any?): Any? {
@@ -281,6 +284,7 @@ class SmallScreenLayoutTest {
             is TabPane -> node.selectionModel.selectedItem?.content?.let { checkActions(root, it) }
             is Control -> Unit
             is Parent -> node.childrenUnmodifiable.toList().forEach { checkActions(root, it) }
+            else -> Unit
         }
     }
 

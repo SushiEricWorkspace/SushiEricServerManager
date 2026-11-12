@@ -20,8 +20,9 @@ import javafx.scene.control.ToggleButton
 import javafx.scene.control.ListCell
 import io.github.sushiericworkspace.sushiericservermanager.editor.component.SearchableComboBox
 import io.github.sushiericworkspace.sushiericservermanager.config.AppSettingsManager
-import javafx.scene.control.ScrollPane
 import javafx.scene.layout.FlowPane
+import javafx.scene.layout.Region
+import javafx.scene.control.ScrollPane
 import javafx.scene.layout.Priority
 import javafx.scene.layout.VBox
 import org.slf4j.LoggerFactory
@@ -51,8 +52,8 @@ internal class ShopHistoryView(private val store: EditorDataStore, private val c
     private var playerSelector: SearchableComboBox<ShopHistoryPlayer>? = null
     private var selectedPlayerUuid: UUID? = null
     private val modes = ShopHistoryMode.entries.associateWith { CheckBox(it.displayName).apply { isSelected = true } }
-    private val status = Label("ショップ売買履歴を読み込み中...")
-    private val table = TableView<ShopHistoryEntry>()
+    private val status = Label("ショップ売買履歴を読み込み中...").apply { isWrapText = true; maxWidth = Double.MAX_VALUE }
+    private val table = TableView<ShopHistoryEntry>().apply { minWidth = 0.0 }
     private val loadButton = Button("更新")
     private var entries = emptyList<ShopHistoryEntry>()
     private var loadedRange: Pair<LocalDate?, LocalDate?>? = null
@@ -79,8 +80,16 @@ internal class ShopHistoryView(private val store: EditorDataStore, private val c
     init {
         client.addStateListener(connectionListener)
         styleClass.add("money-history-content")
-        fun row(vararg nodes: javafx.scene.Node) = FlowPane(8.0, 8.0, *nodes).apply { alignment = Pos.CENTER_LEFT }
-        fun label(text: String) = Label(text).apply { minWidth = 95.0; styleClass.add("history-filter-label") }
+        minWidth = 0.0
+        fun row(vararg nodes: javafx.scene.Node) = FlowPane(8.0, 8.0, *nodes).apply {
+            alignment = Pos.CENTER_LEFT
+            minWidth = 0.0
+            nodes.filterIsInstance<Region>().forEach { child ->
+                child.minWidth = 0.0
+                child.maxWidthProperty().bind(widthProperty())
+            }
+        }
+        fun label(text: String) = Label(text).apply { prefWidth = 95.0; styleClass.add("history-filter-label") }
         val modeMenu = MenuButton("すべて").apply {
             minWidth = 140.0
             modes.values.forEach { items.add(CustomMenuItem(it, false)) }

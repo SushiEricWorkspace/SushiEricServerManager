@@ -1,49 +1,27 @@
 package io.github.sushiericworkspace.sushiericservermanager.editor.service
 
-/** UIスレッドで複製した、1世代のローカル退避内容。 */
+/** 編集画面が観測した文書version。自身の成功した書込みだけで前進させます。 */
+internal class LocalDocumentVersion(val key: EditorDocumentKey, revision: Long, backupOwned: Boolean = false) {
+    @Volatile var revision: Long = revision
+        private set
+
+    /** この編集画面が引き継いだ、または正常退避した未保存内容だけを解除対象にします。 */
+    @Volatile var backupOwned: Boolean = backupOwned
+        private set
+
+    fun accepted(record: LocalDocumentRecord) {
+        check(record.key == key) { "異なる保存元・文書のversionは更新できません。" }
+        revision = record.revision
+        backupOwned = record.unsaved
+    }
+}
+
+/** UIスレッドで複製した退避内容と、その画面が観測した文書versionです。 */
 internal data class LocalBackupSnapshot<T>(
     val generation: Long,
     val entries: Map<String, Pair<T, T>>,
     val removedIds: Set<String>,
-    val pending: List<PendingStoreOperationRecord>
+    val pending: List<PendingStoreOperationRecord>,
+    val raw: Map<String, Map<String, String>> = emptyMap(),
+    val versions: Map<String, LocalDocumentVersion> = emptyMap()
 )
-
-/** 接続のローカルI/Oキューだけから使用し、成功したペアと保留操作を記録します。 */
-internal class LocalBackupState<T>(
-    private val write: (String, String, T) -> Boolean,
-    private val delete: (String) -> Boolean,
-    private val writePending: (List<PendingStoreOperationRecord>) -> Boolean
-) {
-    private val completed = mutableMapOf<String, Pair<T, T>>()
-    private val deleted = mutableSetOf<String>()
-    private var completedPending: List<PendingStoreOperationRecord>? = null
-
-    fun persist(snapshot: LocalBackupSnapshot<T>): Boolean {
-        var success = true
-        snapshot.entries.forEach { (id, pair) ->
-            if (completed[id] != pair) {
-                completed.remove(id)
-                deleted.remove(id)
-                val editingSaved = write(id, "editing", pair.first)
-                val originalSaved = write(id, "original", pair.second)
-                if (editingSaved && originalSaved) completed[id] = pair
-                else success = false
-            }
-        }
-        if (!success) return false
-        if (completedPending != snapshot.pending) {
-            if (!writePending(snapshot.pending)) return false
-            completedPending = snapshot.pending
-        }
-        val removed = (snapshot.removedIds + completed.keys) - snapshot.entries.keys
-        removed.forEach { id ->
-            if (id !in deleted) {
-                if (delete(id)) {
-                    completed.remove(id)
-                    deleted.add(id)
-                } else success = false
-            }
-        }
-        return success
-    }
-}

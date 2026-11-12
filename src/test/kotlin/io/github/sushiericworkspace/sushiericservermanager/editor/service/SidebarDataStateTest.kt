@@ -51,7 +51,7 @@ class SidebarDataStateTest {
     }
 
     @Test
-    fun `サーバー未保存と他の状態を同時に保持する`() {
+    fun `ローカル未保存と他の状態を同時に保持する`() {
         val state = SidebarDataState(
             selected = true,
             modified = true,
@@ -66,7 +66,7 @@ class SidebarDataStateTest {
         )
         assertEquals("＋ sample ⚠", state.displayText("sample"))
         assertEquals(
-            "選択中 / サーバー未保存 / 未保存の変更あり / 警告あり",
+            "選択中 / ローカルに未保存 / 未保存の変更あり / 警告あり",
             state.description()
         )
     }

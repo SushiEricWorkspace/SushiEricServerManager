@@ -1,6 +1,6 @@
 .drop-item-scene-root,
 .drop-item-dialog-root {
-    -fx-background-color: #18191a;
+    -fx-background-color: -fx-bg-deep;
 }
 
 .drop-item-list-box {
@@ -8,25 +8,25 @@
 }
 
 .drop-item-list-scroll {
-    -fx-background-color: #18191a;
-    -fx-background: #18191a;
-    -fx-border-color: #343638;
+    -fx-background-color: -fx-bg-deep;
+    -fx-background: -fx-bg-deep;
+    -fx-border-color: -fx-line-color;
 }
 
 .drop-item-list-scroll > .viewport {
-    -fx-background-color: #18191a;
+    -fx-background-color: -fx-bg-deep;
 }
 
 .drop-item-row {
     -fx-padding: 10;
-    -fx-background-color: #222426;
-    -fx-border-color: #343638;
-    -fx-border-radius: 2;
-    -fx-background-radius: 2;
+    -fx-background-color: -fx-bg-elevated;
+    -fx-border-color: -fx-line-color;
+    -fx-border-radius: 0;
+    -fx-background-radius: 0;
 }
 
 .drop-item-row .label {
-    -fx-text-fill: #f3f3f3;
+    -fx-text-fill: -fx-text-color;
 }
 
 .drop-item-row-top,
@@ -35,7 +35,7 @@
 }
 
 .drop-item-expected-value {
-    -fx-text-fill: #ffd54f !important;
+    -fx-text-fill: -fx-warning-color !important;
     -fx-font-weight: bold;
     -fx-min-width: 110;
 }

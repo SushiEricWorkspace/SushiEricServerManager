@@ -10,11 +10,12 @@
 <?import javafx.scene.layout.Region?>
 <?import javafx.scene.layout.VBox?>
 
-<ScrollPane xmlns:fx="http://javafx.com/fxml/1" fitToWidth="true" fitToHeight="true" prefHeight="720.0" prefWidth="1560.0" fx:controller="io.github.sushiericworkspace.sushiericservermanager.editor.controller.MainController">
+<ScrollPane fx:id="rootPane" xmlns:fx="http://javafx.com/fxml/1" fitToWidth="true" fitToHeight="true" prefHeight="720.0" prefWidth="1560.0" fx:controller="io.github.sushiericworkspace.sushiericservermanager.editor.controller.MainController">
 <content>
-<BorderPane fx:id="rootPane" prefHeight="720.0" prefWidth="1560.0" xmlns="http://javafx.com/javafx/21.0.1" xmlns:fx="http://javafx.com/fxml/1">
+<BorderPane prefHeight="720.0" prefWidth="1560.0" xmlns="http://javafx.com/javafx/21.0.1" xmlns:fx="http://javafx.com/fxml/1">
 
    <top>
+      <VBox>
       <HBox fx:id="topBar" alignment="CENTER_LEFT" spacing="12.0">
          <HBox fx:id="actionButtonContainer" alignment="CENTER_LEFT" spacing="0.0" />
          <Region HBox.hgrow="ALWAYS" />
@@ -23,6 +24,8 @@
          <ProgressIndicator fx:id="operationProgress" prefWidth="18.0" prefHeight="18.0" visible="false" managed="false" />
          <Label fx:id="topInfoLabel" />
       </HBox>
+      <VBox fx:id="idTabContainer" />
+      </VBox>
    </top>
 
    <left>
