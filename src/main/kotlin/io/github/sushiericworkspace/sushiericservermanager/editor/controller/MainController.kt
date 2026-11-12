@@ -10,6 +10,7 @@ import io.github.sushiericworkspace.sushiericservermanager.util.toCssHex
 import io.github.sushiericworkspace.sushiericservermanager.app.NotificationState
 import io.github.sushiericworkspace.sushiericservermanager.editor.session.EditorSession
 import javafx.fxml.FXML
+import javafx.scene.control.ScrollPane
 import javafx.scene.control.ProgressIndicator
 import javafx.scene.control.Button
 import javafx.scene.control.Label
@@ -19,7 +20,7 @@ import javafx.scene.paint.Color
 import javafx.stage.Stage
 
 class MainController {
-    @FXML private lateinit var rootPane: javafx.scene.layout.BorderPane
+    @FXML private lateinit var rootPane: ScrollPane
     val shortcutRoot: javafx.scene.Node get() = rootPane
     @FXML lateinit var actionButtonContainer: HBox
     @FXML lateinit var sidebarContainer: VBox

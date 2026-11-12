@@ -11,7 +11,11 @@ import io.github.sushiericworkspace.sushiericservermanager.editor.service.*
 import io.github.sushiericworkspace.sushiericservermanager.editor.store.*
 import io.github.sushiericworkspace.sushiericservermanager.editor.upload.*
 import io.github.sushiericworkspace.sushiericdatamodel.data.shop.model.mutable.MutableShopProductData
+import io.github.sushiericworkspace.sushiericdatamodel.data.shop.model.ShopProductStock
 import org.junit.jupiter.api.io.TempDir
+import java.nio.channels.FileChannel
+import java.nio.channels.FileLock
+import java.nio.file.StandardOpenOption
 import java.nio.file.Files
 import java.nio.file.Path
 import java.time.Instant
@@ -27,6 +31,7 @@ class ShopSaveIntegrationTest {
     private lateinit var transport: LocalShopTransport
     private lateinit var session: ShopSaveSession
     private var dropEditResponse = false
+    private var afterEdit: (() -> Unit)? = null
     private val id = "tab.apple"
 
     private fun setup() {
@@ -40,6 +45,7 @@ class ShopSaveIntegrationTest {
             override fun worldUuid() = worldId.toString()
             override fun execute(request: HostAdapterRequest): HostAdapterResponse {
                 val response = transport.execute(request)
+                if (request.action is HostAdapterAction.Edit) afterEdit?.invoke()
                 if (request.action is HostAdapterAction.Edit && dropEditResponse) {
                     dropEditResponse = false
                     throw java.io.IOException("応答喪失")
@@ -216,8 +222,14 @@ class ShopSaveIntegrationTest {
         saved(HostAdapterAction.Edit(listOf(ShopSavePlan.save(first,
             ShopEditorStore.mutable(first).apply { itemInternalId = item.internalId }))))
         val products = ShopEditorStore(session)
+        val remote = uploadStore(memory, products)
+        val service = EditorDataService(remote, root.resolve("editor").toFile())
+        try { action(service, products) } finally { service.closeIo() }
+    }
+
+    private fun uploadStore(memory: EditorDataStore, products: ShopEditorStore): EditorDataStore {
         val files = LocalEditorDataStore(root.resolve("config").toFile())
-        val remote = object : EditorDataStore by memory {
+        return object : EditorDataStore by memory {
             override val kind = EditorDataStoreKind.REMOTE
             override val documentSource = EditorDocumentSource.Server("upload", "fixed/root")
             override val shopProducts = products
@@ -233,8 +245,6 @@ class ShopSaveIntegrationTest {
                 }
             }
         }
-        val service = EditorDataService(remote, root.resolve("editor").toFile())
-        try { action(service, products) } finally { service.closeIo() }
     }
 
     private fun plan(service: EditorDataService, id: String = this.id): SavedUploadOperation {
@@ -334,6 +344,82 @@ class ShopSaveIntegrationTest {
         assertEquals(fixed, confirmed.steps.single().productRequest)
         assertNull(session.pending())
         assertEquals(ShopStock(5, 3), stock())
+    }
+
+    @Test fun `D3成功後の文書公開失敗はServiceとSessionを再生成して同じ要求から復旧する`() = withUpload { service, _ ->
+        service.shops.observeStore(id)
+        val saved = assertIs<StoreResult.Success<MutableShopProductData>>(
+            service.store.load(EditorDataDescriptors.shop, id)).value.apply { stock = 6; purchasePrice = 200 }
+        assertIs<StoreResult.Success<Unit>>(service.store.save(EditorDataDescriptors.shop, id, saved))
+        val editing = service.shops.encodeDocument(saved.copy(stock = 3, purchasePrice = 777))
+        val draft = assertIs<StoreResult.Success<LocalDocumentRecord>>(service.shops.updateLocalDocument(id) {
+            it.copy(editing = editing, raw = mapOf("stock" to "-"))
+        }).value
+        val operation = plan(service)
+        val fixed = assertNotNull(operation.steps.single().productRequest)
+        val publisher = root.resolve("editor/documents").resolve(service.documentSource.directory).resolve("publisher.lock")
+        FileChannel.open(publisher, StandardOpenOption.WRITE).use { channel ->
+            var held: FileLock? = null
+            afterEdit = { held = channel.lock() }
+            try {
+                assertIs<StoreResult.Failure>(SavedUploadExecutor(service, service).execute(operation))
+            } finally {
+                afterEdit = null
+                held?.release()
+            }
+        }
+        assertNull(session.pending(), "D3成功後のpending削除を通過していること")
+        assertEquals(ShopStock(6, 2), stock())
+        val interrupted = assertIs<StoreResult.Success<LocalDocumentSnapshot>>(service.documents.read()).value
+        val journal = interrupted.uploads.single()
+        assertEquals(SavedUploadState.WRITING, journal.steps.single().state)
+        assertEquals(fixed, journal.steps.single().productRequest)
+        assertEquals(draft, interrupted.documents.single { it.key == draft.key })
+        service.closeIo()
+
+        val resent = mutableListOf<HostAdapterRequest>()
+        val reopenedTransport = LocalShopTransport(world, shop, worldId.toString())
+        val reopenedSession = ShopSaveSession(object : ShopTransport {
+            override fun worldUuid() = worldId.toString()
+            override fun execute(request: HostAdapterRequest): HostAdapterResponse {
+                if (request.action is HostAdapterAction.Edit) resent += request
+                return reopenedTransport.execute(request)
+            }
+        }, root.resolve("pending/request.json"))
+        assertNull(reopenedSession.pending())
+        val reopenedStore = uploadStore(service.sourceStore, ShopEditorStore(reopenedSession))
+        val reopened = EditorDataService(reopenedStore, root.resolve("editor").toFile())
+        try {
+            assertEquals(interrupted, assertIs<StoreResult.Success<LocalDocumentSnapshot>>(reopened.documents.read()).value)
+            val completed = assertIs<StoreResult.Success<SavedUploadOperation>>(
+                SavedUploadExecutor(reopened, reopened).readback(journal)).value
+            assertTrue(completed.complete)
+            assertEquals(listOf(fixed), resent)
+            assertEquals(fixed, completed.steps.single().productRequest)
+            assertNull(reopenedSession.pending())
+            assertEquals(ShopStock(6, 2), stock(), "同じ要求の照合で在庫revisionを再更新しないこと")
+            val recovered = assertIs<StoreResult.Success<LocalDocumentSnapshot>>(reopened.documents.read()).value
+            val record = recovered.documents.single { it.key == draft.key }
+            assertEquals(interrupted.generation + 1, recovered.generation)
+            assertEquals(journal.revision + 1, completed.revision)
+            assertEquals(completed, recovered.uploads.single())
+            assertEquals(draft.revision + 1, record.revision)
+            assertEquals(record.revision, completed.targetRevisions.single().revision)
+            assertEquals(draft.saved, record.saved)
+            assertEquals(draft.editing, record.editing)
+            assertEquals(draft.original, record.original)
+            assertEquals(draft.raw, record.raw)
+            assertTrue(record.unsaved)
+            assertEquals(false, record.unreflected)
+            assertTrue(record.baselineKnown)
+            val baseline = reopened.shops.decodeDocument(id, assertNotNull(record.baseline))
+            assertEquals(6, baseline.stock)
+            assertEquals(ShopProductStock.Current(6, 2), baseline.stockBaseline)
+            val durable = EditorDataService(reopenedStore, root.resolve("editor").toFile())
+            try {
+                assertEquals(recovered, assertIs<StoreResult.Success<LocalDocumentSnapshot>>(durable.documents.read()).value)
+            } finally { durable.closeIo() }
+        } finally { reopened.closeIo() }
     }
 
     @Test fun `商品の送信予約はローカル原文書を変えずD3要求へ結合する`() = withUpload { service, _ ->
