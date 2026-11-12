@@ -6,6 +6,7 @@ import io.github.sushiericworkspace.sushiericservermanager.editor.service.Pendin
 import io.github.sushiericworkspace.sushiericservermanager.editor.service.documentHash
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
+import io.github.sushiericworkspace.sushiericdatamodel.database.host.HostAdapterRequest
 import kotlinx.serialization.Serializable
 
 /** 確認時の元savedです。コピーだけ変換契約のhashと、その要求で変換した比較元も固定します。編集中の値は含めません。 */
@@ -29,7 +30,8 @@ internal data class SavedUploadStep(
     val after: String?,
     val destination: EditorDocumentKey? = null,
     val state: SavedUploadState = SavedUploadState.READY,
-    val detail: String? = null
+    val detail: String? = null,
+    val productRequest: HostAdapterRequest? = null
 )
 
 @Serializable

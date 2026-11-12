@@ -37,6 +37,8 @@ internal class UploadPlanService(private val target: EditorDataService) {
         documents.forEach { document ->
             val record = records.getValue(document.key)
             when (record.key.category) {
+                origin.shops.dataType.categoryDirName ->
+                    origin.shops.decodeDocument(record.key.id, requireNotNull(record.saved)).itemInternalId?.let { needed += it }
                 origin.ores.dataType.categoryDirName ->
                     needed += origin.ores.decodeDocument(record.key.id, requireNotNull(record.saved)).dropItems.mapNotNull { it.itemId }
                 origin.recipes.dataType.categoryDirName -> {
@@ -119,7 +121,10 @@ internal class UploadPlanService(private val target: EditorDataService) {
                 }
                 origin.recipes.dataType.categoryDirName ->
                     require(target.recipes.descriptor.isValidId(document.targetId)) { "Recipeの宛先IDが不正です。" }
-                origin.shops.dataType.categoryDirName -> error("Shopの反映はDB capability未接続のため保留します。ローカル内容は保持しています。")
+                origin.shops.dataType.categoryDirName -> {
+                    require(target.shops.descriptor.isValidId(document.targetId)) { "Shopの宛先IDが不正です。" }
+                    requireNotNull(target.sourceStore.shopProducts) { "商品DB接続が必要です。" }
+                }
                 else -> error("この種別は送信予約に対応していません。")
             }
         }

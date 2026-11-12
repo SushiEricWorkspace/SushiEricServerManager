@@ -216,7 +216,8 @@ class SavedUploadPlannerTest {
             val operation = (planner.build(preview, mapOf(key to choices), true) as StoreResult.Success).value
             assertEquals("value: [\n", operation.steps.single().after)
             val shop = saved(local.shops, local.shops.createDefault("group.shop"))
-            assertTrue(planner.preview(listOf(SavedUploadSelection(shop.key))) is StoreResult.Failure)
+            val shopPreview = (planner.preview(listOf(SavedUploadSelection(shop.key))) as StoreResult.Success).value
+            assertTrue(planner.build(shopPreview, emptyMap(), true) is StoreResult.Failure)
             assertEquals(0, remote.writes)
             assertTrue((service.documents.read() as StoreResult.Success).value.uploads.isEmpty())
         } finally { service.closeIo(); local.closeIo() }

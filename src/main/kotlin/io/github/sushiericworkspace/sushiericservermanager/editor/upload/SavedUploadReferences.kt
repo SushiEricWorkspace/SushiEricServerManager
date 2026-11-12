@@ -20,9 +20,10 @@ internal class SavedUploadReferences(private val target: EditorDataService) {
                 target.items.dataType.categoryDirName -> apply(target.items, memory, step)
                 target.ores.dataType.categoryDirName -> apply(target.ores, memory, step)
                 target.recipes.dataType.categoryDirName -> apply(target.recipes, memory, step)
+                target.shops.dataType.categoryDirName -> apply(target.shops, memory, step)
                 "text" -> StoreResult.Success(Unit)
                 else -> StoreResult.Failure(StoreError(StoreErrorCode.UNSUPPORTED_FORMAT,
-                    step.key.id, "商品の反映にはDB適用経路が必要です。"))
+                    step.key.id, "未対応の文書種別です。"))
             }
             if (result is StoreResult.Failure) return result
         }

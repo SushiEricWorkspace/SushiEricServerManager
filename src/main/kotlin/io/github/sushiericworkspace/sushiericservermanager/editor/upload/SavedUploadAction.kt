@@ -116,7 +116,7 @@ internal class SavedUploadAction(
         }
     }
 
-    /** 既存の結果不明台帳だけをユーザー確認後に読取照合し、通信へ再送しません。 */
+    /** 既存の結果不明台帳をユーザー確認後に照合します。商品はD3の同一要求を使用します。 */
     fun readback(selections: List<SavedUploadSelection>, operationId: String? = null) {
         if (!begin(selections, freezeSelected = false)) return
         val keys = selections.mapTo(mutableSetOf()) { it.key }
@@ -152,7 +152,7 @@ internal class SavedUploadAction(
                     initModality(Modality.NONE)
                     this@SavedUploadAction.owner?.let(::initOwner)
                     dialogPane.stylesheets += SavedUploadAction::class.java.getResource(AppScreen.WIDGETS_ONLY.css)!!.toExternalForm()
-                    dialogPane.content = Label("保存済みの同じ要求を読取だけで照合します。通信への書込・自動再送は行いません。").apply { isWrapText = true }
+                    dialogPane.content = Label("保存済みの要求を照合します。商品は元の要求ID・本文をD3へ提示し、他の文書は読戻しだけを行います。新しい要求は作成しません。").apply { isWrapText = true }
                     dialogPane.buttonTypes.addAll(ButtonType("読戻しで確認", ButtonBar.ButtonData.OK_DONE), ButtonType.CANCEL)
                 }.showAndWait().orElse(ButtonType.CANCEL).buttonData == ButtonBar.ButtonData.OK_DONE
                 if (!accepted || !isActive() || cancelled) { finish(); return@runLater }

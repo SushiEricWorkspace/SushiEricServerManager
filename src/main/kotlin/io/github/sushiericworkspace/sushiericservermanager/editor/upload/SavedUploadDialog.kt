@@ -100,7 +100,7 @@ internal object SavedUploadDialog {
         }
         refreshPlans.forEach { it() }
         if (unknown) rows.children += unknownChoice
-        rows.children += Label("確認後のサーバー変更を完全に排除するものではありません。結果不明の工程は再送せず、読戻しで確認します。").apply { isWrapText = true }
+        rows.children += Label("確認後のサーバー変更を完全に排除するものではありません。結果不明の工程は新規要求で再送せず、読戻し・商品の元要求照合で確認します。").apply { isWrapText = true }
         val notifications = EditorSession.notifications
         val conflictScope = notifications.scope(
             preview.candidates.map { it.input.key.source.directory }.distinct().sorted().joinToString(",") + " → " +

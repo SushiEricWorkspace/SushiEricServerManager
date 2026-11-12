@@ -6,6 +6,11 @@ import io.github.sushiericworkspace.sushiericdatamodel.database.*
 import io.github.sushiericworkspace.sushiericdatamodel.database.host.*
 import io.github.sushiericworkspace.sushiericdatamodel.database.run.WorldRunLifecycle
 import io.github.sushiericworkspace.sushiericservermanager.editor.merge.ShopDataMerger
+import io.github.sushiericworkspace.sushiericdatamodel.data.core.ManagedData
+import io.github.sushiericworkspace.sushiericservermanager.editor.service.*
+import io.github.sushiericworkspace.sushiericservermanager.editor.store.*
+import io.github.sushiericworkspace.sushiericservermanager.editor.upload.*
+import io.github.sushiericworkspace.sushiericdatamodel.data.shop.model.mutable.MutableShopProductData
 import org.junit.jupiter.api.io.TempDir
 import java.nio.file.Files
 import java.nio.file.Path
@@ -21,6 +26,7 @@ class ShopSaveIntegrationTest {
     private lateinit var lifecycle: WorldRunLifecycle
     private lateinit var transport: LocalShopTransport
     private lateinit var session: ShopSaveSession
+    private var dropEditResponse = false
     private val id = "tab.apple"
 
     private fun setup() {
@@ -30,7 +36,17 @@ class ShopSaveIntegrationTest {
         lifecycle = WorldRunLifecycle.adoptInitial(world, shop, worldId, "a".repeat(64))
         database(true) { }
         transport = LocalShopTransport(world, shop, worldId.toString())
-        session = ShopSaveSession(transport, root.resolve("pending/request.json"))
+        session = ShopSaveSession(object : ShopTransport {
+            override fun worldUuid() = worldId.toString()
+            override fun execute(request: HostAdapterRequest): HostAdapterResponse {
+                val response = transport.execute(request)
+                if (request.action is HostAdapterAction.Edit && dropEditResponse) {
+                    dropEditResponse = false
+                    throw java.io.IOException("応答喪失")
+                }
+                return response
+            }
+        }, root.resolve("pending/request.json"))
         saved(HostAdapterAction.Edit(listOf(HostProductChange.Save(
             id, null, HostDefinition("missing-item", 100, 50), HostStockEdit.Register(12, null)
         ))))
@@ -189,6 +205,158 @@ class ShopSaveIntegrationTest {
         val price = ShopDataMerger.merge(before, before.copy(purchasePrice = 200), remote)
         assertTrue(price.conflicts.isEmpty())
         assertIs<HostStockEdit.Unchanged>(ShopSavePlan.save(baseline(), price.merged).stock)
+    }
+
+    private fun withUpload(action: (EditorDataService, ShopEditorStore) -> Unit) {
+        setup()
+        val memory = InMemoryEditorDataStore()
+        val item = EditorDataDescriptors.item.createDefault("apple")
+        memory.save(EditorDataDescriptors.item, item.id, item)
+        val first = baseline()
+        saved(HostAdapterAction.Edit(listOf(ShopSavePlan.save(first,
+            ShopEditorStore.mutable(first).apply { itemInternalId = item.internalId }))))
+        val products = ShopEditorStore(session)
+        val files = LocalEditorDataStore(root.resolve("config").toFile())
+        val remote = object : EditorDataStore by memory {
+            override val kind = EditorDataStoreKind.REMOTE
+            override val documentSource = EditorDocumentSource.Server("upload", "fixed/root")
+            override val shopProducts = products
+            override fun <T : ManagedData<T, *>> list(descriptor: EditorDataDescriptor<T>): StoreResult<List<StoreResource>> =
+                if (descriptor == EditorDataDescriptors.shop) files.list(descriptor) else memory.list(descriptor)
+            override fun <T : ManagedData<T, *>> load(descriptor: EditorDataDescriptor<T>, id: String): StoreResult<T> {
+                val decode = descriptor.readProduct ?: return memory.load(descriptor, id)
+                val file = files.load(descriptor, id)
+                if (file is StoreResult.Failure) return file
+                return when (val read = products.load(id)) {
+                    is StoreResult.Failure -> read
+                    is StoreResult.Success -> StoreResult.Success(decode(read.value))
+                }
+            }
+        }
+        val service = EditorDataService(remote, root.resolve("editor").toFile())
+        try { action(service, products) } finally { service.closeIo() }
+    }
+
+    private fun plan(service: EditorDataService, id: String = this.id): SavedUploadOperation {
+        val planner = SavedUploadPlanner(service, service)
+        val preview = assertIs<StoreResult.Success<SavedUploadPreview>>(
+            planner.preview(listOf(SavedUploadSelection(service.shops.documentKey(id))))).value
+        val paths = preview.candidates.associate { it.input.key to it.merge.conflicts.mapTo(mutableSetOf()) { conflict -> conflict.path } }
+        return assertIs<StoreResult.Success<SavedUploadOperation>>(planner.build(preview, paths, true)).value
+    }
+
+    @Test fun `商品のローカル保存はDBを変えず明示アップロードだけがD3へ反映する`() = withUpload { service, _ ->
+        val data = assertIs<StoreResult.Success<Pair<MutableShopProductData, LocalDocumentRecord>>>(
+            service.shops.observeStore(id)).value.first
+        data.purchasePrice = 250
+        assertIs<StoreResult.Success<Unit>>(service.store.save(EditorDataDescriptors.shop, id, data))
+        assertEquals(100L, baseline().definition.purchasePrice)
+        val operation = plan(service)
+        assertNotNull(operation.steps.single().productRequest)
+        val completed = assertIs<StoreResult.Success<SavedUploadOperation>>(
+            SavedUploadExecutor(service, service).execute(operation)).value
+        assertTrue(completed.complete)
+        assertEquals(250L, baseline().definition.purchasePrice)
+        assertEquals(false, assertIs<StoreResult.Success<List<LocalDocumentRecord>>>(service.shops.localDocuments()).value.single().unreflected)
+    }
+
+    @Test fun `価格だけのアップロードは確認後の在庫更新を巻き戻さない`() = withUpload { service, _ ->
+        assertIs<StoreResult.Success<*>>(service.shops.observeStore(id))
+        val edit = assertIs<StoreResult.Success<MutableShopProductData>>(
+            service.store.load(EditorDataDescriptors.shop, id)).value.apply { purchasePrice = 200 }
+        assertIs<StoreResult.Success<Unit>>(service.store.save(EditorDataDescriptors.shop, id, edit))
+        val operation = plan(service)
+        database { it.setStock(UUID.randomUUID(), Instant.now(), id, 9, 1) }
+        val completed = assertIs<StoreResult.Success<SavedUploadOperation>>(SavedUploadExecutor(service, service).execute(operation)).value
+        assertTrue(completed.complete)
+        assertEquals(ShopStock(9, 2), stock())
+        assertEquals(200L, baseline().definition.purchasePrice)
+    }
+
+    @Test fun `アップロードの古い在庫revisionは未反映として台帳と保存済み内容を残す`() = withUpload { service, _ ->
+        service.shops.observeStore(id)
+        val edit = assertIs<StoreResult.Success<MutableShopProductData>>(
+            service.store.load(EditorDataDescriptors.shop, id)).value.apply { stock = 6; purchasePrice = 200 }
+        service.store.save(EditorDataDescriptors.shop, id, edit)
+        val operation = plan(service)
+        database { it.setStock(UUID.randomUUID(), Instant.now(), id, 9, 1) }
+        val failed = assertIs<StoreResult.Success<SavedUploadOperation>>(SavedUploadExecutor(service, service).execute(operation)).value
+        assertEquals(SavedUploadState.FAILED, failed.steps.single().state)
+        assertEquals(100L, baseline().definition.purchasePrice)
+        assertEquals(ShopStock(9, 2), stock())
+        assertNull(session.pending())
+        assertNotNull(assertIs<StoreResult.Success<List<LocalDocumentRecord>>>(service.shops.localDocuments()).value.single().saved)
+    }
+
+    @Test fun `商品削除は読取baselineが取得できなければアップロード要求を作らない`() = withUpload { service, _ ->
+        service.shops.observeStore(id)
+        service.store.delete(EditorDataDescriptors.shop, id)
+        saved(HostAdapterAction.Edit(listOf(ShopSavePlan.delete(baseline()))))
+        val planner = SavedUploadPlanner(service, service)
+        val preview = assertIs<StoreResult.Success<SavedUploadPreview>>(
+            planner.preview(listOf(SavedUploadSelection(service.shops.documentKey(id))))).value
+        val paths = preview.candidates.associate { it.input.key to it.merge.conflicts.mapTo(mutableSetOf()) { c -> c.path } }
+        assertIs<StoreResult.Failure>(planner.build(preview, paths, true))
+        assertTrue(assertIs<StoreResult.Success<LocalDocumentSnapshot>>(service.documents.read()).value.uploads.isEmpty())
+    }
+
+    @Test fun `商品の改名と価格変更はアップロードの一要求で保存削除する`() = withUpload { service, _ ->
+        service.shops.observeStore(id)
+        assertIs<StoreResult.Success<Unit>>(service.store.rename(EditorDataDescriptors.shop, id, "pear"))
+        val next = "tab.pear"
+        val data = assertIs<StoreResult.Success<MutableShopProductData>>(
+            service.store.load(EditorDataDescriptors.shop, next)).value.apply { purchasePrice = 300 }
+        service.store.save(EditorDataDescriptors.shop, next, data)
+        val operation = plan(service, next)
+        val request = assertNotNull(operation.steps.single().productRequest)
+        assertEquals(2, assertIs<HostAdapterAction.Edit>(request.action).products.size)
+        assertTrue(assertIs<StoreResult.Success<SavedUploadOperation>>(SavedUploadExecutor(service, service).execute(operation)).value.complete)
+        assertFalse(Files.exists(shop.resolve("tab/apple.yml")))
+        assertEquals(300L, baseline(next).definition.purchasePrice)
+    }
+
+    @Test fun `商品アップロードの応答喪失は同一要求を保持し明示照合だけで解決する`() = withUpload { service, _ ->
+        service.shops.observeStore(id)
+        val data = assertIs<StoreResult.Success<MutableShopProductData>>(
+            service.store.load(EditorDataDescriptors.shop, id)).value.apply { stock = 6 }
+        service.store.save(EditorDataDescriptors.shop, id, data)
+        val operation = plan(service)
+        val fixed = assertNotNull(operation.steps.single().productRequest)
+        dropEditResponse = true
+        val stored = assertIs<StoreResult.Success<SavedUploadOperation>>(
+            SavedUploadExecutor(service, service).execute(operation)).value
+        assertEquals(SavedUploadState.UNKNOWN, stored.steps.single().state)
+        assertIs<StoreResult.Failure>(SavedUploadExecutor(service, service).execute(stored))
+        assertEquals(fixed, session.pending())
+        database { it.setStock(UUID.randomUUID(), Instant.now(), id, 5, 2) }
+        val confirmed = assertIs<StoreResult.Success<SavedUploadOperation>>(SavedUploadExecutor(service, service).readback(stored)).value
+        assertTrue(confirmed.complete)
+        assertEquals(fixed, confirmed.steps.single().productRequest)
+        assertNull(session.pending())
+        assertEquals(ShopStock(5, 3), stock())
+    }
+
+    @Test fun `商品の送信予約はローカル原文書を変えずD3要求へ結合する`() = withUpload { service, _ ->
+        val local = service.localService
+        val data = ShopEditorStore.mutable(baseline()).apply { id = "local.copy"; stock = 4; purchasePrice = 333 }
+        val record = assertIs<StoreResult.Success<LocalDocumentRecord>>(
+            local.shops.saveLocalDocument(data.id, data, emptyMap())).value
+        val plans = UploadPlanService(service)
+        val group = assertIs<StoreResult.Success<UploadPlanGroup>>(
+            plans.createGroup(listOf(UploadPlanRoot(record.key)), "event")).value
+        val savedPlan = assertIs<StoreResult.Success<UploadPlan>>(
+            plans.save(assertIs<StoreResult.Success<UploadPlan>>(plans.read()).value.add(group))).value
+        val planner = SavedUploadPlanner(local, service)
+        val preview = assertIs<StoreResult.Success<SavedUploadPreview>>(
+            planner.preview(assertIs<StoreResult.Success<List<SavedUploadSelection>>>(plans.selections(group)).value)).value
+        val request = assertIs<StoreResult.Success<SavedUploadOperation>>(planner.build(preview, emptyMap(), true)).value
+        val before = assertIs<StoreResult.Success<LocalDocumentSnapshot>>(local.documents.read()).value.documents
+        assertNotNull(request.steps.single().productRequest)
+        assertTrue(assertIs<StoreResult.Success<SavedUploadOperation>>(
+            UploadPlanExecution(service).execute(savedPlan, group.id, request, { false }, {})).value.complete)
+        assertEquals(333L, baseline("event.copy").definition.purchasePrice)
+        assertEquals(ShopStock(4, 1), stock("event.copy"))
+        assertEquals(before, assertIs<StoreResult.Success<LocalDocumentSnapshot>>(local.documents.read()).value.documents)
     }
 
 }

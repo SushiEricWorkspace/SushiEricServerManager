@@ -77,11 +77,14 @@ class ShopSaveSessionTest {
             try {
                 assertFailsWith<OverlappingFileLockException> { other.execute(action) }
                 assertFailsWith<OverlappingFileLockException> { other.reconcile() }
+                assertFailsWith<OverlappingFileLockException> { other.reconcile(requests.single().copy(requestId = "other-request")) }
                 assertEquals(1, requests.size)
                 assertContentEquals(original, Files.readAllBytes(path))
             } finally { release.countDown() }
             assertEquals(HostAdapterStatus.UNKNOWN, first.get(10, TimeUnit.SECONDS).status)
-            assertEquals(HostAdapterStatus.UNKNOWN, other.reconcile().status)
+            assertFailsWith<IllegalArgumentException> { other.reconcile(requests.single().copy(requestId = "other-request")) }
+            assertContentEquals(original, Files.readAllBytes(path))
+            assertEquals(HostAdapterStatus.UNKNOWN, other.reconcile(requests.single()).status)
             assertEquals(requests[0], requests[1])
             assertContentEquals(original, Files.readAllBytes(path))
         } finally {

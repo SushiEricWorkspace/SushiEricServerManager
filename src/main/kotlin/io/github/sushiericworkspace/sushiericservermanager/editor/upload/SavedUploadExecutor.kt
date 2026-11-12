@@ -13,7 +13,7 @@ import java.util.UUID
 /**
  * 確認済み計画を既存の接続I/Oキュー内で実行します。
  * 書込前に台帳を確定し、成功応答だけでなく読戻し一致を確認します。
- * WRITING/UNKNOWNはこの入口から再送できず、readbackで読取だけを行います。
+ * WRITING/UNKNOWNはこの入口から再送できず、readbackで読戻しとD3の元要求照合を行います。
  */
 internal class SavedUploadExecutor(
     private val origin: EditorDataService,
@@ -63,7 +63,7 @@ internal class SavedUploadExecutor(
                         return update(current, index, SavedUploadState.FAILED, owner, "未接続または読取専用です。")
                     val before = read(step.key)
                     if (before is StoreResult.Failure) return update(current, index, SavedUploadState.FAILED, owner, before.error.detail)
-                    if ((before as StoreResult.Success).value != step.before)
+                    if (step.productRequest == null && (before as StoreResult.Success).value != step.before)
                         return update(current, index, SavedUploadState.FAILED, owner, "確認後にサーバーの内容が変わりました。再確認が必要です。")
                     step.destination?.let { destination ->
                         when (val existing = read(destination)) {
@@ -72,7 +72,7 @@ internal class SavedUploadExecutor(
                                 return update(current, index, SavedUploadState.FAILED, owner, "移動先にデータがあります。再確認が必要です。")
                         }
                     }
-                    if (step.destination == null && step.before == step.after) {
+                    if (step.productRequest == null && step.destination == null && step.before == step.after) {
                         current = when (val confirmed = confirm(current, index, owner)) {
                             is StoreResult.Success -> confirmed.value
                             is StoreResult.Failure -> return confirmed
@@ -90,7 +90,7 @@ internal class SavedUploadExecutor(
                         is StoreResult.Failure -> return marked
                     }
                     val written = write(step)
-                    if (matchesAfter(step)) {
+                    if (if (step.productRequest != null) written is StoreResult.Success && productReadable(step) else matchesAfter(step)) {
                         current = when (val confirmed = confirm(current, index, owner)) {
                             is StoreResult.Success -> confirmed.value
                             is StoreResult.Failure -> return confirmed
@@ -99,7 +99,7 @@ internal class SavedUploadExecutor(
                     } else {
                         val definitive = written is StoreResult.Failure && written.error.code in setOf(
                             StoreErrorCode.PERMISSION_DENIED, StoreErrorCode.INVALID_ID,
-                            StoreErrorCode.VALIDATION_FAILED, StoreErrorCode.UNSUPPORTED_FORMAT)
+                            StoreErrorCode.VALIDATION_FAILED, StoreErrorCode.UNSUPPORTED_FORMAT, StoreErrorCode.CONFLICT)
                         return update(current, index, if (definitive) SavedUploadState.FAILED else SavedUploadState.UNKNOWN, owner,
                             "反映を確認できません。保存済み内容と台帳を保持しています。")
                     }
@@ -111,7 +111,7 @@ internal class SavedUploadExecutor(
         } finally { origin.documents.release(owner) }
     }
 
-    /** 通信への書込は行いません。保存済みの同一要求だけを、実行と排他して照合します。 */
+    /** 保存済みの同一要求だけを実行と排他して照合します。商品はD3へ元ID・本文を再提示します。 */
     fun readback(operation: SavedUploadOperation): StoreResult<SavedUploadOperation> {
         if (operation.target != target.documentSource || !target.sourceStore.isAvailable)
             return failure(StoreErrorCode.STORE_UNAVAILABLE)
@@ -130,8 +130,14 @@ internal class SavedUploadExecutor(
             for (index in current.steps.indices) {
                 val step = current.steps[index]
                 if (step.state !in setOf(SavedUploadState.WRITING, SavedUploadState.UNKNOWN)) continue
-                val result = if (matchesAfter(step)) confirm(current, index, owner)
-                    else update(current, index, SavedUploadState.UNKNOWN, owner, "読戻しで一致を確認できません。自動再送しません。")
+                val reconciled = step.productRequest?.let { request ->
+                    target.sourceStore.shopProducts?.upload(request, reconcile = true)
+                }
+                val result = if (if (step.productRequest != null) reconciled is StoreResult.Success && productReadable(step) else matchesAfter(step))
+                    confirm(current, index, owner)
+                else if (reconciled is StoreResult.Failure && reconciled.error.code == StoreErrorCode.CONFLICT)
+                    update(current, index, SavedUploadState.FAILED, owner, reconciled.error.detail)
+                else update(current, index, SavedUploadState.UNKNOWN, owner, "読戻しで一致を確認できません。自動再送しません。")
                 current = when (result) {
                     is StoreResult.Success -> result.value
                     is StoreResult.Failure -> return result
@@ -198,7 +204,11 @@ internal class SavedUploadExecutor(
             val input = operation.inputs.firstOrNull { it.key == key }
             val reflectsSaved = finalForKey && input != null && old.saved == input.saved &&
                 old.savedDeleted == input.deleted && old.savedRaw == input.raw && old.savedPending == input.pending
-            old.copy(baseline = if (step.destination != null && key == step.key) null else step.after,
+            val baseline = if (step.productRequest != null) when (val loaded = read(key)) {
+                is StoreResult.Success -> loaded.value
+                is StoreResult.Failure -> return loaded
+            } else if (step.destination != null && key == step.key) null else step.after
+            old.copy(baseline = baseline,
                 baselineKnown = true,
                 reflectedSavedHash = if (reflectsSaved) savedUploadFingerprint(key, old.saved, old.savedDeleted, old.savedRaw)
                     else null,
@@ -233,11 +243,12 @@ internal class SavedUploadExecutor(
         target.items.dataType.categoryDirName -> read(target.items, key.id)
         target.ores.dataType.categoryDirName -> read(target.ores, key.id)
         target.recipes.dataType.categoryDirName -> read(target.recipes, key.id)
+        target.shops.dataType.categoryDirName -> read(target.shops, key.id)
         "text" -> when (val loaded = target.sourceStore.readText(key.id)) {
             is StoreResult.Success -> loaded
             is StoreResult.Failure -> if (loaded.error.code == StoreErrorCode.FILE_NOT_FOUND) StoreResult.Success(null) else loaded
         }
-        else -> failure(StoreErrorCode.UNSUPPORTED_FORMAT, "商品はDB適用経路が必要なためアップロードを保留しています。")
+        else -> failure(StoreErrorCode.UNSUPPORTED_FORMAT, "未対応の文書種別です。")
     }
 
     private fun <T : ManagedData<T, *>> read(access: EditorDataService.DataAccess<T>, id: String): StoreResult<String?> =
@@ -246,13 +257,22 @@ internal class SavedUploadExecutor(
             is StoreResult.Failure -> if (loaded.error.code == StoreErrorCode.FILE_NOT_FOUND) StoreResult.Success(null) else loaded
         }
 
-    private fun write(step: SavedUploadStep): StoreResult<Unit> = when (step.key.category) {
-        target.items.dataType.categoryDirName -> write(target.items, step)
-        target.ores.dataType.categoryDirName -> write(target.ores, step)
-        target.recipes.dataType.categoryDirName -> write(target.recipes, step)
-        "text" -> step.after?.let { target.sourceStore.writeText(step.key.id, it) }
-            ?: failure(StoreErrorCode.UNSUPPORTED_FORMAT, "設定ファイルの削除には対応していません。")
-        else -> failure(StoreErrorCode.UNSUPPORTED_FORMAT, "商品はDB適用経路が必要です。")
+    private fun productReadable(step: SavedUploadStep): Boolean =
+        listOfNotNull(step.key, step.destination).all { read(it) is StoreResult.Success }
+
+    private fun write(step: SavedUploadStep): StoreResult<Unit> {
+        step.productRequest?.let { request ->
+            return target.sourceStore.shopProducts?.upload(request)
+                ?: failure(StoreErrorCode.STORE_UNAVAILABLE, "商品DB接続が必要です。")
+        }
+        return when (step.key.category) {
+            target.items.dataType.categoryDirName -> write(target.items, step)
+            target.ores.dataType.categoryDirName -> write(target.ores, step)
+            target.recipes.dataType.categoryDirName -> write(target.recipes, step)
+            "text" -> step.after?.let { target.sourceStore.writeText(step.key.id, it) }
+                ?: failure(StoreErrorCode.UNSUPPORTED_FORMAT, "設定ファイルの削除には対応していません。")
+            else -> failure(StoreErrorCode.UNSUPPORTED_FORMAT, "商品はD3要求が必要です。")
+        }
     }
 
     private fun <T : ManagedData<T, *>> write(

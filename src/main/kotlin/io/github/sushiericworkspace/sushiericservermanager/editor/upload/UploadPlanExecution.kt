@@ -52,7 +52,7 @@ internal class UploadPlanExecution(private val target: EditorDataService) {
         return result
     }
 
-    /** 予約に結び付いた保存済み要求だけを読み、別要求の作成や再送は行いません。 */
+    /** 予約に結び付いた保存済み要求だけを照合します。商品も別の要求IDへ変換しません。 */
     fun readback(group: UploadPlanGroup): StoreResult<SavedUploadOperation> {
         val loaded = target.documents.read()
         if (loaded is StoreResult.Failure) return loaded

@@ -31,11 +31,20 @@ class ShopSaveSession(private val transport: ShopTransport, private val pendingF
         return transport.execute(request).also { require(it.requestId == request.requestId && it.version == 1) }
     }
 
-    fun execute(edit: HostAdapterAction.Edit): HostAdapterResponse = locked {
+    internal fun prepare(edit: HostAdapterAction.Edit): HostAdapterRequest = locked {
+        requireIoThread()
+        check(pending() == null) { "結果未確認の商品保存があります。元要求を照合してください。" }
+        HostAdapterRequest(requestId = UUID.randomUUID().toString(), worldUuid = currentWorld(), action = edit)
+    }
+
+    fun execute(edit: HostAdapterAction.Edit): HostAdapterResponse = execute(prepare(edit))
+
+    internal fun execute(request: HostAdapterRequest): HostAdapterResponse = locked { executeLocked(request) }
+
+    private fun executeLocked(request: HostAdapterRequest): HostAdapterResponse {
         requireIoThread()
         check(!Files.exists(pendingFile)) { "結果未確認の商品保存があります。元要求を照合してください。" }
-        val request = HostAdapterRequest(requestId = UUID.randomUUID().toString(),
-            worldUuid = currentWorld(), action = edit)
+        require(request.worldUuid == currentWorld() && request.action is HostAdapterAction.Edit)
         val bytes = HostAdapterCodec.encodeRequest(request)
         Files.createDirectories(pendingFile.parent)
         val temporary = Files.createTempFile(pendingFile.parent, ".shop-request-", ".tmp")
@@ -49,7 +58,7 @@ class ShopSaveSession(private val transport: ShopTransport, private val pendingF
         } finally {
             Files.deleteIfExists(temporary)
         }
-        send(request)
+        return send(request)
     }
 
     /** 接続し直した場合も保存済みのworldと要求を維持し、別worldへの適用を拒否します。 */
@@ -58,6 +67,14 @@ class ShopSaveSession(private val transport: ShopTransport, private val pendingF
         val request = HostAdapterCodec.decodeRequest(Files.readAllBytes(pendingFile))
         require(request.worldUuid == currentWorld()) { "保存待ち要求のworldが接続先と一致しません。" }
         send(request)
+    }
+
+    /** 台帳と同じ要求だけを照合します。成功後に台帳更新が失敗した場合もIDを変えません。 */
+    internal fun reconcile(request: HostAdapterRequest): HostAdapterResponse = locked {
+        val current = pending()
+        require(current == null || current == request) { "別の商品要求が保留されています。" }
+        require(request.worldUuid == currentWorld() && request.action is HostAdapterAction.Edit)
+        if (current == null) executeLocked(request) else send(request)
     }
 
     fun pending(): HostAdapterRequest? {

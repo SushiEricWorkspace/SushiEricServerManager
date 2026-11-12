@@ -14,6 +14,8 @@ import io.github.sushiericworkspace.sushiericservermanager.editor.merge.DataFiel
 import io.github.sushiericworkspace.sushiericservermanager.editor.service.*
 import io.github.sushiericworkspace.sushiericservermanager.editor.store.*
 import java.util.UUID
+import io.github.sushiericworkspace.sushiericdatamodel.database.host.*
+import io.github.sushiericworkspace.sushiericservermanager.editor.shop.ShopSavePlan
 import org.slf4j.LoggerFactory
 
 /** 保存元の選択と宛先IDです。編集中データは参照しません。 */
@@ -32,7 +34,8 @@ internal data class SavedUploadCandidate(
     val baselineKnown: Boolean,
     val previews: List<ItemPreviewReview> = emptyList(),
     val recipePreview: RecipeUploadPreview? = null,
-    val itemPreview: ((Set<DataFieldPath>) -> ItemBaseDataView?)? = null
+    val itemPreview: ((Set<DataFieldPath>) -> ItemBaseDataView?)? = null,
+    val productBaseline: HostProductRead? = null
 )
 
 /** IO段階でdecodeした固定sideと、同じmerge選択の読取投影。保存・通信作用を持たない。 */
@@ -85,8 +88,6 @@ internal class SavedUploadPlanner(private val origin: EditorDataService, private
                 fail(StoreErrorCode.VALIDATION_FAILED, "ローカル保存済み本文がありません: " + record.key.id)
             if (!record.savedDeleted && record.savedRaw.isNotEmpty())
                 fail(StoreErrorCode.VALIDATION_FAILED, "未確定入力をローカル保存済みのため送信できません: " + record.key.id)
-            if (record.key.category == target.shops.dataType.categoryDirName)
-                fail(StoreErrorCode.UNSUPPORTED_FORMAT, "商品の反映にはDB適用経路が必要です。ローカル内容は保持しています。")
             val key = record.key.copy(source = destination.source, id = selection.targetId)
             require(selection.projection == null || !record.savedDeleted) { "コピー予約に削除済み文書は使用できません。" }
             val local = record.saved.takeUnless { record.savedDeleted }?.let { project(key, it, selection.projection) }
@@ -149,7 +150,9 @@ internal class SavedUploadPlanner(private val origin: EditorDataService, private
             reserve(key)
             displaySnapshots[key] = Triple(baseline, local, latest)
             candidates += SavedUploadCandidate(input, key, relocation, before,
-                merge(key, baseline, local, latest, known), known)
+                merge(key, baseline, local, latest, known), known,
+                productBaseline = if (before != null && key.category == target.shops.dataType.categoryDirName)
+                    target.sourceStore.shopProducts?.snapshot((relocation ?: key).id) else null)
         }
         val localItems = runCatching {
             val items = records.values.filter { it.key.category == target.items.dataType.categoryDirName && !it.savedDeleted }
@@ -271,7 +274,25 @@ internal class SavedUploadPlanner(private val origin: EditorDataService, private
             require(localPaths[candidate.input.key].orEmpty().all { it in conflicts }) { "確認対象外の競合値が含まれています。" }
             val resolved = candidate.merge.resolveWithLocal(localPaths[candidate.input.key].orEmpty())
             val old = candidate.relocationKey
-            if (old != null && candidate.input.deleted) {
+            if (candidate.targetKey.category == target.shops.dataType.categoryDirName) {
+                val products = target.sourceStore.shopProducts ?: fail(StoreErrorCode.STORE_UNAVAILABLE, "商品DB接続が必要です。")
+                val baseline = candidate.productBaseline
+                val data = resolved?.let { target.shops.decodeDocument(candidate.targetKey.id, it) }
+                if (data != null && target.shops.descriptor.validate(data, emptySet()).any { it.isError })
+                    fail(StoreErrorCode.VALIDATION_FAILED, "商品入力を確認してください。")
+                val action = when {
+                    data == null -> HostAdapterAction.Edit(listOf(ShopSavePlan.delete(
+                        baseline ?: fail(StoreErrorCode.CONFLICT, "削除には商品baselineが必要です。"))))
+                    old != null -> ShopSavePlan.relocate(
+                        baseline ?: fail(StoreErrorCode.CONFLICT, "改名には商品baselineが必要です。"), data, null)
+                    baseline == null -> HostAdapterAction.Edit(listOf(ShopSavePlan.register(data, null)))
+                    else -> HostAdapterAction.Edit(listOf(ShopSavePlan.save(baseline, data)))
+                }
+                steps += SavedUploadStep(old ?: candidate.targetKey, candidate.before, resolved,
+                    destination = candidate.targetKey.takeIf { old != null && data != null },
+                    productRequest = products.prepareUpload(action))
+                if (old != null && data == null) steps += SavedUploadStep(candidate.targetKey, null, null)
+            } else if (old != null && candidate.input.deleted) {
                 steps += SavedUploadStep(old, candidate.before, resolved?.let { rekey(old, it) })
                 steps += SavedUploadStep(candidate.targetKey, null, null)
             } else if (old != null && resolved != null) {
@@ -304,8 +325,8 @@ internal class SavedUploadPlanner(private val origin: EditorDataService, private
         }
         val projected = SavedUploadReferences(target).projected(ordered).value()
         val normalized = ordered.map { step ->
-            if (step.after == null || step.destination != null) step
-            else step.copy(after = validate(step.key, step.after, projected))
+            if (step.after == null || step.destination != null && step.productRequest == null) step
+            else step.copy(after = validate(step.destination ?: step.key, step.after, projected))
         }
         SavedUploadOperation(UUID.randomUUID().toString(), preview.target, preview.inputs, preview.versions, normalized)
             .also { require(it.validKeys) { "改名・移動の作用先が重複しています。" } }
@@ -314,7 +335,8 @@ internal class SavedUploadPlanner(private val origin: EditorDataService, private
     private fun includeRequiredItems(
         selections: MutableList<SavedUploadSelection>, records: Map<EditorDocumentKey, LocalDocumentRecord>
     ) {
-        if (selections.none { it.key.category in setOf(target.ores.dataType.categoryDirName, target.recipes.dataType.categoryDirName) }) return
+        if (selections.none { it.key.category in setOf(target.ores.dataType.categoryDirName,
+                target.recipes.dataType.categoryDirName, target.shops.dataType.categoryDirName) }) return
         val remoteIds = target.sourceStore.list(target.items.descriptor).value().mapTo(mutableSetOf()) {
             target.sourceStore.load(target.items.descriptor, it.id).value().internalId
         }
@@ -323,6 +345,8 @@ internal class SavedUploadPlanner(private val origin: EditorDataService, private
             val record = records[selection.key] ?: fail(StoreErrorCode.FILE_NOT_FOUND, selection.key.id)
             val body = record.saved?.takeUnless { record.savedDeleted } ?: return@forEach
             when (record.key.category) {
+                target.shops.dataType.categoryDirName ->
+                    origin.shops.decodeDocument(record.key.id, body).itemInternalId?.let { needed += it }
                 target.ores.dataType.categoryDirName ->
                     needed += origin.ores.decodeDocument(record.key.id, body).dropItems.mapNotNull { it.itemId }
                 target.recipes.dataType.categoryDirName -> {
@@ -395,6 +419,7 @@ internal class SavedUploadPlanner(private val origin: EditorDataService, private
         target.items.dataType.categoryDirName -> read(target.items, key.id)
         target.ores.dataType.categoryDirName -> read(target.ores, key.id)
         target.recipes.dataType.categoryDirName -> read(target.recipes, key.id)
+        target.shops.dataType.categoryDirName -> read(target.shops, key.id)
         "text" -> when (val text = target.sourceStore.readText(key.id)) {
             is StoreResult.Success -> text
             is StoreResult.Failure -> if (text.error.code == StoreErrorCode.FILE_NOT_FOUND) StoreResult.Success(null) else text
@@ -415,6 +440,7 @@ internal class SavedUploadPlanner(private val origin: EditorDataService, private
         target.items.dataType.categoryDirName -> rekey(target.items, key.id, body)
         target.ores.dataType.categoryDirName -> rekey(target.ores, key.id, body)
         target.recipes.dataType.categoryDirName -> rekey(target.recipes, key.id, body)
+        target.shops.dataType.categoryDirName -> rekey(target.shops, key.id, body)
         "text" -> body
         else -> fail(StoreErrorCode.UNSUPPORTED_FORMAT, key.id)
     }
@@ -427,6 +453,7 @@ internal class SavedUploadPlanner(private val origin: EditorDataService, private
             target.items.dataType.categoryDirName -> SavedUploadMerges.typed(target.items, key.id, base, saved, latest, known)
             target.ores.dataType.categoryDirName -> SavedUploadMerges.typed(target.ores, key.id, base, saved, latest, known)
             target.recipes.dataType.categoryDirName -> SavedUploadMerges.typed(target.recipes, key.id, base, saved, latest, known)
+            target.shops.dataType.categoryDirName -> SavedUploadMerges.typed(target.shops, key.id, base, saved, latest, known)
             "text" -> SavedUploadMerges.text(base, saved, latest, known)
             else -> fail(StoreErrorCode.UNSUPPORTED_FORMAT, key.id)
         }
@@ -435,6 +462,7 @@ internal class SavedUploadPlanner(private val origin: EditorDataService, private
         target.items.dataType.categoryDirName -> validate(target.items, key.id, body, store)
         target.ores.dataType.categoryDirName -> validate(target.ores, key.id, body, store)
         target.recipes.dataType.categoryDirName -> validate(target.recipes, key.id, body, store)
+        target.shops.dataType.categoryDirName -> validate(target.shops, key.id, body, store)
         "text" -> body
         else -> fail(StoreErrorCode.UNSUPPORTED_FORMAT, key.id)
     }

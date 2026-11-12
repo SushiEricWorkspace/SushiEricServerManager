@@ -41,6 +41,11 @@ internal data class SavedUploadProjection(
             projected.mutableDropItems.forEach { drop -> drop.itemId = itemId(drop.itemId) }
             service.ores.encodeDocument(projected)
         }
+        service.shops.dataType.categoryDirName -> {
+            val shop = service.shops.decodeDocument(key.id, saved)
+            shop.itemInternalId = itemId(shop.itemInternalId)
+            service.shops.encodeDocument(shop)
+        }
         service.recipes.dataType.categoryDirName -> {
             val recipe = service.recipes.decodeDocument(key.id, saved)
             recipe.ingredients = when (val value = recipe.ingredients) {
