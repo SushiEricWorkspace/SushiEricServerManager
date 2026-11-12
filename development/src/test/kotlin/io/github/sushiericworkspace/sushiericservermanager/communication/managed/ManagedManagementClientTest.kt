@@ -68,6 +68,41 @@ class ManagedManagementClientTest {
         }
     }
 
+    @Test fun `DB検索は監督database経路へnonceを操作IDとして送り監視socketへ流さない`() {
+        val storage = createTempDirectory("managed-db-history-")
+        Peer().use { peer ->
+            try {
+                val fixture = ManagedSessionTest.Fixture(storage, peer.port)
+                val nonce = java.util.UUID.randomUUID().toString()
+                val received = CountDownLatch(1)
+                val supervisor = SupervisorClient { command, payload, operation ->
+                    if (command != "writer-io") fixture.request(command, payload, operation)
+                    else {
+                        assertEquals(nonce, operation)
+                        val request = payload.getValue("request").jsonObject
+                        assertEquals("database", request.getValue("action").jsonPrimitive.content)
+                        assertEquals("database_history_end", request.getValue("message").jsonObject.getValue("type").jsonPrimitive.content)
+                        buildJsonObject {
+                            put("responseAvailable", true)
+                            putJsonObject("apiResponse") {
+                                put("type", "database_history"); put("success", true); put("handle", "h"); put("nonce", nonce)
+                            }
+                        }
+                    }
+                }
+                val session = ManagedSession.open(fixture.profile, storage, supervisor)
+                val client = ServerManagementClient()
+                client.addMessageListener { if (it is ServerManagementResponse.DatabaseHistory && it.nonce == nonce) received.countDown() }
+                assertTrue(client.connect(ManagedManagementTransport(session)))
+                assertTrue(client.send(ServerManagementRequest.DatabaseHistoryEnd("h", nonce)))
+                assertTrue(received.await(3, TimeUnit.SECONDS))
+                session.close { client.disconnect() }
+                assertEquals(ManagedSession.State.CLOSED, session.state)
+                assertTrue(peer.received.isEmpty())
+            } finally { storage.toFile().deleteRecursively() }
+        }
+    }
+
     private class Peer(private val delayMillis: Long = 0) : AutoCloseable {
         private val server = ServerSocket(0, 1, InetAddress.getByName("127.0.0.1"))
         val port = server.localPort

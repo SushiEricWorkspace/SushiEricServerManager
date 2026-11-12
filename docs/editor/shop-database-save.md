@@ -1,0 +1,38 @@
+# 商品定義とDB在庫の保存
+
+商品保存はDataModelのD3（HostAdapterAction.Edit）を使用する。定義ファイルのSHA-256はProductsで実際に読み込んだbytesの値を使う。在庫はDBから得たquantityとrevisionを基準にし、再serializeした定義hashやローカル文書のrevisionで代用しない。
+
+## 通常Management接続
+
+通常オンラインsessionは既存Management接続へDatabaseContextRequestを送り、worldUuidとrunIdを固定してDatabaseProductRequestを送る。管理worldでは認証済み所有bindingが必要で、通常接続から推測して補わない。Managementが未接続・失敗の場合、商品定義をSFTPへ書き戻さない。
+
+Shopの保存確認は最新データの三方向マージで行う。読込時のHostProductReadを単件・一括保存の準備結果へ保持し、確認後の背景読込が保存対象のhashを差し替えない。未変更在庫はUnchanged、明示変更はSet(quantity, revision)、未初期化はRegisterとして送る。未初期化と無限在庫は別の状態である。
+
+IDと定義の同時変更はSave+Deleteを一つの親要求にする。移動元の定義hashと在庫revisionをDeleteで検査し、宛先の在庫と定義をRegister/Saveで検査する。途中失敗を逆renameや別要求IDで補償しない。Move、Copy、Delete、既存行revisionを指定するRegisterはShopSavePlanにも公開している。履歴IDと旧在庫行の管理はDataModelへ委譲する。
+
+## 保存待ち要求
+
+ShopSaveSessionは送信前に要求全文を一時ファイルへforceし、同じディレクトリの保存待ちファイルへatomic moveする。同じ保存待ちファイルの更新はOS file lockで直列化する。通常sessionの保存先は自動保存領域のshop-pending/<接続先識別子>.jsonであり、識別子にはhost、port、user、server pathを使用する。接続設定の秘密情報は要求へ含めない。
+
+SUCCESSかつEdited、または作用前拒否の確証があるREJECTEDだけが保存待ち記録を整理する。不正応答、要求ID不一致、timeout、切断、確証のない拒否、記録整理失敗では元要求を保持する。未確認の要求がある間は新規Editを拒否する。編集用editing/originalと保留操作は既存保存工程が保持する。
+
+照合はI/O workerでShopSaveSession.reconcile()を呼ぶ。保存済みのworldと再接続先を照合してから元IDと本文だけを再送する。別worldへ送らず、新IDの操作へ自動変換しない。D3の終端journalによる照合は、その後の正当な在庫変更を巻き戻さない。
+
+## 非管理Hostとオフライン編集
+
+LocalShopTransportは明示した絶対world/shop pathとworld UUIDをDataModelのHostDatabaseAdapterへ渡す。seal/run-state、管理root拒否、DBclose/receiptの検査はDataModelへ委譲する。Managerが起動時にDBやrun-stateを自動初期化することはない。
+
+SshShopTransportは認証済みSSHと検証済み固定runtimeの起動コマンドを受け取り、HostAdapterCodecのUTF-8本文をstdinへ書いてEOFを送る。stdoutは1 MiB上限、stderrは並行して読み捨て、応答と終了コードの一致を検査する。timeout/切断は上位の保存待ち記録を維持する。runtimeの配備と絶対pathの確定は呼出元の責務で、通常profileから配置を推測しない。
+
+world未結合のLocalEditorDataStoreは商品の編集用backup形式を保存する。ID、在庫編集値、stockBaselineを保持し、再読込で有限値や無限値が消えない。既存の在庫なし定義YAMLも読み込み、IDを持つ編集backupの破損は通常定義として読み替えない。旧stock付きサーバー定義の明示移行はMod #577の範囲である。サーバー定義へそのままコピーせず、適用先の最新Productsと照合してD3要求を作る。オフライン領域はサーバーのshop_dataとは別の編集領域として使用する。
+
+## 接続を残す範囲
+
+- developmentの管理接続は監督writerの経路待ち（.github #64）。追加した商品要求は監視socketや通常SFTPへ流さず拒否する。稼働中と停止中の実結合は固定成果確定後に行う。
+- 通常SSHでManagementを使わない場合のHost runtime配備・world/shop pathをprofileへ接続するUIは未接続。通信実装へ明示設定を渡す入口はあるが、既定配置を仮定した自動実行は行わない。
+- 定義削除後の残存在庫行revisionをProductsで取得できないため、画面から同ID再登録や残存行のある宛先へ保存する操作は安全に拒否される。revisionを明示できるShopSavePlan.register/move/copyの口と区別する。
+- 商品ディレクトリの作成・削除・移動は、全子商品・directory-data・DirectoryManifestsを親要求へ展開する画面側の接続が残る。通常SFTPの再帰操作で代用しない。
+- UNKNOWNの元要求照合APIは提供するが、照合後の改名等の保留操作と編集backupを画面へ再適用する導線は未接続。保存待ち記録を手で削除して再送しない。
+- UI統合先codex/manager-ui-workspaceの#250は別系統。ShopSavePlan/ShopSaveSessionの固定要求と、ローカル文書の保存済み世代・反映台帳を接続する作業が必要である。
+
+実サーバー、実SSH、管理停止中の連続編集、macOS、20〜40人の継続負荷は未確認。これらを単体試験や非表示JavaFX試験の成功で代替しない。Issue #243の全完成条件を満たす変更ではないため、関連付けはRefs #243とする。

@@ -47,7 +47,9 @@ class ManagedSession private constructor(
         check(state == State.OPEN || (accepted && state == State.CLOSING)) { "管理writerは終了済み・結果不明です。" }
         try {
             admissionGuard()
-            val response = client.request("writer-io", JsonObject(binding + ("request" to request)), operationId())
+            val id = if (request["action"]?.jsonPrimitive?.content == "database")
+                request.getValue("message").jsonObject.getValue("nonce").jsonPrimitive.content else operationId()
+            val response = client.request("writer-io", JsonObject(binding + ("request" to request)), id)
             check(state == State.OPEN || state == State.CLOSING) { "結果不明になったsessionの遅延応答は使用できません。" }
             response
         } catch (error: Exception) {

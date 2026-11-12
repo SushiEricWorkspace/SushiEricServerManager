@@ -25,6 +25,7 @@ import io.github.sushiericworkspace.sushiericservermanager.app.workspace.Workspa
 import io.github.sushiericworkspace.sushiericservermanager.app.workspace.WorkspaceView
 import javafx.stage.WindowEvent
 import io.github.sushiericworkspace.sushiericservermanager.update.ManagerCompatibility
+import io.github.sushiericworkspace.sushiericservermanager.config.AppSettingsManager
 import io.github.sushiericworkspace.sushiericservermanager.util.Utility
 import javafx.application.Platform
 import javafx.fxml.FXMLLoader
@@ -216,6 +217,39 @@ class ConnectionCloseFlowTest {
         fx { Utility.closeConnection { done.complete(Unit) } }
         done.get(10, TimeUnit.SECONDS)
         assertEquals(1, f.connection.closed)
+    }
+
+    @Test fun `接続終了失敗では通常寸法を保持し正常終了時だけ保存する`() {
+        val previous = AppSettingsManager.load()
+        try {
+            fixture { f ->
+                fx {
+                    WindowSizePersistence.install(f.home.scene, "CLOSE_HOME")
+                    f.home.width = 710.0
+                    f.home.height = 490.0
+                    f.connection.fail = true
+                }
+                Thread.sleep(500)
+                val done = CompletableFuture<Unit>()
+                fx { Utility.closeConnection { done.complete(Unit) } }
+                awaitFx { !ApplicationFlow.closingConnection }
+                fx {
+                    assertTrue(f.home.isShowing)
+                    assertEquals(710.0, f.home.width, 2.0)
+                    assertEquals(490.0, f.home.height, 2.0)
+                    assertFalse(AppSettingsManager.load().windowSizes.containsKey("CLOSE_HOME"))
+                    f.connection.fail = false
+                    Utility.closeConnection { done.complete(Unit) }
+                }
+                done.get(10, TimeUnit.SECONDS)
+                fx {
+                    val saved = AppSettingsManager.load().windowSizes.getValue("CLOSE_HOME")
+                    assertEquals(710.0, saved.width, 2.0)
+                    assertEquals(490.0, saved.height, 2.0)
+                    assertFalse(AppSettingsManager.load().windowSizes.containsKey("WIDGETS_ONLY"))
+                }
+            }
+        } finally { fx { AppSettingsManager.save(previous) } }
     }
 
     @Test fun `writer終了未確認では参照一覧と編集内容と接続を保持する`() = fixture { f ->

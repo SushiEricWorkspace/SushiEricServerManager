@@ -31,6 +31,7 @@ import javafx.scene.control.Label
 import javafx.scene.control.ScrollPane
 import javafx.scene.control.TextField
 import javafx.scene.layout.GridPane
+import javafx.scene.layout.Region
 import javafx.scene.layout.HBox
 import javafx.scene.layout.Priority
 import javafx.scene.layout.VBox
@@ -182,9 +183,9 @@ internal class RecipeEditorLogic(main: MainController, service: EditorDataServic
             HBox(10.0, achievementSelector, addAchievement).apply { alignment = Pos.CENTER_LEFT }, achievements,
             refreshButton, warnings
         ).apply { padding = Insets(20.0) }
-        val scroll = ScrollPane(form).apply { isFitToWidth = true; minWidth = 0.0; minHeight = 0.0 }
+        val scroll = ScrollPane(form).apply { isFitToWidth = true; minWidth = Region.USE_PREF_SIZE; minHeight = 0.0 }
         main.mainContentContainer.children.setAll(HBox(16.0, scroll, recipeBoard.palette).apply {
-            minWidth = 0.0; minHeight = 0.0; maxWidth = Double.MAX_VALUE
+            minHeight = 0.0; maxWidth = Double.MAX_VALUE
             HBox.setHgrow(scroll, Priority.ALWAYS)
             HBox.setHgrow(this, Priority.ALWAYS)
         })

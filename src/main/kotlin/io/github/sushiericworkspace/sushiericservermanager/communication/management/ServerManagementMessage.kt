@@ -1,6 +1,10 @@
 package io.github.sushiericworkspace.sushiericservermanager.communication.management
 
+import io.github.sushiericworkspace.sushiericdatamodel.database.host.HostHistoryFilter
+import io.github.sushiericworkspace.sushiericdatamodel.database.host.HostHistoryRecord
 import kotlinx.serialization.SerialName
+import io.github.sushiericworkspace.sushiericdatamodel.database.host.HostAdapterRequest
+import io.github.sushiericworkspace.sushiericdatamodel.database.host.HostAdapterResponse
 import kotlinx.serialization.Serializable
 
 /**
@@ -18,6 +22,26 @@ sealed interface ServerManagementMessage
  */
 @Serializable
 sealed interface ServerManagementRequest : ServerManagementMessage {
+    @Serializable @SerialName("database_context_request")
+    data class DatabaseContextRequest(val nonce: String? = null) : ServerManagementRequest
+
+    @Serializable @SerialName("database_product_request")
+    data class DatabaseProductRequest(val binding: ManagementDatabaseBinding, val request: HostAdapterRequest,
+        val nonce: String? = null) : ServerManagementRequest
+
+    /** 初回高水位と未確定集合を接続専用handleへ固定します。 */
+    @Serializable @SerialName("database_history_start")
+    data class DatabaseHistoryStart(val binding: ManagementDatabaseBinding,
+        val filter: HostHistoryFilter = HostHistoryFilter(), val nonce: String? = null) : ServerManagementRequest
+
+    @Serializable @SerialName("database_history_page")
+    data class DatabaseHistoryPage(val handle: String, val offset: Int = 0, val limit: Int = 100,
+        val nonce: String? = null) : ServerManagementRequest
+
+    /** 検索handleだけを解放し、取引を取り消しません。 */
+    @Serializable @SerialName("database_history_end")
+    data class DatabaseHistoryEnd(val handle: String, val nonce: String? = null) : ServerManagementRequest
+
 
     /**
      * 接続確認の要求です。
@@ -115,6 +139,22 @@ sealed interface ServerManagementRequest : ServerManagementMessage {
  */
 @Serializable
 sealed interface ServerManagementResponse : ServerManagementMessage {
+    @Serializable @SerialName("database_context")
+    data class DatabaseContext(val success: Boolean, val binding: ManagementDatabaseBinding? = null,
+        val detail: String? = null, val nonce: String? = null,
+        val rejectedBeforeEffect: Boolean = false) : ServerManagementResponse {
+        init { require(!success || !rejectedBeforeEffect) }
+    }
+
+    @Serializable @SerialName("database_product_result")
+    data class DatabaseProductResult(val response: HostAdapterResponse, val nonce: String? = null) : ServerManagementResponse
+
+    /** nextOffsetはbyte上限で短縮された応答の実際の行数だけ進みます。 */
+    @Serializable @SerialName("database_history")
+    data class DatabaseHistory(val success: Boolean, val handle: String? = null,
+        val rows: List<HostHistoryRecord> = emptyList(), val nextOffset: Int = 0, val hasMore: Boolean = false,
+        val code: String? = null, val detail: String? = null, val nonce: String? = null) : ServerManagementResponse
+
 
     /**
      * 接続確認への応答です。
@@ -214,7 +254,7 @@ sealed interface ServerManagementResponse : ServerManagementMessage {
         val jvm: JvmStatus
     ) : ServerManagementResponse
 
-    /** 入出金履歴の保存結果です。成功応答後にSFTP上の履歴を読み込みます。 */
+    /** DB保存barrierの確定結果です。件数は全履歴の累積ではなく、失敗時は対象件数が不明な場合があります。 */
     @Serializable
     @SerialName("money_history_save_result")
     data class MoneyHistorySaveResult(

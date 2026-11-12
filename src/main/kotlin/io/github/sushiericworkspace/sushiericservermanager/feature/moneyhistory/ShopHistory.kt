@@ -1,5 +1,7 @@
 package io.github.sushiericworkspace.sushiericservermanager.feature.moneyhistory
 
+import io.github.sushiericworkspace.sushiericdatamodel.database.host.HostHistoryFilter
+import java.time.ZoneId
 import io.github.sushiericworkspace.sushiericservermanager.editor.store.EditorDataStore
 import io.github.sushiericworkspace.sushiericservermanager.editor.store.StoreErrorCode
 import io.github.sushiericworkspace.sushiericservermanager.editor.store.StoreResult
@@ -69,4 +71,14 @@ internal fun readShopHistory(
             is StoreResult.Failure -> error("$path を読み込めません: ${result.error.code}")
         }
     }.sortedWith(compareByDescending<ShopHistoryEntry> { it.timestamp }.thenBy { it.playerUuid.toString() })
+}
+
+/** 日付範囲の全件数を保つため、DB取得もローカル日付の境界へ限定します。 */
+internal fun readShopHistory(source: HistorySource, from: LocalDate?, to: LocalDate?,
+    zone: ZoneId = ZoneId.systemDefault()): List<ShopHistoryEntry> {
+    require(from == null || to == null || !from.isAfter(to)) { "開始日が終了日より後です。" }
+    val first = from?.atStartOfDay(zone)?.toInstant()
+    val last = to?.plusDays(1)?.atStartOfDay(zone)?.toInstant()?.minusNanos(1)
+    return source.readAll(HostHistoryFilter(fromEpochSecond = first?.epochSecond, fromNano = first?.nano ?: 0,
+        untilEpochSecond = last?.epochSecond, untilNano = last?.nano ?: 0)).mapNotNull { it.shopRow() }
 }

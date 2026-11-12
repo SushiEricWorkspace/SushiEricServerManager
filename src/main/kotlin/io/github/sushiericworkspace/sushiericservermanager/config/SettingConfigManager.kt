@@ -51,7 +51,9 @@ data class ServerProfile(
     val consoleLogLevel: String = DEFAULT_CONSOLE_LOG_LEVEL,
 
     /** ローカル文書の保存元を識別します。既存profileは読み込み時に採番・保存します。 */
-    val profileId: String = ""
+    val profileId: String = "",
+    /** Management未接続時に使う、配備・照合済み同一ホストD3 CLI。 */
+    val databaseHistory: DatabaseHistoryHost? = null
 ) {
     /** 名前・鍵・接続runを含めず、確定したprofileと接続先/rootへ文書を束縛します。 */
     fun documentSource(): EditorDocumentSource.Server {
@@ -84,6 +86,10 @@ data class ServerProfile(
         const val DEFAULT_CONSOLE_LOG_LEVEL: String = "INFO"
     }
 }
+
+/** commandLineは固定Java 21 runtimeと絶対world/shop pathを指し、秘密情報を含めません。 */
+@Serializable
+data class DatabaseHistoryHost(val worldUuid: String, val commandLine: String)
 
 object SettingConfigManager : JsonFileHandler<ServerConfig>(
     FilePath.SERVER_PROFILES,

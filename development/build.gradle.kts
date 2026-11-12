@@ -1,3 +1,4 @@
+import org.gradle.api.tasks.testing.Test
 plugins {
     alias(libs.plugins.kotlin.jvm)
     alias(libs.plugins.javafx)
@@ -27,16 +28,17 @@ application {
     mainClass.set("io.github.sushiericworkspace.sushiericservermanager.app.DevelopmentLauncher")
 }
 
-tasks.test {
+tasks.withType<Test>().configureEach {
     useJUnitPlatform()
-    val testHome = temporaryDir.resolve("home")
-    val testAppData = temporaryDir.resolve("appdata")
-    systemProperty("user.home", testHome.absolutePath)
-    systemProperty("sushieric.test.configRoot", temporaryDir.absolutePath)
-    environment("LOCALAPPDATA", testAppData.absolutePath)
-    environment("APPDATA", testAppData.absolutePath)
-    environment("XDG_CONFIG_HOME", testAppData.absolutePath)
-    doFirst { testHome.mkdirs(); testAppData.mkdirs() }
+    val config = layout.buildDirectory.dir("test-config/$name").get().asFile
+    systemProperty("sushieric.test.configRoot", config.absolutePath)
+    environment("LOCALAPPDATA", config.resolve("localappdata").absolutePath)
+    environment("APPDATA", config.resolve("appdata").absolutePath)
+    environment("XDG_CONFIG_HOME", config.resolve("xdg").absolutePath)
+    systemProperty("user.home", config.resolve("home").absolutePath)
+    doFirst {
+        listOf("localappdata", "appdata", "home", "xdg").forEach { config.resolve(it).mkdirs() }
+    }
 }
 
 // 製品APIの公開範囲を広げず、管理ストア統合テストだけで通常mainのinternal APIを参照します。

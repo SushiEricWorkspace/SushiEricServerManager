@@ -1,5 +1,7 @@
 package io.github.sushiericworkspace.sushiericservermanager.editor.main.shop
 
+import io.github.sushiericworkspace.sushiericdatamodel.data.shop.model.ShopProductStock
+import io.github.sushiericworkspace.sushiericservermanager.app.WindowSizing
 import io.github.sushiericworkspace.sushiericdatamodel.data.core.validation.SushiEricValidationError
 import io.github.sushiericworkspace.sushiericdatamodel.data.item.model.ItemInternalId
 import io.github.sushiericworkspace.sushiericdatamodel.data.shop.model.mutable.MutableShopProductData
@@ -131,6 +133,7 @@ internal class ShopEditorLogic(main: MainController, service: EditorDataService)
                     selector.comboBox.setCellFactory { itemCell() }
                     selector.comboBox.buttonCell = itemCell()
                     val selected = Dialog<ItemInternalId>().apply {
+                        WindowSizing.install(this)
                         title = "対象アイテムを選択"
                         initOwner(main.currentStage)
                         dialogPane.buttonTypes.addAll(ButtonType.OK, ButtonType.CANCEL)
@@ -150,7 +153,7 @@ internal class ShopEditorLogic(main: MainController, service: EditorDataService)
         refreshValidation = { refreshItem(); refreshMessages?.invoke() }
         val purchase = priceField(selectData.purchasePrice) { selectData.purchasePrice = it; refresh() }
         val sale = priceField(selectData.salePrice) { selectData.salePrice = it; refresh() }
-        val stock = integerField(selectData.stock, "空欄: 無限在庫") { selectData.stock = it; refresh() }
+        val stock = integerField(selectData.stock, if (dataService.isRemote && selectData.stockBaseline is ShopProductStock.Uninitialized) "初期在庫（空欄で登録: 無限在庫）" else "空欄: 無限在庫") { selectData.stock = it; refresh() }
         val order = TextField(orderRaw[selectData.id] ?: selectData.displayOrder.toString()).apply {
             promptText = "表示順（空欄: 0）"
         }
@@ -383,6 +386,7 @@ internal class ShopEditorLogic(main: MainController, service: EditorDataService)
         val local = MergeConflictDialog.show(main.currentStage, dataId, merge.conflicts) ?: return null
         return merge.resolveWithLocal(local)
     }
+
 
     override fun afterClose() {
         orderScroll?.stop()

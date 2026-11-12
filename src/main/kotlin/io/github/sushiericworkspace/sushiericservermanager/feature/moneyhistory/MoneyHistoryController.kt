@@ -1,8 +1,8 @@
 package io.github.sushiericworkspace.sushiericservermanager.feature.moneyhistory
 
+import io.github.sushiericworkspace.sushiericdatamodel.database.host.HostHistoryFilter
+import io.github.sushiericworkspace.sushiericservermanager.communication.management.ServerManagementState
 import io.github.sushiericworkspace.sushiericservermanager.communication.management.ServerManagementClient
-import io.github.sushiericworkspace.sushiericservermanager.communication.management.ServerManagementRequest
-import io.github.sushiericworkspace.sushiericservermanager.communication.management.ServerManagementResponse
 import io.github.sushiericworkspace.sushiericservermanager.config.AppSettingsManager
 import io.github.sushiericworkspace.sushiericservermanager.editor.component.SearchableComboBox
 import io.github.sushiericworkspace.sushiericservermanager.editor.store.EditorDataStore
@@ -32,8 +32,6 @@ import java.time.LocalDate
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.util.UUID
-import java.util.concurrent.CompletableFuture
-import java.util.concurrent.TimeUnit
 
 /** 保存済みの入出金履歴と実績の達成履歴を表示する画面です。入出金タブの読み込みと絞り込み、実績タブの初期化を担当します。 */
 class MoneyHistoryController {
@@ -65,8 +63,27 @@ class MoneyHistoryController {
     private lateinit var store: EditorDataStore
     private lateinit var managementClient: ServerManagementClient
     private var allRows: List<MoneyHistoryRow> = emptyList()
-    private var disposed = false
-    private var loadGeneration = 0
+    @Volatile private var disposed = false
+    private var historyTask: Task<*>? = null
+    private var playersTask: Task<*>? = null
+    private var filterTask: Task<*>? = null
+    private var filterGeneration = 0
+    private var activeConnection: HistoryConnection? = null
+    private val connectionListener: (ServerManagementState) -> Unit = {
+        Platform.runLater {
+            if (!disposed && activeConnection?.isCurrent == false) {
+                loadGeneration++
+                filterGeneration++; filterTask?.cancel(true)
+                historyTask?.cancel(true)
+                playersTask?.cancel(true)
+                players = emptyList(); playerSelector?.updateChoices(emptyList())
+                allRows = emptyList(); historyTable.items.clear()
+                loadingHistory = false
+                statusLabel.text = "接続状態が変わりました。再読込してください。"
+            }
+        }
+    }
+    @Volatile private var loadGeneration = 0
     private var loadingHistory = false
     private var playerSelector: SearchableComboBox<HistoryPlayer>? = null
     private var players: List<HistoryPlayer> = emptyList()
@@ -81,6 +98,7 @@ class MoneyHistoryController {
     fun initialize(store: EditorDataStore, managementClient: ServerManagementClient) {
         this.store = store
         this.managementClient = managementClient
+        managementClient.addStateListener(connectionListener)
         initializeTable()
         playerDisplayToggle.isSelected = AppSettingsManager.load().showPlayerUuidInHistory
         updatePlayerDisplay()
@@ -129,7 +147,7 @@ class MoneyHistoryController {
         historyTable.columnResizePolicy = TableView.CONSTRAINED_RESIZE_POLICY_FLEX_LAST_COLUMN
         timeColumn.setCellValueFactory { SimpleStringProperty(it.value.timeText) }
         typeColumn.setCellValueFactory { SimpleStringProperty(it.value.type.displayName) }
-        amountColumn.setCellValueFactory { SimpleStringProperty("%,d".format(it.value.amount)) }
+        amountColumn.setCellValueFactory { SimpleStringProperty("%,d".format(it.value.amount) + if (it.value.exempt) "（免除）" else "") }
         balanceColumn.setCellValueFactory { SimpleStringProperty("%,d".format(it.value.balanceAfter)) }
         counterpartyColumn.setCellValueFactory { SimpleStringProperty(it.value.counterparty ?: "-") }
         executorColumn.setCellValueFactory { SimpleStringProperty(it.value.executor ?: "-") }
@@ -158,8 +176,10 @@ class MoneyHistoryController {
     }
 
     private fun loadPlayers() {
-        runTask("money-history-players", "プレイヤー一覧を読み込み中...", block = {
-            readHistoryPlayers(store, logger)
+        playersTask?.cancel(true)
+        val generation = ++loadGeneration
+        runTask("money-history-players", "プレイヤー一覧を読み込み中...", isCurrent = { generation == loadGeneration }, block = { source ->
+            readHistoryPlayers(store, logger, source)
         }) { loaded ->
             players = loaded
             players.filter { it.displayName != it.uuid }.forEach { knownPlayerNames[it.uuid] = it.displayName }
@@ -207,40 +227,40 @@ class MoneyHistoryController {
     }
 
     private fun loadPlayer(player: HistoryPlayer) {
+        historyTask?.cancel(true)
         val generation = ++loadGeneration
+        filterGeneration++; filterTask?.cancel(true)
         loadingHistory = true
         allRows = emptyList()
         historyTable.items.clear()
         val connected = managementClient.isConnected
-        runTask("money-history-load", "${player.displayName}の${if (connected) "サーバー保存を待機中" else "履歴を読み込み中"}...",
-            isCurrent = { generation == loadGeneration }, block = {
-                if (connected) {
-                    saveOnServer(player.uuid)
-                    Platform.runLater {
-                        if (!disposed && generation == loadGeneration) statusLabel.text = "${player.displayName}の履歴を読み込み中..."
-                    }
-                }
-                readRecords(player.uuid)
-            }) { rows ->
+        runTask("money-history-load", "${player.displayName}の${if (connected) "DB履歴を読み込み中" else "履歴を読み込み中"}...",
+            isCurrent = { generation == loadGeneration }, block = { source ->
+                val rows = if (source == null) readRecords(player.uuid)
+                    else source.readAll(HostHistoryFilter(playerUuid = player.uuid)).mapNotNull { it.moneyRow(player.uuid) }
+                LoadedMoneyHistory(rows, rows.maxByOrNull(MoneyHistoryRow::timestamp)?.playerName
+                    ?.takeUnless { it == player.uuid || it.isBlank() },
+                    rows.mapNotNull { it.counterparty }.mapNotNull { value ->
+                        runCatching { UUID.fromString(value).toString() }.getOrNull()
+                    }.distinct())
+            }) { loaded ->
                 loadingHistory = false
-                allRows = rows
-                val historyName = rows.maxByOrNull(MoneyHistoryRow::timestamp)?.playerName
-                    ?.takeUnless { it == player.uuid || it.isBlank() }
+                allRows = loaded.rows
+                val historyName = loaded.name
                 if (historyName != null) {
                     knownPlayerNames[player.uuid] = historyName
                     player.displayName = historyName
                     refreshPlayers()
                 }
                 applyFilters()
-                rows.mapNotNull { it.counterparty }.mapNotNull { value ->
-                    runCatching { UUID.fromString(value).toString() }.getOrNull()
-                }.distinct().filter { it !in knownPlayerNames }.forEach(::resolveName)
+                loaded.counterparties.filter { it !in knownPlayerNames }.forEach(::resolveName)
             }
     }
 
     @FXML @Suppress("unused")
     fun reloadSelected() {
-        if (::playerBox.isInitialized) playerBox.value?.let { loadPlayer(it) }
+        if (players.isEmpty()) loadPlayers()
+        else if (::playerBox.isInitialized) playerBox.value?.let { loadPlayer(it) }
     }
 
     @FXML @Suppress("unused")
@@ -338,26 +358,6 @@ class MoneyHistoryController {
     private fun playerLabel(player: HistoryPlayer): String =
         if (playerDisplayToggle.isSelected) player.uuid else player.displayName
 
-    private fun saveOnServer(uuid: String) {
-        val nonce = UUID.randomUUID().toString()
-        val result = CompletableFuture<ServerManagementResponse.MoneyHistorySaveResult>()
-        val listener: (ServerManagementResponse) -> Unit = { message ->
-            if (message is ServerManagementResponse.MoneyHistorySaveResult && message.nonce == nonce) {
-                result.complete(message)
-            }
-        }
-        managementClient.addMessageListener(listener)
-        try {
-            check(managementClient.send(ServerManagementRequest.MoneyHistorySave(uuid, nonce))) {
-                "履歴保存要求を送信できませんでした。"
-            }
-            val response = result.get(20, TimeUnit.SECONDS)
-            check(response.success) { response.detail ?: "サーバーが入出金履歴を保存できませんでした。" }
-        } finally {
-            managementClient.removeMessageListener(listener)
-        }
-    }
-
     private fun readRecords(uuid: String): List<MoneyHistoryRow> {
         val directory = "player_data/$uuid/money_history"
         val files = requireSuccess(store.listPath(directory)).filterNot(StorePathEntry::isDirectory)
@@ -372,19 +372,15 @@ class MoneyHistoryController {
         }.sortedByDescending(MoneyHistoryRow::timestamp)
     }
 
-    private fun formatCounterparty(value: String): String {
-        val uuid = runCatching { UUID.fromString(value).toString() }.getOrNull() ?: return value
-        val name = knownPlayerNames[uuid]
-        return formatHistoryActor(name, uuid) ?: "-"
-    }
-
     private fun parseRecords(text: String, playerUuid: String, fileName: String): List<MoneyHistoryRow> =
         parseMoneyHistory(text, playerUuid, { reason ->
             logger.warn("入出金履歴を読み飛ばしました: file={} error={}", fileName, reason)
         })
 
     private fun applyFilters() {
-        if (changingFilters || loadingHistory || disposed) return
+        if (changingFilters || disposed) return
+        filterGeneration++; filterTask?.cancel(true)
+        if (loadingHistory) { reloadSelected(); return }
         val range = runCatching { historyTimeRange(fromDate.value, fromTime.text, toDate.value, toTime.text) }
             .getOrElse {
                 statusLabel.text = it.message ?: "日時の指定が正しくありません。"
@@ -393,32 +389,64 @@ class MoneyHistoryController {
             }
         val selectedTypes = typeItems.filterValues { it.isSelected }.keys
         val zone = ZoneId.systemDefault()
-        val rows = allRows.filter { row ->
-            range.contains(row.timestamp.atZone(zone).toLocalDateTime()) &&
-                row.type in selectedTypes
+        val connectionIdentity = store.connectionIdentity
+        val input = allRows
+        val names = knownPlayerNames.toMap()
+        val current = ++filterGeneration
+        filterTask?.cancel(true)
+        val task = object : Task<List<MoneyHistoryRow>>() {
+            override fun call() = input.filter { row ->
+                range.contains(row.timestamp.atZone(zone).toLocalDateTime()) && row.type in selectedTypes
+            }.map { row ->
+                row.copy(counterparty = row.counterparty?.let { value ->
+                    val uuid = runCatching { UUID.fromString(value).toString() }.getOrNull()
+                    if (uuid == null) value else formatHistoryActor(names[uuid], uuid)
+                })
+            }
         }
-        historyTable.items.setAll(rows.map { row ->
-            row.copy(counterparty = row.counterparty?.let(::formatCounterparty))
-        })
-        statusLabel.text = "${rows.size}件 / ${allRows.size}件"
+        task.setOnSucceeded {
+            if (!disposed && current == filterGeneration && input === allRows && store.connectionIdentity === connectionIdentity && store.isAvailable) {
+                historyTable.items.setAll(task.value)
+                statusLabel.text = "${task.value.size}件 / ${input.size}件"
+            }
+        }
+        filterTask = task
+        Thread(task, "money-history-filter").apply { isDaemon = true; start() }
     }
 
     private fun <T> runTask(
         name: String,
         message: String,
         isCurrent: () -> Boolean = { true },
-        block: () -> T,
+        block: (HistorySource?) -> T,
         onSucceeded: (T) -> Unit
     ) {
         statusLabel.text = message
-        val task = object : Task<T>() { override fun call(): T = block() }
+        val connection = HistoryConnection(store, managementClient)
+        activeConnection = connection
+        val task = object : Task<T>() {
+            override fun call(): T {
+                check(connection.isCurrent) { "履歴の取得元が切断・変更されました。" }
+                return block(connection.source.getOrThrow())
+            }
+        }
         task.setOnFailed {
             if (disposed || !isCurrent()) return@setOnFailed
             loadingHistory = false
             logger.warn("入出金履歴の処理に失敗しました。", task.exception)
             statusLabel.text = "読み込みに失敗しました: ${task.exception?.message ?: "原因不明"}"
         }
-        task.setOnSucceeded { if (!disposed && isCurrent()) onSucceeded(task.value) }
+        task.setOnSucceeded {
+            if (!disposed && isCurrent()) {
+                if (connection.isCurrent) onSucceeded(task.value)
+                else {
+                    allRows = emptyList(); historyTable.items.clear(); loadingHistory = false
+                    statusLabel.text = "履歴の取得元が切断・変更されました。再接続してください。"
+                }
+            }
+        }
+        if (name == "money-history-load") historyTask = task
+        if (name == "money-history-players") playersTask = task
         Thread(task, name).apply { isDaemon = true; start() }
     }
 
@@ -430,6 +458,10 @@ class MoneyHistoryController {
     /** 画面終了時に保有する一時状態を解放します。 */
     fun dispose() {
         disposed = true
+        playersTask?.cancel(true)
+        historyTask?.cancel(true)
+        filterTask?.cancel(true)
+        managementClient.removeStateListener(connectionListener)
         playerNameLookup.close()
         loadGeneration++
         allRows = emptyList()
@@ -438,3 +470,5 @@ class MoneyHistoryController {
     }
 
 }
+
+private data class LoadedMoneyHistory(val rows: List<MoneyHistoryRow>, val name: String?, val counterparties: List<String>)

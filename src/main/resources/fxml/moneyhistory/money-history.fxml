@@ -9,7 +9,7 @@
             <tabs>
                 <Tab text="入出金">
                     <content>
-                        <VBox minWidth="0" spacing="10" styleClass="money-history-content">
+                        <ScrollPane fitToWidth="true" fitToHeight="true" minWidth="0"><content><VBox minWidth="0" spacing="10" styleClass="money-history-content">
                             <FlowPane fx:id="playerFilters" minWidth="0" hgap="8" vgap="8" alignment="CENTER_LEFT">
                                 <Label text="プレイヤー" minWidth="0" styleClass="history-filter-label"  prefWidth="95" maxWidth="${playerFilters.width}" />
                                 <VBox fx:id="playerSelectorPane" minWidth="0" prefWidth="340" maxWidth="${playerFilters.width}"  />
@@ -54,7 +54,7 @@
                                     <TableColumn fx:id="reasonColumn" text="理由" prefWidth="180" />
                                 </columns>
                             </TableView>
-                        </VBox>
+                        </VBox></content></ScrollPane>
                     </content>
                 </Tab>
                 <Tab fx:id="achievementTab" text="実績">

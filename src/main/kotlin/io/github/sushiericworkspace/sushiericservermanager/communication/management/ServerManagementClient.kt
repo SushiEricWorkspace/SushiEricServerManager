@@ -20,6 +20,9 @@ class ServerManagementClient(
     private val tunnelService: SshTunnelService = SshTunnelService()
 ) {
     private val logger = LoggerFactory.getLogger(javaClass)
+    // 未確認のhandleが残る接続では、次の検索を開始しません。
+    @Volatile internal var historyCleanup: Pair<UUID, java.util.concurrent.CompletableFuture<Unit>>? = null
+    internal val historySearchLock = java.util.concurrent.locks.ReentrantLock()
 
     private val stateListeners =
         CopyOnWriteArrayList<(ServerManagementState) -> Unit>()
@@ -31,6 +34,7 @@ class ServerManagementClient(
     private var connection: ServerManagementConnection? = null
     private var transport: ManagementTransport? = null
     @Volatile private var connectionId = UUID.randomUUID()
+    internal val connectionGeneration: UUID get() = connectionId
 
     /** 現在の接続状態です。 */
     @Volatile

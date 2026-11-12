@@ -1,26 +1,59 @@
 package io.github.sushiericworkspace.sushiericservermanager.editor.store
 
+import io.github.sushiericworkspace.sushiericservermanager.feature.moneyhistory.HistorySource
+import io.github.sushiericworkspace.sushiericservermanager.feature.moneyhistory.LocalHistorySource
 import io.github.sushiericworkspace.sushiericdatamodel.data.core.ManagedData
 import io.github.sushiericworkspace.sushiericdatamodel.data.core.identity.PublicId
 import io.github.sushiericworkspace.sushiericdatamodel.data.item.model.ItemInternalId
+import io.github.sushiericworkspace.sushiericdatamodel.database.run.WorldRunState
 import io.github.sushiericworkspace.sushiericdatamodel.path.SushiEricDataDirectory
+import kotlinx.serialization.decodeFromString
+import kotlinx.serialization.json.Json
 import org.slf4j.LoggerFactory
 import java.io.File
 import java.nio.file.AtomicMoveNotSupportedException
 import java.nio.file.Files
+import java.nio.file.Path
 import java.nio.file.StandardCopyOption
+import java.util.UUID
 
 class LocalEditorDataStore(
-    rootDirectory: File
+    rootDirectory: File,
+    historySource: HistorySource? = null
 ) : EditorDataStore {
     private val rootDirectory = rootDirectory.canonicalFile
     private val logger = LoggerFactory.getLogger(javaClass)
+    private val configuredHistorySource = historySource
+    private val worldRunJson = Json { classDiscriminator = "type" }
+    override val historySource: HistorySource?
+        get() {
+            configuredHistorySource?.let { return it }
+            val databaseDirectory = rootDirectory.resolve("sushieric")
+            val database = databaseDirectory.resolve("server.sqlite")
+            val marker = databaseDirectory.resolve("world-id")
+            if (!database.exists() && !marker.exists()) return null
+            check(database.isFile && marker.isFile) {
+                "DB済みworldの履歴にはworld-idとserver.sqliteが必要です。"
+            }
+            val worldUuid = UUID.fromString(marker.readText(Charsets.UTF_8).trim()).toString()
+            val runStateFile = databaseDirectory.resolve("run-state/current.json")
+            check(runStateFile.isFile) { "DB済みworldの履歴にはrun-stateが必要です。" }
+            val state = worldRunJson.decodeFromString<WorldRunState>(runStateFile.readText(Charsets.UTF_8))
+            check(state.worldUuid == worldUuid && state.paths.worldRoot == rootDirectory.path &&
+                state.paths.database == database.path) { "world markerとrun-stateのpathが一致しません。" }
+            val shopDirectory = Path.of(state.paths.shopDirectory)
+            check(shopDirectory.isAbsolute && shopDirectory.fileName.toString() == "shop_data") {
+                "run-stateのshop_data pathが不正です。"
+            }
+            return LocalHistorySource(rootDirectory.toPath(), shopDirectory, worldUuid)
+        }
 
     override val kind: EditorDataStoreKind = EditorDataStoreKind.LOCAL
     override val identity: String = "offline"
     override val offlineDirectory: File get() = rootDirectory
     override val isAvailable: Boolean
-        get() = rootDirectory.exists() || rootDirectory.mkdirs()
+        get() = if (configuredHistorySource != null) rootDirectory.isDirectory
+            else rootDirectory.exists() || rootDirectory.mkdirs()
 
     fun ensureDirectories(): StoreResult<Unit> {
         return try {
@@ -147,6 +180,7 @@ class LocalEditorDataStore(
         return try {
             val data = descriptor.load(file, descriptorDirectory(descriptor))
                 ?: return failure(StoreErrorCode.INVALID_YAML, id)
+            if (descriptor.readProduct != null) data.id = id
             StoreResult.Success(data)
         } catch (e: SecurityException) {
             failure(StoreErrorCode.PERMISSION_DENIED, id, cause = e)
@@ -191,7 +225,8 @@ class LocalEditorDataStore(
             return failure(StoreErrorCode.IO_ERROR, id, cause = e)
         }
         return try {
-            descriptor.save(temporary, data, itemIds)
+            if (descriptor.readProduct != null) descriptor.saveBackup(temporary, data)
+            else descriptor.save(temporary, data, itemIds)
             replaceAtomically(temporary, target)
             StoreResult.Success(Unit)
         } catch (e: SecurityException) {

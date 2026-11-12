@@ -1,8 +1,10 @@
-import java.security.MessageDigest
+import org.gradle.api.tasks.testing.Test
 import java.util.Properties
+import java.io.File
 import java.nio.file.Path
 import java.nio.file.Files
 import java.net.URI
+import java.security.MessageDigest
 import java.util.Locale
 import java.util.UUID
 import java.util.zip.ZipFile
@@ -17,6 +19,37 @@ plugins {
 
 group = "io.github.sushiericworkspace.sushiericservermanager"
 version = "1.0-SNAPSHOT"
+
+val developmentInputKeys = listOf("dataModelDevelopmentCoordinate", "combatCoreDevelopmentCoordinate",
+    "combatCoreDataModelCoordinate", "dataModelDevelopmentRepository", "combatCoreDevelopmentRepository",
+    "dataModelSourceCommit", "combatCoreSourceCommit")
+val localDevelopment = gradle.extensions.extraProperties.get("managerDevelopmentInputs") as Properties
+fun developmentInput(key: String) = providers.gradleProperty(key).orElse(providers.provider {
+    localDevelopment.getProperty(key)
+})
+
+if (localDevelopment.isNotEmpty()) {
+    check(localDevelopment.getProperty("format") == "1" && developmentInputKeys.all {
+        !localDevelopment.getProperty(it).isNullOrBlank()
+    }) { "固定開発依存の設定が不完全です。scripts/prepare-development.pyで再準備してください。" }
+    for ((key, repositoryKey) in listOf("dataModelDevelopmentCoordinate" to "dataModelDevelopmentRepository",
+        "combatCoreDataModelCoordinate" to "dataModelDevelopmentRepository",
+        "combatCoreDevelopmentCoordinate" to "combatCoreDevelopmentRepository")) {
+        val coordinate = localDevelopment.getProperty(key).split(':')
+        check(coordinate.size == 3) { "固定開発座標が不正です: $key" }
+        val (group, module, version) = coordinate
+        val repository = File(localDevelopment.getProperty(repositoryKey))
+        check(repository.isAbsolute) { "開発repositoryは絶対パスが必要です。" }
+        for (extension in listOf("jar", "pom")) {
+            val artifact = repository.resolve("${group.replace('.', '/')}/$module/$version/$module-$version.$extension")
+            val expected = localDevelopment.getProperty("sha256.$module.$extension")
+            check(artifact.isFile && expected != null && MessageDigest.getInstance("SHA-256")
+                .digest(artifact.readBytes()).joinToString("") { "%02x".format(it) } == expected) {
+                "固定開発成果物が不足または変更されています: $artifact。scripts/prepare-development.pyで再準備してください。"
+            }
+        }
+    }
+}
 
 val dataModelReleaseVersion = providers.gradleProperty("dataModelReleaseVersion")
     .orNull
@@ -37,21 +70,64 @@ if (releaseTaskRequested && dataModelReleaseVersion == null) {
     )
 }
 
-val dataModelDevelopmentCoordinate = providers.gradleProperty("dataModelDevelopmentCoordinate").orNull
+val dataModelDevelopmentCoordinate = developmentInput("dataModelDevelopmentCoordinate").orNull
 if (dataModelDevelopmentCoordinate != null && (dataModelReleaseVersion != null || !Regex(
         """io\.github\.sushiericworkspace:sushieric-datamodel-editor-dev:0\.1\.0-dev\.[a-zA-Z0-9.-]+"""
     ).matches(dataModelDevelopmentCoordinate))) {
     throw GradleException("開発SushiEricDataModelは完全なEditor用固定座標で指定し、正式版指定と併用しないでください。")
 }
 
-val dataModelDependency = dataModelDevelopmentCoordinate ?: if (dataModelReleaseVersion == null) {
-    "io.github.sushiericworkspace:sushieric-datamodel-editor-dev:0.1.0-dev.+"
-} else {
-    "io.github.sushiericworkspace:sushieric-datamodel:$dataModelReleaseVersion"
+val dataModelDependency = dataModelDevelopmentCoordinate
+    ?: dataModelReleaseVersion?.let { "io.github.sushiericworkspace:sushieric-datamodel:$it" }
+    ?: throw GradleException("開発ビルドにはEditor用SushiEricDataModelの完全座標が必要です。scripts/prepare-development.pyで固定開発依存を準備してください。")
+
+val combatCoreReleaseVersion = providers.gradleProperty("combatCoreReleaseVersion")
+    .orNull
+    ?.trim()
+    ?.takeIf { it.isNotEmpty() }
+val combatCoreDevelopmentCoordinate = developmentInput("combatCoreDevelopmentCoordinate").orNull
+val combatCoreDataModelCoordinate = developmentInput("combatCoreDataModelCoordinate").orNull
+if ((combatCoreReleaseVersion == null) != (dataModelReleaseVersion == null)) {
+    throw GradleException("CombatCoreとSushiEricDataModelは開発版または正式版を同じモードで指定してください。")
+}
+if (combatCoreReleaseVersion?.startsWith("v") == true) {
+    throw GradleException("CombatCoreの正式版バージョンにはvを付けないでください: $combatCoreReleaseVersion")
+}
+if (combatCoreDevelopmentCoordinate != null && (combatCoreReleaseVersion != null || !Regex(
+        """io\.github\.sushiericworkspace:sushieric-combat-core-dev:0\.1\.0-dev\.[a-zA-Z0-9.-]+"""
+    ).matches(combatCoreDevelopmentCoordinate))) {
+    throw GradleException("開発CombatCoreは完全な固定座標で指定し、正式版指定と併用しないでください。")
+}
+if (combatCoreDataModelCoordinate != null) {
+    val expectedPrefix = if (dataModelReleaseVersion == null) {
+        "io.github.sushiericworkspace:sushieric-datamodel-mod-dev:"
+    } else {
+        "io.github.sushiericworkspace:sushieric-datamodel:"
+    }
+    val expectedVersion = dataModelDevelopmentCoordinate?.substringAfterLast(':') ?: dataModelReleaseVersion
+    if (!combatCoreDataModelCoordinate.startsWith(expectedPrefix) ||
+        (expectedVersion != null && combatCoreDataModelCoordinate.substringAfterLast(':') != expectedVersion)) {
+        throw GradleException("CombatCoreが使用するDataModelとManagerのDataModelは同じ発行版を指定してください。")
+    }
+}
+val combatCoreDependency = combatCoreDevelopmentCoordinate
+    ?: combatCoreReleaseVersion?.let { "io.github.sushiericworkspace:sushieric-combat-core:$it" }
+    ?: throw GradleException("開発ビルドにはCombatCoreの完全座標が必要です。scripts/prepare-development.pyで固定開発依存を準備してください。")
+
+if (dataModelReleaseVersion == null &&
+    (dataModelDevelopmentCoordinate == null || combatCoreDevelopmentCoordinate == null || combatCoreDataModelCoordinate == null)) {
+    throw GradleException("開発ビルドにはEditor用DataModel、CombatCore、Coreが使用するMod用DataModelの完全座標が必要です。")
+}
+if (dataModelReleaseVersion != null && combatCoreDataModelCoordinate == null) {
+    throw GradleException("正式ビルドにはCombatCoreが使用するDataModelの完全座標が必要です。")
 }
 
 dependencies {
     api(dataModelDependency)
+    implementation(combatCoreDependency) {
+        exclude(group = "io.github.sushiericworkspace", module = "sushieric-datamodel-mod-dev")
+        exclude(group = "io.github.sushiericworkspace", module = "sushieric-datamodel")
+    }
 
     // GUI 関連ライブラリ
     implementation("org.controlsfx:controlsfx:11.2.1")
@@ -71,6 +147,25 @@ dependencies {
 
     testImplementation(kotlin("test"))
     testImplementation("org.mockito:mockito-core:5.18.0")
+}
+
+val combatCoreMetadata = configurations.create("combatCoreMetadata") {
+    isCanBeConsumed = false
+    isCanBeResolved = true
+}
+dependencies.add(combatCoreMetadata.name, combatCoreDependency)
+
+fun resolvedCombatCoreDataModelCoordinate(): String {
+    val coreComponent = combatCoreMetadata.incoming.resolutionResult.allComponents.single { component ->
+        val id = component.id as? org.gradle.api.artifacts.component.ModuleComponentIdentifier
+        id != null && id.group == "io.github.sushiericworkspace" &&
+            id.module == if (combatCoreReleaseVersion == null) "sushieric-combat-core-dev" else "sushieric-combat-core"
+    }
+    val dependency = coreComponent.dependencies
+        .filterIsInstance<org.gradle.api.artifacts.result.ResolvedDependencyResult>()
+        .mapNotNull { it.selected.id as? org.gradle.api.artifacts.component.ModuleComponentIdentifier }
+        .single { it.group == "io.github.sushiericworkspace" && it.module.startsWith("sushieric-datamodel") }
+    return "${dependency.group}:${dependency.module}:${dependency.version}"
 }
 
 configurations.configureEach {
@@ -135,16 +230,17 @@ application {
     mainClass.set("io.github.sushiericworkspace.sushiericservermanager.app.Launcher")
 }
 
-tasks.test {
+tasks.withType<Test>().configureEach {
     useJUnitPlatform()
-    val testHome = temporaryDir.resolve("home")
-    val testAppData = temporaryDir.resolve("appdata")
-    systemProperty("user.home", testHome.absolutePath)
-    systemProperty("sushieric.test.configRoot", temporaryDir.absolutePath)
-    environment("LOCALAPPDATA", testAppData.absolutePath)
-    environment("APPDATA", testAppData.absolutePath)
-    environment("XDG_CONFIG_HOME", testAppData.absolutePath)
-    doFirst { testHome.mkdirs(); testAppData.mkdirs() }
+    val config = layout.buildDirectory.dir("test-config/$name").get().asFile
+    systemProperty("sushieric.test.configRoot", config.absolutePath)
+    environment("LOCALAPPDATA", config.resolve("localappdata").absolutePath)
+    environment("APPDATA", config.resolve("appdata").absolutePath)
+    environment("XDG_CONFIG_HOME", config.resolve("xdg").absolutePath)
+    systemProperty("user.home", config.resolve("home").absolutePath)
+    doFirst {
+        listOf("localappdata", "appdata", "home", "xdg").forEach { config.resolve(it).mkdirs() }
+    }
 }
 
 val appName = "SushiEricServerManager"
@@ -196,62 +292,6 @@ val macDmgBaseName = "$appName-$packageVersion.dmg"
 
 // GitHub Releasesなどに置くためのリリース用dmg名。
 val macDmgReleaseName = "$appName-$releaseVersion-macOS-arm64-Installer.dmg"
-
-/**
- * 0.2.2のManagerが読む移行用のupdate.jsonを生成する。
- *
- * 新しい更新の仕組みを含む最初のReleaseにだけ添付する。0.2.2は、update.jsonを取得できないと
- * 起動を中止するためである。手順はdocs/update/release-guide.mdを参照する。
- *
- * 出力: build/release-installer/update.json
- *
- * 変更内容は-PupdateNotes="1つ目|2つ目"のように、|区切りで指定できる。
- */
-tasks.register("generateTransitionalUpdateJson") {
-    group = "release"
-    description = "0.2.2向けの移行用update.jsonを生成します"
-
-    val version = releaseVersion
-    val windowsName = windowsInstallerReleaseName
-    val macName = macDmgReleaseName
-    val notes = providers.gradleProperty("updateNotes")
-    val output = layout.buildDirectory.file("release-installer/update.json")
-    inputs.property("appVersion", version)
-    inputs.property("updateNotes", notes.orElse(""))
-    outputs.file(output)
-
-    doLast {
-        fun quote(text: String): String = buildString {
-            append('"')
-            text.forEach { character ->
-                when (character) {
-                    '"' -> append("\\\"")
-                    '\\' -> append("\\\\")
-                    '\n' -> append("\\n")
-                    '\r' -> append("\\r")
-                    '\t' -> append("\\t")
-                    else -> append(character)
-                }
-            }
-            append('"')
-        }
-
-        val baseUrl = "https://github.com/SushiEricWorkspace/SushiEricServerManager/releases/download/v$version"
-        val noteList = notes.orNull.orEmpty().split('|').map(String::trim).filter(String::isNotEmpty)
-        val json = buildString {
-            appendLine("{")
-            appendLine("  \"version\": ${quote(version)},")
-            appendLine("  \"windowsDownloadUrl\": ${quote("$baseUrl/$windowsName")},")
-            appendLine("  \"macDownloadUrl\": ${quote("$baseUrl/$macName")},")
-            appendLine("  \"notes\": [${noteList.joinToString(", ") { quote(it) }}]")
-            appendLine("}")
-        }
-        output.get().asFile.apply {
-            parentFile.mkdirs()
-            writeText(json)
-        }
-    }
-}
 
 /**
  * 現在のアプリ名のapp-image出力だけを削除する。
@@ -599,7 +639,7 @@ val verifyReleaseContents = tasks.register("verifyReleaseContents") {
     description = "通常JARとruntime依存に管理接続の実装・resource・型参照が含まれないことを検査します"
     dependsOn(tasks.jar)
     val runtime = configurations.runtimeClasspath
-    inputs.files(tasks.jar.flatMap { it.archiveFile }, runtime)
+    inputs.files(tasks.jar.flatMap { it.archiveFile }, runtime, combatCoreMetadata)
     doLast {
         check(runtime.get().allDependencies.none { it is ProjectDependency && it.path == ":development" }) {
             "通常runtimeがdevelopmentモジュールへ依存しています。"
@@ -638,16 +678,115 @@ val verifyReleaseContents = tasks.register("verifyReleaseContents") {
             check(runtime.get().files.none { it.name.startsWith("sushieric-datamodel-editor-dev-") }) {
                 "正式配布へ開発SushiEricDataModelが混入しています。"
             }
+            check(runtime.get().files.none { it.name.startsWith("sushieric-combat-core-dev-") }) {
+                "正式配布へ開発CombatCoreが混入しています。"
+            }
+            check(runtime.get().files.any { it.name == "sushieric-combat-core-$combatCoreReleaseVersion.jar" }) {
+                "正式版CombatCoreがruntimeにありません: $combatCoreReleaseVersion"
+            }
+        }
+        val dataModelFiles = runtime.get().files.filter { it.name.startsWith("sushieric-datamodel") && it.extension == "jar" }
+        check(dataModelFiles.size == 1) {
+            "runtimeClasspathのSushiEricDataModel JARはEditor用の1つだけである必要があります: ${dataModelFiles.map { it.name }}"
+        }
+        check(runtime.get().files.none { it.name.startsWith("sushieric-datamodel-mod-dev-") }) {
+            "CombatCore経由のMod用SushiEricDataModelがruntimeへ混入しています。"
+        }
+        check(runtime.get().files.none { it.name.startsWith("sushieric-datamodel-") && it.name != dataModelFiles.single().name }) {
+            "runtimeへ複数のSushiEricDataModel実装が混入しています。"
+        }
+        val modelClassJars = mutableMapOf<String, MutableSet<String>>()
+        runtime.get().files.filter { it.extension == "jar" }.forEach { file ->
+            ZipFile(file).use { zip ->
+                zip.entries().asSequence()
+                    .filter { it.name.startsWith("io/github/sushiericworkspace/sushiericdatamodel/") && it.name.endsWith(".class") }
+                    .forEach { entry -> modelClassJars.getOrPut(entry.name) { mutableSetOf() } += file.name }
+            }
+        }
+        check(modelClassJars.none { (_, jars) -> jars.size > 1 }) {
+            "runtime JAR間でSushiEricDataModelクラスが重複しています: ${modelClassJars.filterValues { it.size > 1 }}"
+        }
+        val combatCoreClassJars = mutableMapOf<String, MutableSet<String>>()
+        runtime.get().files.filter { it.extension == "jar" }.forEach { file ->
+            ZipFile(file).use { zip ->
+                zip.entries().asSequence()
+                    .filter { it.name.startsWith("io/github/sushiericworkspace/combatcore/") && it.name.endsWith(".class") }
+                    .forEach { entry -> combatCoreClassJars.getOrPut(entry.name) { mutableSetOf() } += file.name }
+            }
+        }
+        check(combatCoreClassJars.none { (_, jars) -> jars.size > 1 }) {
+            "runtime JAR間でCombatCoreクラスが重複しています: ${combatCoreClassJars.filterValues { it.size > 1 }}"
+        }
+        val actualCoreDataModelCoordinate = resolvedCombatCoreDataModelCoordinate()
+        check(actualCoreDataModelCoordinate == combatCoreDataModelCoordinate) {
+            "CombatCore artifactの実DataModel依存が指定と一致しません: $actualCoreDataModelCoordinate / $combatCoreDataModelCoordinate"
+        }
+        check(dataModelFiles.single().name.contains(combatCoreDataModelCoordinate!!.substringAfterLast(':'))) {
+            "CombatCoreとruntimeのSushiEricDataModel発行版が一致しません: $combatCoreDataModelCoordinate / ${dataModelFiles.single().name}"
+        }
+        combatCoreReleaseVersion?.let { expected ->
+            check(runtime.get().files.any { it.name.startsWith("sushieric-combat-core-$expected") }) {
+                "指定したCombatCore正式版がruntimeにありません: $expected"
+            }
+        }
+        combatCoreDevelopmentCoordinate?.let { expected ->
+            val module = expected.split(':')[1]
+            check(runtime.get().files.any { it.name == "$module-${expected.substringAfterLast(':')}.jar" }) {
+                "指定したCombatCore開発版がruntimeにありません: $expected"
+            }
         }
     }
 }
 
-tasks.check { dependsOn(verifyReleaseContents) }
+val recordCombatCoreDependency = tasks.register("recordCombatCoreDependency") {
+    group = "verification"
+    description = "固定されたCombatCoreとDataModelの座標・hash・ソースcommitを記録します"
+    dependsOn(verifyReleaseContents)
+    val output = layout.buildDirectory.file("reports/combat-core-dependencies.properties")
+    outputs.file(output)
+    inputs.property("dataModelCoordinate", dataModelDependency)
+    inputs.property("combatCoreCoordinate", combatCoreDependency)
+    inputs.property("combatCoreDataModelCoordinate", combatCoreDataModelCoordinate!!)
+    inputs.property("dataModelSourceCommit", developmentInput("dataModelSourceCommit"))
+    inputs.property("combatCoreSourceCommit", developmentInput("combatCoreSourceCommit"))
+    inputs.files(configurations.runtimeClasspath, combatCoreMetadata)
+    doLast {
+        val runtimeFiles = configurations.runtimeClasspath.get().files
+        val metadataFiles = combatCoreMetadata.files
+        val artifacts = (runtimeFiles + metadataFiles).filter {
+            it.name.startsWith("sushieric-combat-core-") || it.name.startsWith("sushieric-datamodel")
+        }.sortedBy { it.name }.distinctBy { it.name }
+        val lines = artifacts.map { file ->
+            val digest = MessageDigest.getInstance("SHA-256")
+                .digest(file.readBytes()).joinToString("") { "%02x".format(it) }
+            "artifact.${file.name}=sha256:$digest"
+        }
+        val dataModelCommit = developmentInput("dataModelSourceCommit").orNull ?: "未指定"
+        val combatCoreCommit = developmentInput("combatCoreSourceCommit").orNull ?: "未指定"
+        check(Regex("[0-9a-f]{40}").matches(dataModelCommit) && Regex("[0-9a-f]{40}").matches(combatCoreCommit)) {
+            "固定artifactの検証記録にはDataModelとCombatCoreの完全なsource commit hashが必要です。"
+        }
+        val actualCoreDataModelCoordinate = resolvedCombatCoreDataModelCoordinate()
+        val coordinates = listOf(
+            "dataModel=$dataModelDependency",
+            "combatCore=$combatCoreDependency",
+            "combatCoreDataModel=$actualCoreDataModelCoordinate",
+            "dataModelSourceCommit=$dataModelCommit",
+            "combatCoreSourceCommit=$combatCoreCommit"
+        )
+        output.get().asFile.apply {
+            parentFile.mkdirs()
+            writeText((coordinates + lines).joinToString("\n") + "\n")
+        }
+    }
+}
+
+tasks.check { dependsOn(verifyReleaseContents, recordCombatCoreDependency) }
 
 val verifyReleaseDistribution = tasks.register("verifyReleaseDistribution") {
     group = "verification"
     description = "installDistの配布用libを検査します"
-    dependsOn("installDist", verifyReleaseContents)
+    dependsOn("installDist", verifyReleaseContents, recordCombatCoreDependency)
     val libs = layout.buildDirectory.dir("install/$appName/lib")
     inputs.dir(libs)
     doLast { verifyDistributionFiles(libs.get().asFile.walkTopDown().filter { it.isFile }.toList()) }

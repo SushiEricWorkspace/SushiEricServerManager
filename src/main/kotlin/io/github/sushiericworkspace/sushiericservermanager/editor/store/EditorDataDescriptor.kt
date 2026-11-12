@@ -1,5 +1,8 @@
 package io.github.sushiericworkspace.sushiericservermanager.editor.store
 
+import org.yaml.snakeyaml.Yaml
+import io.github.sushiericworkspace.sushiericservermanager.editor.shop.ShopEditorStore
+import io.github.sushiericworkspace.sushiericdatamodel.database.host.HostProductRead
 import io.github.sushiericworkspace.sushiericdatamodel.data.core.SushiEricDataType
 import io.github.sushiericworkspace.sushiericdatamodel.data.core.ManagedData
 import io.github.sushiericworkspace.sushiericdatamodel.data.core.validation.SushiEricValidationError
@@ -59,7 +62,8 @@ class EditorDataDescriptor<T : ManagedData<T, *>>(
     /** 保存先の最新定義を必要とする検証。読込失敗では保存を中止します。 */
     val validateInStore: ((T, EditorDataStore) -> StoreResult<List<SushiEricValidationError>>)? = null,
     /** falseならIDはパスだけに由来し、ローカルのID変更でも内容の再出力は不要です。 */
-    val storesIdInFile: Boolean = true
+    val storesIdInFile: Boolean = true,
+    val readProduct: ((HostProductRead) -> T)? = null
 ) {
     /**
      * 保存前に最新のアイテム参照ID集合を取得する必要があるか。
@@ -109,7 +113,15 @@ object EditorDataDescriptors {
 
     val shop = EditorDataDescriptor(
         dataType = SushiEricDataType.Shop,
-        load = { file, directory -> ShopManager.loadMutableProduct(file, directory, emptySet()) },
+        readProduct = ShopEditorStore::mutable,
+        load = { file, directory ->
+            if (!file.isFile) null else {
+                val source = file.inputStream().use { Yaml().load<Any?>(it) }
+                if (source !is Map<*, *>) null
+                else if (source.containsKey("id") || source.containsKey("stock-baseline")) ShopManager.loadEditorBackup(file, emptySet())
+                else ShopManager.loadMutableProduct(file, directory, emptySet())
+            }
+        },
         save = { file, data, itemIds -> ShopManager.saveMutableProduct(file, data, itemIds.orEmpty()) },
         validate = ::validateShopDataForEditor,
         merger = ShopDataMerger,

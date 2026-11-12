@@ -56,6 +56,26 @@ class ManagedManagementTransport(private val session: ManagedSession) : Manageme
     override fun send(request: ServerManagementRequest): Boolean {
         if (session.state != ManagedSession.State.OPEN) return false
         return when (request) {
+            // 商品DBは監督のwriter接続が必要です（.github #64）。
+            is ServerManagementRequest.DatabaseProductRequest -> false
+            is ServerManagementRequest.DatabaseContextRequest,
+            is ServerManagementRequest.DatabaseHistoryStart,
+            is ServerManagementRequest.DatabaseHistoryPage,
+            is ServerManagementRequest.DatabaseHistoryEnd -> session.enqueueIo(buildJsonObject {
+                put("action", "database"); put("message", Json.parseToJsonElement(ServerManagementMessageCodec.encode(request)))
+                put("timeoutSeconds", 15)
+            }, managedSender, result = { result ->
+                try {
+                    check(result["responseAvailable"]?.jsonPrimitive?.booleanOrNull == true)
+                    val response = result["apiResponse"] ?: error("管理DB応答がありません。")
+                    val decoded = ServerManagementMessageCodec.decode(response.toString())
+                    check(decoded is ServerManagementDecodeResult.Success)
+                    listener.onMessage(decoded.message)
+                } catch (error: Exception) { session.holdUnknown(); listener.onError(error) }
+            }, failure = { error ->
+                if (error !is SupervisorFailure || !error.rejectedBeforeEffect) session.holdUnknown()
+                listener.onError(error)
+            })
             is ServerManagementRequest.CommandExecute,
             is ServerManagementRequest.MoneyHistorySave,
             is ServerManagementRequest.AchievementSave,

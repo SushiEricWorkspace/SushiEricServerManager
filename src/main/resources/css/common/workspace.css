@@ -23,4 +23,9 @@
 .workspace-id-tab:hover { -fx-background-color: -fx-hover-color; }
 .workspace-id-tab:selected { -fx-background-color: -fx-selected-color; }
 .workspace-id-tab:focused { -fx-border-color: -fx-accent-color; -fx-border-width: 1px; }
-.workspace-id-close { -fx-padding: 0 4px; }
+.workspace-id-close {
+    -fx-padding: 0 4px;
+    -fx-min-height: 24px;
+    -fx-pref-height: 24px;
+    -fx-max-height: 24px;
+}

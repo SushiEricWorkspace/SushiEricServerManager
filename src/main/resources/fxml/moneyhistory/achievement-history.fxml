@@ -1,8 +1,9 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <?import javafx.scene.control.*?>
 <?import javafx.scene.layout.*?>
+<ScrollPane xmlns:fx="http://javafx.com/fxml/1" fitToWidth="true" fitToHeight="true"  fx:controller="io.github.sushiericworkspace.sushiericservermanager.feature.moneyhistory.AchievementHistoryController">
+<content>
 <VBox xmlns="http://javafx.com/javafx/21.0.1" xmlns:fx="http://javafx.com/fxml/1"
-      fx:controller="io.github.sushiericworkspace.sushiericservermanager.feature.moneyhistory.AchievementHistoryController"
       minWidth="0" spacing="10" styleClass="money-history-content">
     <FlowPane fx:id="playerFilters" minWidth="0" hgap="8" vgap="8" alignment="CENTER_LEFT">
         <Label text="プレイヤー" minWidth="0" styleClass="history-filter-label"  prefWidth="95" maxWidth="${playerFilters.width}" />
@@ -48,3 +49,5 @@
         </columns>
     </TableView>
 </VBox>
+</content>
+</ScrollPane>

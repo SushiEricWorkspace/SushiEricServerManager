@@ -25,7 +25,7 @@ import javafx.scene.control.Label
 import javafx.scene.control.ScrollPane
 import javafx.scene.control.TextArea
 import javafx.scene.control.TextField
-import javafx.scene.layout.BorderPane
+import javafx.scene.Parent
 import javafx.stage.Stage
 import javafx.stage.Window
 import net.schmizz.sshj.SSHClient
@@ -155,7 +155,7 @@ class ServerControlWorkspaceTest {
         }
     }
 
-    private data class Fixture(val stage: Stage, val root: BorderPane, val controller: ServerControlController, val manager: SshManager, val client: SSHClient)
+    private data class Fixture(val stage: Stage, val root: Parent, val controller: ServerControlController, val manager: SshManager, val client: SSHClient)
     private fun withControl(action: (Fixture) -> Unit) {
         val isolated = System.getProperty("sushieric.test.configRoot") ?: error("隔離したGradle testを使用してください")
         assertTrue(Path.of(OS.dataConfigBase).toAbsolutePath().normalize().startsWith(Path.of(isolated).toAbsolutePath().normalize()))
@@ -175,7 +175,7 @@ class ServerControlWorkspaceTest {
                 Mockito.`when`(manager.currentProfile).thenReturn(ServerProfile("fixture258", "fixture.invalid", 22, "fixture", "/fixture", ""))
                 EditorSession.sshManager = manager
                 ServerControlCommandsManager.saveFor("fixture258", ServerControlCommandSet(startCommand="start.sh", stopCommand="stop.sh", restartCommand="restart.sh"))
-                val root = loader.load<BorderPane>(); val controller = loader.getController<ServerControlController>()
+                val root = loader.load<Parent>(); val controller = loader.getController<ServerControlController>()
                 val owner = workspaceStage(width = 900.0).also { stage = it }
                 val view = (owner.scene.root as AppFrame).center as WorkspaceView
                 view.show(WorkspaceFeature.SERVER_CONTROL, root, dispose = controller::dispose)

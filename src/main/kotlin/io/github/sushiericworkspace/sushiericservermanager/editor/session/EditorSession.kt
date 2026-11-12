@@ -92,7 +92,7 @@ object EditorSession {
     fun startOnlineSession() {
         check(connection == null)
         mode = AppMode.ONLINE
-        dataService = EditorDataService(sshManager).also { it.itemReferences.load() }
+        dataService = EditorDataService(sshManager, managementClient).also { it.itemReferences.load() }
         notifications.beginSession(sshManager.currentProfile?.name ?: "オンライン")
 
         autoReconnectEnabled = true

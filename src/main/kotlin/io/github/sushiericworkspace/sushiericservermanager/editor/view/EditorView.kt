@@ -106,7 +106,7 @@ abstract class EditorView<T : ManagedData<T, *>>(
     dataService: EditorDataService,
     dataAccess: EditorDataService.DataAccess<T>
 ) {
-    private val connectedService = dataService
+    protected val connectedService = dataService
     protected var dataService: EditorDataService = dataService.localService
         private set
     protected var dataAccess: EditorDataService.DataAccess<T> = this.dataService.documentAccess(dataAccess.descriptor)

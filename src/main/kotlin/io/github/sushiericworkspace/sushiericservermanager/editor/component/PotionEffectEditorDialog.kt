@@ -1,5 +1,6 @@
 package io.github.sushiericworkspace.sushiericservermanager.editor.component
 
+import io.github.sushiericworkspace.sushiericservermanager.app.WindowSizing
 import io.github.sushiericworkspace.sushiericdatamodel.data.effect.model.EffectLevelSupport
 import io.github.sushiericworkspace.sushiericdatamodel.data.effect.model.EffectTimeSupport
 import io.github.sushiericworkspace.sushiericdatamodel.data.effect.model.MutableLevelLessInstantEffectData
@@ -24,7 +25,6 @@ import javafx.scene.control.Spinner
 import javafx.scene.layout.GridPane
 import javafx.scene.layout.HBox
 import javafx.scene.layout.Region
-import javafx.scene.layout.StackPane
 import javafx.scene.layout.VBox
 import javafx.scene.paint.Color
 import javafx.stage.Modality
@@ -223,7 +223,9 @@ object PotionEffectEditorDialog {
         rebuildEffectList()
         refreshEffectTypeItems()
         stage.scene = Scene(
-            StackPane(contentRoot).apply {
+            ScrollPane(contentRoot).apply {
+                isFitToWidth = true
+                isFitToHeight = true
                 styleClass.add("potion-effect-scene-root")
                 padding = Insets(0.0)
             },
@@ -237,6 +239,7 @@ object PotionEffectEditorDialog {
                     .toExternalForm()
             )
         }
+        WindowSizing.install(stage)
         stage.showAndWait()
     }
 

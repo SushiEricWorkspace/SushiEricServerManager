@@ -20,6 +20,7 @@ import javafx.scene.control.ComboBox
 import javafx.scene.control.CheckBox
 import javafx.scene.control.CustomMenuItem
 import javafx.scene.control.ScrollBar
+import javafx.scene.control.ScrollPane
 import javafx.scene.control.DatePicker
 import javafx.scene.control.Label
 import javafx.scene.control.MenuButton
@@ -99,9 +100,17 @@ class HistoryWorkspaceTest {
             val menu = content.lookup("#typeMenu") as MenuButton
             val filter = (menu.items.first() as CustomMenuItem).content as CheckBox
             filter.fire()
-            val original = menu.text
             assertFalse(filter.isSelected)
-            assertTrue(table(content).items.isEmpty())
+        }
+        awaitFx { table(f.content()).items.isEmpty() }
+        fx {
+            val content = f.content()
+            val from = content.lookup("#fromDate") as DatePicker
+            val time = content.lookup("#fromTime") as TextField
+            val local = AT.atZone(ZoneId.systemDefault())
+            val menu = content.lookup("#typeMenu") as MenuButton
+            val filter = (menu.items.first() as CustomMenuItem).content as CheckBox
+            val original = menu.text
             f.workspace.openHome()
             assertTrue(f.workspace.move(WorkspaceFeature.MONEY_HISTORY, WorkspaceFeature.HOME, DockSide.BOTTOM))
             f.tabs.selectionModel.select(1); f.tabs.selectionModel.select(0)
@@ -144,8 +153,10 @@ class HistoryWorkspaceTest {
                     override fun readText(relativePath: String): StoreResult<String> {
                         if (!relativePath.startsWith("shop_history/")) return memory.readText(relativePath)
                         worker.set(Thread.currentThread()); started.countDown()
-                        assertTrue(released.await(10, TimeUnit.SECONDS))
-                        return memory.readText(relativePath).also { completed.countDown() }
+                        return try {
+                            assertTrue(released.await(10, TimeUnit.SECONDS))
+                            memory.readText(relativePath)
+                        } finally { completed.countDown() }
                     }
                 }
             }) { f ->
@@ -213,7 +224,11 @@ class HistoryWorkspaceTest {
         } finally { fx { controller?.dispose(); stage?.close() }; client.disconnect() }
     }
     private fun descendants(node: Node): List<Node> =
-        listOf(node) + if (node is Parent) node.childrenUnmodifiable.flatMap(::descendants) else emptyList()
+        listOf(node) + when (node) {
+            is ScrollPane -> node.content?.let(::descendants).orEmpty()
+            is Parent -> node.childrenUnmodifiable.flatMap(::descendants)
+            else -> emptyList()
+        }
     private fun table(root: Parent): TableView<*> = descendants(root).filterIsInstance<TableView<*>>().single()
     private fun startFx() {
         val isolated = System.getProperty("sushieric.test.configRoot") ?: error("隔離したGradle testを使用してください")

@@ -5,8 +5,7 @@
 <?import javafx.scene.control.Label?>
 <?import javafx.scene.control.ProgressIndicator?>
 <?import javafx.scene.control.ScrollPane?>
-<?import javafx.scene.layout.HBox?>
-<?import javafx.scene.layout.Region?>
+<?import javafx.scene.layout.FlowPane?>
 <?import javafx.scene.layout.StackPane?>
 <?import javafx.scene.layout.VBox?>
 
@@ -21,9 +20,8 @@
                 <Insets bottom="24.0" left="24.0" right="24.0" top="24.0"/>
             </padding>
 
-            <HBox alignment="CENTER_LEFT" spacing="12.0" styleClass="server-select-header">
+            <FlowPane alignment="CENTER_LEFT" hgap="12.0" vgap="8.0" styleClass="server-select-header">
                 <Label styleClass="server-select-title" text="サーバー選択"/>
-                <Region HBox.hgrow="ALWAYS"/>
                 <Button focusTraversable="false" mnemonicParsing="false"
                         onAction="#handleReturnToModeSelect"
                         styleClass="button, btn-secondary, server-mode-select-button"
@@ -32,7 +30,7 @@
                         onAction="#openCreateServerWindow"
                         styleClass="button, btn-primary, server-add-button"
                         text="サーバーを追加"/>
-            </HBox>
+            </FlowPane>
 
             <Label maxWidth="1.7976931348623157E308"
                    styleClass="server-select-description"

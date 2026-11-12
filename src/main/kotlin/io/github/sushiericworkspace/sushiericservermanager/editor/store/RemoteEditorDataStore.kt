@@ -1,5 +1,9 @@
 package io.github.sushiericworkspace.sushiericservermanager.editor.store
 
+import io.github.sushiericworkspace.sushiericservermanager.editor.shop.ShopEditorStore
+import io.github.sushiericworkspace.sushiericdatamodel.data.shop.model.mutable.MutableShopProductData
+import io.github.sushiericworkspace.sushiericservermanager.feature.moneyhistory.SshHistorySource
+import io.github.sushiericworkspace.sushiericservermanager.feature.moneyhistory.HistorySource
 import io.github.sushiericworkspace.sushiericdatamodel.path.SushiEricDataDirectory
 import io.github.sushiericworkspace.sushiericdatamodel.data.core.ManagedData
 import io.github.sushiericworkspace.sushiericdatamodel.data.core.identity.PublicId
@@ -14,11 +18,22 @@ import kotlin.io.path.createTempFile
 import kotlin.io.path.createTempDirectory
 
 class RemoteEditorDataStore(
-    private val ssh: SshManager
+    private val ssh: SshManager,
+    override val shopProducts: ShopEditorStore? = null
 ) : EditorDataStore {
     private val logger = LoggerFactory.getLogger(javaClass)
 
     override val kind: EditorDataStoreKind = EditorDataStoreKind.REMOTE
+    override val connectionIdentity: Any get() = ssh.sshClient ?: ssh
+
+    override val historySource: HistorySource?
+        get() = ssh.currentProfile?.databaseHistory?.let { configuration ->
+            val client = requireNotNull(ssh.sshClient) { "SSH接続が終了しました。" }
+            SshHistorySource({
+                check(ssh.sshClient === client && client.isConnected) { "検索元のSSH接続が終了・変更されました。" }
+                client
+            }, configuration.commandLine, configuration.worldUuid)
+        }
 
     override val identity: String
         get() = ssh.currentProfile?.name ?: "remote"
@@ -71,6 +86,9 @@ class RemoteEditorDataStore(
 
     override fun writeText(relativePath: String, text: String): StoreResult<Unit> {
         writeDenied()?.let { return it }
+        if (relativePath.equals("shop_data", ignoreCase = true) || relativePath.startsWith("shop_data/", ignoreCase = true)) {
+            return failure(StoreErrorCode.UNSUPPORTED_FORMAT, relativePath, "商品定義と在庫はD3で保存してください。")
+        }
         val remotePath = resolveRemotePath(relativePath)
             ?: return failure(StoreErrorCode.INVALID_ID, relativePath)
         if (!ssh.isSftpActive) return failure(StoreErrorCode.STORE_UNAVAILABLE, relativePath)
@@ -169,6 +187,15 @@ class RemoteEditorDataStore(
             ?: return failure(StoreErrorCode.PROFILE_NOT_SELECTED, id)
         if (!ssh.isSftpActive) return failure(StoreErrorCode.STORE_UNAVAILABLE, id)
 
+        descriptor.readProduct?.let { decode ->
+            val path = Utility.getFullRemotePath(profile, descriptor.dataType.pathOf(id))
+            if (!ssh.exists(path)) return failure(StoreErrorCode.FILE_NOT_FOUND, id)
+            val products = shopProducts ?: return failure(StoreErrorCode.STORE_UNAVAILABLE, id, "商品DB接続が必要です。")
+            return when (val loaded = products.load(id)) {
+                is StoreResult.Success -> StoreResult.Success(decode(loaded.value))
+                is StoreResult.Failure -> loaded
+            }
+        }
         val remotePath = Utility.getFullRemotePath(profile, descriptor.dataType.pathOf(id))
         val tempRoot = createTempDirectory("remote_load_").toFile()
         val tempFile = descriptor.dataType.pathOf(id).resolve(tempRoot)
@@ -206,6 +233,9 @@ class RemoteEditorDataStore(
             ?: return failure(StoreErrorCode.PROFILE_NOT_SELECTED, id)
         if (!ssh.isSftpActive) return failure(StoreErrorCode.STORE_UNAVAILABLE, id)
 
+        if (data is MutableShopProductData) {
+            return shopProducts?.save(data, null) ?: failure(StoreErrorCode.STORE_UNAVAILABLE, id, "商品DB接続が必要です。")
+        }
         val remotePath = Utility.getFullRemotePath(profile, descriptor.dataType.pathOf(id))
         val tempFile = createTempFile("remote_save_", ".yml").toFile()
 
@@ -241,6 +271,7 @@ class RemoteEditorDataStore(
         newName: String
     ): StoreResult<Unit> {
         writeDenied()?.let { return it }
+        if (descriptor.readProduct != null) return failure(StoreErrorCode.UNSUPPORTED_FORMAT, detail = "商品操作にはD3の親要求を使用してください。")
         if (!StorePathValidator.isValidId(oldId) || !StorePathValidator.isValidName(newName)) {
             return failure(StoreErrorCode.INVALID_ID, newName)
         }
@@ -257,6 +288,7 @@ class RemoteEditorDataStore(
         targetDirectory: String
     ): StoreResult<String> {
         writeDenied()?.let { return it }
+        if (descriptor.readProduct != null) return failure(StoreErrorCode.UNSUPPORTED_FORMAT, detail = "商品操作にはD3の親要求を使用してください。")
         if (!StorePathValidator.isValidId(id) ||
             !StorePathValidator.isValidDirectory(targetDirectory)
         ) {
@@ -306,6 +338,7 @@ class RemoteEditorDataStore(
         directory: String
     ): StoreResult<Unit> {
         writeDenied()?.let { return it }
+        if (descriptor.readProduct != null) return failure(StoreErrorCode.UNSUPPORTED_FORMAT, detail = "商品操作にはD3の親要求を使用してください。")
         if (!StorePathValidator.isValidDirectory(directory, allowRoot = false)) {
             return failure(StoreErrorCode.INVALID_ID, directory)
         }
@@ -326,6 +359,7 @@ class RemoteEditorDataStore(
         directory: String
     ): StoreResult<Unit> {
         writeDenied()?.let { return it }
+        if (descriptor.readProduct != null) return failure(StoreErrorCode.UNSUPPORTED_FORMAT, detail = "商品操作にはD3の親要求を使用してください。")
         if (!StorePathValidator.isValidDirectory(directory, allowRoot = false)) {
             return failure(StoreErrorCode.INVALID_ID, directory)
         }
@@ -392,6 +426,7 @@ class RemoteEditorDataStore(
         id: String
     ): StoreResult<Unit> {
         writeDenied()?.let { return it }
+        if (descriptor.readProduct != null) return failure(StoreErrorCode.UNSUPPORTED_FORMAT, detail = "商品操作にはD3の親要求を使用してください。")
         if (!StorePathValidator.isValidId(id) || !descriptor.isValidId(id)) {
             return failure(StoreErrorCode.INVALID_ID, id)
         }

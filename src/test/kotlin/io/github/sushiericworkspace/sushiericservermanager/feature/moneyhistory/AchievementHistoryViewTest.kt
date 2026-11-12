@@ -50,7 +50,7 @@ class AchievementHistoryViewTest {
             val root = loader.load<Parent>()
             val controller = loader.getController<AchievementHistoryController>()
             controller.initialize(store, ServerManagementClient())
-            val table = root.lookup("#historyTable") as? TableView<AchievementHistoryRow>
+            val table = loader.namespace["historyTable"] as? TableView<AchievementHistoryRow>
                 ?: error("実績履歴テーブルが見つかりませんでした。")
             table.items.addListener(ListChangeListener { if (table.items.size == 2) loaded.countDown() })
             Stage().apply {

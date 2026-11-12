@@ -1,5 +1,6 @@
 package io.github.sushiericworkspace.sushiericservermanager.ui.dialog
 
+import io.github.sushiericworkspace.sushiericservermanager.app.WindowSizing
 import io.github.sushiericworkspace.sushiericservermanager.app.AppScreen
 import io.github.sushiericworkspace.sushiericservermanager.config.FilePath
 import io.github.sushiericworkspace.sushiericservermanager.update.AppVersion
@@ -8,6 +9,7 @@ import io.github.sushiericworkspace.sushiericservermanager.update.UpdateCheckRes
 import io.github.sushiericworkspace.sushiericservermanager.update.UpdateDownloader
 import io.github.sushiericworkspace.sushiericservermanager.update.Updater
 import io.github.sushiericworkspace.sushiericservermanager.update.Updaters
+import javafx.scene.control.ScrollPane
 import javafx.application.Platform
 import javafx.concurrent.Task
 import javafx.concurrent.WorkerStateEvent
@@ -118,9 +120,10 @@ object UpdateDialog {
             }
         }
 
-        stage.scene = Scene(root).apply {
+        stage.scene = Scene(ScrollPane(root).apply { isFitToWidth = true; isFitToHeight = true }).apply {
             UpdateDialog::class.java.getResource(AppScreen.WIDGETS_ONLY.css)?.toExternalForm()?.let(stylesheets::add)
         }
+        WindowSizing.install(stage)
         stage.showAndWait()
         return outcome
     }

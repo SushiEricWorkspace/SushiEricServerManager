@@ -20,6 +20,7 @@ import io.github.sushiericworkspace.sushiericservermanager.editor.view.EditorWin
 import io.github.sushiericworkspace.sushiericservermanager.feature.console.ConsoleWindowManager
 import io.github.sushiericworkspace.sushiericservermanager.feature.dashboard.DashboardWindowManager
 import io.github.sushiericworkspace.sushiericservermanager.feature.dashboard.DashboardFormat
+import io.github.sushiericworkspace.sushiericservermanager.feature.simulator.SimulatorWindowManager
 import io.github.sushiericworkspace.sushiericservermanager.feature.modconfig.ModConfigWindowManager
 import io.github.sushiericworkspace.sushiericservermanager.feature.servercontrol.ServerControlWindowManager
 import io.github.sushiericworkspace.sushiericservermanager.feature.moneyhistory.MoneyHistoryWindowManager
@@ -77,6 +78,7 @@ class HomeController internal constructor(
     @FXML private lateinit var monitorLabel: Label
     @FXML private lateinit var consoleButton: Button
     @FXML private lateinit var historyButton: Button
+    @FXML private lateinit var editorToolsPane: VBox
     @FXML private lateinit var dashboardButton: Button
     @FXML private lateinit var serverControlButton: Button
     @FXML private lateinit var modeSelectButton: Button
@@ -179,6 +181,10 @@ class HomeController internal constructor(
 
 
         val online = mode == AppMode.ONLINE
+        if (!online) {
+            onlineToolsPane.children.remove(historyButton)
+            editorToolsPane.children.add(historyButton)
+        }
         val compatibility = EditorSession.connection?.compatibility ?: sshManager.compatibility
         compatibilityLabel.text = compatibility.message
         compatibilityLabel.isVisible = online
@@ -189,8 +195,8 @@ class HomeController internal constructor(
         updateButton.isManaged = updateRequired
         consoleButton.isManaged = online
         consoleButton.isVisible = online
-        historyButton.isManaged = online
-        historyButton.isVisible = online
+        historyButton.isManaged = true
+        historyButton.isVisible = true
         dashboardButton.isManaged = online
         dashboardButton.isVisible = online
         serverControlButton.isManaged = online && EditorSession.connection == null
@@ -377,6 +383,13 @@ class HomeController internal constructor(
         ConsoleWindowManager.open()
     }
 
+    /** オンラインでもサーバーへ書き込まない手動シミュレーターを開きます。 */
+    @FXML
+    @Suppress("unused")
+    fun onOpenSimulator() {
+        SimulatorWindowManager.open(rootPane.scene?.window)
+    }
+
     /** サーバー状態のDashboardを開きます。 */
     @FXML
     @Suppress("unused")
@@ -418,7 +431,6 @@ class HomeController internal constructor(
     @FXML
     @Suppress("unused")
     fun onOpenMoneyHistory() {
-        if (EditorSession.mode != AppMode.ONLINE) return
         val service = EditorSession.dataService ?: return
         MoneyHistoryWindowManager.open(service.store)
     }

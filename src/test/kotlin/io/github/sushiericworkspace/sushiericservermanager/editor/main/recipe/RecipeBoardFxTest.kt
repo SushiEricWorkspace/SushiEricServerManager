@@ -392,7 +392,7 @@ private fun captureRecipeReview(window: Window, board: RecipeBoardView, title: S
             check(active.get() && captureActive.get() && System.nanoTime() < deadline)
             assertTrue(window.isShowing); assertSame(scene, window.scene)
             val side = assertIs<VBox>(board.parent)
-            val scroll = generateSequence(side.parent) { it.parent }.filterIsInstance<ScrollPane>().single()
+            val scroll = generateSequence(side.parent) { it.parent }.filterIsInstance<ScrollPane>().first()
             val viewport = assertNotNull(scroll.lookup(".viewport"))
             val targets = recipeReviewTargets(board, title, count)
             val visible = targets.filter { node -> viewport.layoutBounds.contains(viewport.sceneToLocal(node.localToScene(node.layoutBounds))) }.toSet()
@@ -418,7 +418,7 @@ private fun captureRecipeReview(window: Window, board: RecipeBoardView, title: S
             scene.root.layout()
             check(active.get() && captureActive.get() && System.nanoTime() < deadline)
             val side = assertIs<VBox>(board.parent)
-            val scroll = generateSequence(side.parent) { it.parent }.filterIsInstance<ScrollPane>().single()
+            val scroll = generateSequence(side.parent) { it.parent }.filterIsInstance<ScrollPane>().first()
             val content = scroll.content
             val bounds = content.sceneToLocal(side.localToScene(side.layoutBounds))
             val height = content.layoutBounds.height - scroll.viewportBounds.height

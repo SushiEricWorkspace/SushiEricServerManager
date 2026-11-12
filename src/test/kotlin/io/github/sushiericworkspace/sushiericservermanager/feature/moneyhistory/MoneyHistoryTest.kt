@@ -144,9 +144,9 @@ class MoneyHistoryTest {
     }
 
     @Test
-    fun `種別の列挙名はServerModの履歴ファイルの値と同じで、表示名は重複しない`() {
+    fun `DB履歴種別の列挙名と表示名を維持する`() {
         assertEquals(
-            setOf("PAY_SENT", "PAY_RECEIVED", "ADMIN_SET", "ADMIN_ADD", "ADMIN_REMOVE", "SHOP_BUY", "SHOP_SELL"),
+            setOf("PAY_SENT", "PAY_RECEIVED", "ADMIN_SET", "ADMIN_ADD", "ADMIN_REMOVE", "SHOP_BUY", "SHOP_SELL", "UPGRADE"),
             MoneyHistoryType.entries.map { it.name }.toSet()
         )
         assertEquals(MoneyHistoryType.entries.size, MoneyHistoryType.entries.map { it.displayName }.toSet().size)
