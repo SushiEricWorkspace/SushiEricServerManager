@@ -9,6 +9,7 @@ import javafx.scene.control.ScrollPane
 import javafx.scene.control.Button
 import javafx.scene.control.Label
 import javafx.scene.control.TextField
+import javafx.scene.layout.Region
 import javafx.scene.layout.HBox
 import javafx.scene.layout.VBox
 import javafx.stage.Modality
@@ -35,12 +36,10 @@ object ValidatedInputDialog {
         val inputField = TextField()
         val errorLabel = Label().apply {
             styleClass.add("error-label")
-            /*
-             * 長いメッセージを1行で表示すると見切れるため折り返す。
-             * 折り返し幅を確定させるためダイアログ幅を上限にする。
-             */
             isWrapText = true
-            maxWidth = DIALOG_WIDTH
+            minHeight = Region.USE_PREF_SIZE
+            prefWidth = DIALOG_WIDTH - 40.0
+            maxWidth = DIALOG_WIDTH - 40.0
             isManaged = false
             isVisible = false
         }

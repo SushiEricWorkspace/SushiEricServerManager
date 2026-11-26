@@ -655,7 +655,7 @@ class ItemEditorLogic(
         if (main.mainContentContainer.children.isEmpty()) {
             val editorPane = VBox(12.0).apply {
                 styleClass.add("editor-content-pane")
-                minWidth = 420.0
+                minWidth = Region.USE_PREF_SIZE
                 maxWidth = Double.MAX_VALUE
                 maxHeight = Double.MAX_VALUE
                 children.addAll(
@@ -665,11 +665,20 @@ class ItemEditorLogic(
                 )
                 VBox.setVgrow(treeView, Priority.ALWAYS)
             }
-            HBox.setHgrow(editorPane, Priority.ALWAYS)
+            val editorScrollPane = ScrollPane(editorPane).apply {
+                styleClass.add("editor-form-scroll")
+                minWidth = 200.0
+                minHeight = 0.0
+                hbarPolicy = ScrollPane.ScrollBarPolicy.AS_NEEDED
+                vbarPolicy = ScrollPane.ScrollBarPolicy.NEVER
+                isFitToHeight = true
+                isFitToWidth = true
+            }
+            HBox.setHgrow(editorScrollPane, Priority.ALWAYS)
             HBox.setHgrow(previewScrollPane, Priority.SOMETIMES)
 
             main.mainContentContainer.children.addAll(
-                editorPane,
+                editorScrollPane,
                 previewScrollPane
             )
         }

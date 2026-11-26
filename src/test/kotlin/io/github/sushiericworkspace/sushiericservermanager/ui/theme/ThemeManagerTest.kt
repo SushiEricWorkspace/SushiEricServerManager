@@ -21,6 +21,8 @@ import javafx.scene.layout.HeaderBar
 import javafx.scene.layout.VBox
 import javafx.scene.paint.Color
 import javafx.stage.Stage
+import javafx.stage.StageStyle
+import io.github.sushiericworkspace.sushiericservermanager.app.ApplicationFlow
 import javafx.stage.Window
 import java.nio.file.Path
 import java.util.concurrent.CountDownLatch
@@ -47,6 +49,7 @@ class ThemeManagerTest {
                     listOf(owner.scene, alert.dialogPane.scene, tooltip.scene).forEach { scene ->
                         scene.root.applyCss(); scene.root.layout()
                         assertTrue(scene.root.styleClass.contains("theme-${theme.name.lowercase()}"))
+                        assertEquals(if (theme == AppTheme.LIGHT) ColorScheme.LIGHT else ColorScheme.DARK, scene.preferences.colorScheme)
                     }
                     assertEquals(text, label.textFill)
                     assertEquals(text, (alert.dialogPane.lookup(".content.label") as Label).textFill)
@@ -237,6 +240,29 @@ class ThemeManagerTest {
                 }
             }
         } finally { fx { stage.close(); ThemeManager.select(originalTheme); AppSettingsManager.save(previous) } }
+    }
+
+    @Test
+    fun `起動準備のSceneは表示前から保存した配色で塗られる`() {
+        startFx()
+        val previous = AppSettingsManager.load()
+        val originalTheme = fx { ThemeManager.current }
+        try {
+            for (theme in AppTheme.entries) fx {
+                assertTrue(ThemeManager.select(theme))
+                val stage = Stage()
+                try {
+                    ApplicationFlow.showPreparing(stage, "オフラインデータを確認しています...")
+                    val expected = Color.web(if (theme == AppTheme.LIGHT) "#f7f7f7" else "#121314")
+                    assertEquals(expected, stage.scene.fill)
+                    assertEquals(expected, (stage.scene.root as javafx.scene.layout.Region).background.fills.last().fill)
+                    stage.show()
+                    assertEquals(StageStyle.EXTENDED, stage.style)
+                    assertEquals(if (theme == AppTheme.LIGHT) ColorScheme.LIGHT else ColorScheme.DARK,
+                        HeaderBar.getSystemColorScheme(stage))
+                } finally { stage.close() }
+            }
+        } finally { fx { ThemeManager.select(originalTheme); AppSettingsManager.save(previous) } }
     }
 
     private fun await(diagnostic: (() -> String)? = null, condition: () -> Boolean) {

@@ -33,11 +33,13 @@ import javafx.scene.input.KeyCode
 import io.github.sushiericworkspace.sushiericservermanager.ui.shortcut.EditorShortcut
 import io.github.sushiericworkspace.sushiericservermanager.ui.shortcut.ShortcutManager
 import javafx.fxml.FXMLLoader
+import javafx.scene.Node
 import javafx.scene.Parent
 import javafx.scene.Scene
 import javafx.scene.control.Button
 import javafx.scene.control.ButtonBar
 import javafx.scene.control.DialogPane
+import javafx.scene.control.ScrollPane
 import javafx.scene.control.Label
 import javafx.scene.control.ProgressIndicator
 import javafx.scene.layout.VBox
@@ -62,6 +64,32 @@ class EditorSingleSaveTest {
         verifySave(EditorDataDescriptors.ore)
         verifySave(EditorDataDescriptors.shop)
         verifySave(EditorDataDescriptors.recipe)
+    }
+
+    @Test
+    fun 新規レシピの保存確認は単件と一括とも前回保存の盤面を表示しない() {
+        for (all in listOf(false, true)) withFixture(EditorDataDescriptors.recipe) { fixture ->
+            val data = EditorDataDescriptors.recipe.createDefault("new_recipe")
+            fx { fixture.logic.restoreOriginal(); fixture.logic.add(data, data.deepCopy()); fixture.logic.create(data.id) }
+            fixture.cancel = true
+            val checked = java.util.concurrent.atomic.AtomicBoolean()
+            fixture.onDialog = { pane ->
+                if (pane.buttonTypes.any { it.text == if (all) "すべて保存" else "保存" }) {
+                    fun labels(node: Node): List<Label> = when (node) {
+                        is Label -> listOf(node)
+                        is ScrollPane -> labels(node.content)
+                        is Parent -> node.childrenUnmodifiable.flatMap(::labels)
+                        else -> emptyList()
+                    }
+                    val text = labels(pane).map { it.text }
+                    assertTrue("前回保存データはありません" in text)
+                    assertFalse(text.any { it.startsWith("前回保存:") })
+                    checked.set(true)
+                }
+            }
+            if (all) saveAll(fixture) else save(fixture, data.id)
+            assertTrue(checked.get(), "保存確認を検証していません")
+        }
     }
 
     private fun <T : ManagedData<T, *>> verifySave(descriptor: EditorDataDescriptor<T>) = withFixture(descriptor) { fixture ->
@@ -1437,7 +1465,7 @@ class EditorSingleSaveTest {
         fun backup(): CompletableFuture<Boolean> = CompletableFuture<Boolean>().also { done ->
             executeAutoSave { done.complete(it) }
         }
-        fun create() { stageDataCreation(current().id) }
+        fun create(id: String = current().id) { stageDataCreation(id) }
         fun pendingId(id: String): Boolean = hasPendingStoreOperation(id)
         fun pending(): Boolean = hasPendingStoreOperation(current().id)
         var sidebarRefreshes = 0

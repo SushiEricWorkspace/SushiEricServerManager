@@ -10,6 +10,8 @@ import javafx.fxml.FXMLLoader
 import javafx.scene.Parent
 import javafx.scene.control.Button
 import javafx.scene.control.TextField
+import javafx.scene.control.Label
+import javafx.scene.text.Text
 import javafx.stage.Modality
 import javafx.stage.Screen
 import javafx.stage.Stage
@@ -88,6 +90,10 @@ class ValidatedInputDialogTest {
                                         PauseTransition(Duration.millis(250.0)).apply {
                                             setOnFinished {
                                                 checkDialog {
+                                                    shown.scene.root.applyCss(); shown.scene.root.layout()
+                                                    val message = shown.scene.lookup(".error-label") as Label
+                                                    assertTrue(message.height >= message.prefHeight(message.width) - 1.0)
+                                                    assertEquals(message.text, (message.lookup(".text") as Text).text)
                                                     assertEquals(x, shown.x, 3.0)
                                                     assertEquals(y, shown.y, 3.0)
                                                     input.text = "new_data"

@@ -1642,7 +1642,7 @@ abstract class EditorView<T : ManagedData<T, *>>(
                     .header("以下の変更をまとめてストアへ反映します（${prepared.size} 件）")
                     .content(details).scrollableContent()
                     .additionalContent(VBox(12.0).apply { prepared.forEach { entry ->
-                        children += savePreviewContent(entry.original, entry.previewData)
+                        children += savePreviewContent(entry)
                     } }).okButton("すべて保存", Color.DODGERBLUE)
                     .owner(main.currentStage).show()) persist(0)
             else { notExecuted += prepared.map { it.dataId }; finish() }
@@ -1686,10 +1686,12 @@ abstract class EditorView<T : ManagedData<T, *>>(
         return editing != saved || pendingStoreOperations[id] != null || inputDrafts[documentKey(id)].orEmpty() != savedInputDrafts[documentKey(id)].orEmpty()
     }
 
-    private fun savePreviewContent(before: T?, current: T) = dataService.itemReferences.snapshot.let { snapshot ->
+    private fun savePreviewContent(prepared: PreparedSave<T>) = dataService.itemReferences.snapshot.let { snapshot ->
+        val before = prepared.original.takeUnless { prepared.operation is PendingStoreOperation.Create }
         val items = snapshot.byInternalId.takeIf { snapshot.status == ItemReferenceStatus.READY }
-        VBox(12.0, recipeDataReview("前回保存", before, items, dataService.itemPreviews),
-            recipeDataReview("編集・保存予定", current, items, dataService.itemPreviews))
+        VBox(12.0, before?.let { recipeDataReview("前回保存", it, items, dataService.itemPreviews) }
+            ?: Label("前回保存データはありません"),
+            recipeDataReview("編集・保存予定", prepared.previewData, items, dataService.itemPreviews))
     }
 
     private fun confirmSaveChanges(prepared: PreparedSave<T>): Boolean {
@@ -1709,7 +1711,7 @@ abstract class EditorView<T : ManagedData<T, *>>(
             .header("以下の変更をローカルに保存します")
             .content(details)
             .scrollableContent()
-            .additionalContent(savePreviewContent(prepared.original, prepared.previewData))
+            .additionalContent(savePreviewContent(prepared))
             .okButton("保存", Color.DODGERBLUE)
             .owner(main.currentStage)
             .show()

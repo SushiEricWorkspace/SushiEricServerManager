@@ -16,10 +16,12 @@ import io.github.sushiericworkspace.sushiericservermanager.ui.theme.ThemeManager
 import javafx.application.Platform
 import javafx.fxml.FXMLLoader
 import javafx.scene.Parent
-import javafx.scene.Scene
+import io.github.sushiericworkspace.sushiericservermanager.util.Utility
 import javafx.scene.image.Image
 import javafx.scene.image.ImageView
 import javafx.scene.control.ScrollPane
+import javafx.scene.control.ScrollBar
+import javafx.geometry.Orientation
 import javafx.stage.Stage
 import net.kyori.adventure.key.Key
 import net.kyori.adventure.text.Component
@@ -51,7 +53,7 @@ class PreviewCanvasFxTest {
                 TextDecoration.STRIKETHROUGH, TextDecoration.OBFUSCATED)
         val originalHash = componentHash(source)
         val data = MutableItemBaseData(id = "preview.fx")
-        data.display.displayName = "Preview 日本語"
+        data.display.displayName = "長い表示名と未対応文字 𝕏🍣".repeat(12)
         data.display.mutableLore.add(mutableListOf(MutableCustomComponentLoreSection(source)))
         val memory = InMemoryEditorDataStore()
         assertIs<StoreResult.Success<Unit>>(memory.save(EditorDataDescriptors.item, data.id, data))
@@ -65,7 +67,7 @@ class PreviewCanvasFxTest {
                 val loader = FXMLLoader(javaClass.getResource(AppScreen.BASE.fxml!!))
                 val root = loader.load<Parent>()
                 val controller = loader.getController<MainController>()
-                stage = Stage().apply { scene = Scene(root, 1300.0, 900.0); show() }
+                stage = Stage().apply { scene = Utility.createScene(AppScreen.BASE, 1300.0, 900.0, root); show() }
                 editor = ItemEditorLogic(controller, service).also {
                     it.setupActions(controller.actionButtonContainer)
                     it.start()
@@ -79,7 +81,7 @@ class PreviewCanvasFxTest {
                 }
             }
             val imageView = fx {
-                assertIs<ImageView>(main.mainContentContainer.children.filterIsInstance<ScrollPane>().single().content)
+                assertIs<ImageView>(main.mainContentContainer.children.filterIsInstance<ScrollPane>().single { it.content is ImageView }.content)
             }
             for (theme in AppTheme.entries) fx {
                 assertTrue(ThemeManager.select(theme))
@@ -94,6 +96,33 @@ class PreviewCanvasFxTest {
                 System.out.println("PREVIEW_FX actualOutputScale=${window.outputScaleX},${window.outputScaleY} theme=$theme")
                 export(image, "editor-preview-${theme.name.lowercase()}")
                 export(window.scene.snapshot(null), "editor-${theme.name.lowercase()}")
+            }
+            for (theme in AppTheme.entries) {
+                fx {
+                    ThemeManager.select(theme)
+                    stage!!.width = 1000.0
+                    stage.height = 650.0
+                }
+                Thread.sleep(250)
+                fx {
+                    val window = assertNotNull(stage)
+                    val root = window.scene.root
+                    root.applyCss(); root.layout()
+                    val preview = main.mainContentContainer.children.filterIsInstance<ScrollPane>().single { it.content === imageView }
+                    val form = main.mainContentContainer.children.filterIsInstance<ScrollPane>().single { it !== preview }
+                    assertTrue(imageView.boundsInLocal.width > preview.viewportBounds.width)
+                    for (scroll in listOf(form, preview)) {
+                        val bar = scroll.lookupAll(".scroll-bar").filterIsInstance<ScrollBar>().single { it.parent === scroll && it.orientation == Orientation.HORIZONTAL }
+                        assertTrue(bar.isVisible && bar.opacity == 1.0 && bar.height >= 12.0)
+                        scroll.hvalue = scroll.hmax
+                        root.layout()
+                        val viewport = scroll.lookup(".viewport")
+                        val area = viewport.localToScene(viewport.layoutBounds)
+                        val content = scroll.content.localToScene(scroll.content.layoutBounds)
+                        assertTrue(content.maxX <= area.maxX + 2.0, "右端へ到達できません: $content / $area")
+                    }
+                    export(window.scene.snapshot(null), "editor-narrow-$theme")
+                }
             }
             fx { PreviewCanvas(data, imageView).refreshPreview() }
             val component = data.display.mutableLore.single().single().toComponent()

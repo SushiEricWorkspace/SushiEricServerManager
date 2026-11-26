@@ -313,3 +313,11 @@
 .tree-inline-button-remove:pressed {
     -fx-background-color: -fx-selected-color;
 }
+
+.editor-form-scroll > .scroll-bar:horizontal,
+.editor-preview-scroll > .scroll-bar:horizontal {
+    -fx-opacity: 1;
+    -fx-min-height: 12px;
+    -fx-pref-height: 12px;
+    -fx-max-height: 12px;
+}

@@ -9,6 +9,7 @@ import javafx.collections.ListChangeListener
 import javafx.scene.Node
 import javafx.scene.Scene
 import javafx.scene.control.ScrollPane
+import javafx.scene.paint.Color
 import javafx.scene.layout.HeaderBar
 import javafx.stage.Stage
 import javafx.stage.Window
@@ -64,6 +65,8 @@ object ThemeManager {
         }
         scene.root.styleClass.removeAll("theme-light", "theme-dark")
         scene.root.styleClass.add(if (current == AppTheme.LIGHT) "theme-light" else "theme-dark")
+        scene.preferences.colorScheme = if (current == AppTheme.LIGHT) ColorScheme.LIGHT else ColorScheme.DARK
+        scene.fill = Color.web(if (current == AppTheme.LIGHT) "#f7f7f7" else "#121314")
         (scene.window as? Stage)?.let {
             HeaderBar.setSystemColorScheme(it, if (current == AppTheme.LIGHT) ColorScheme.LIGHT else ColorScheme.DARK)
         }
