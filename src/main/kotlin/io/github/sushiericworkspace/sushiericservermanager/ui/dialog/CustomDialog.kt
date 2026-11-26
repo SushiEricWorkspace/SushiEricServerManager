@@ -2,11 +2,13 @@ package io.github.sushiericworkspace.sushiericservermanager.ui.dialog
 
 import io.github.sushiericworkspace.sushiericservermanager.util.Utility.applyCommonStyle
 import io.github.sushiericworkspace.sushiericservermanager.util.toCssHex
+import javafx.geometry.Insets
 import javafx.scene.Node
 import javafx.scene.control.ScrollPane
 import javafx.application.Platform
 import javafx.scene.control.*
 import javafx.scene.layout.VBox
+import javafx.scene.layout.Region
 import javafx.scene.paint.Color
 import javafx.stage.Modality
 import javafx.stage.Stage
@@ -166,7 +168,7 @@ class CustomDialog private constructor(private val type: Alert.AlertType) {
 
                 this@CustomDialog.additional?.let { extra ->
                     val body = dialogPane.content ?: Label(this@CustomDialog.contentText).apply { isWrapText = true }
-                    dialogPane.content = ScrollPane(VBox(8.0, body, extra)).apply {
+                    dialogPane.content = ScrollPane(VBox(8.0, body, extra).apply { padding = Insets(12.0) }).apply {
                         isFitToWidth = true
                         prefViewportWidth = 760.0
                         prefViewportHeight = 560.0
@@ -191,6 +193,11 @@ class CustomDialog private constructor(private val type: Alert.AlertType) {
 
                     val okButton = dialogPane.lookupButton(okButtonType) as Button
                     val cancelButton = dialogPane.lookupButton(cancelButtonType) as Button
+                    for (button in listOf(okButton, cancelButton)) {
+                        ButtonBar.setButtonUniformSize(button, false)
+                        button.minWidth = Region.USE_PREF_SIZE
+                        button.prefWidth = Region.USE_COMPUTED_SIZE
+                    }
 
                     okButton.applyDialogButtonStyle(
                         colorHex = okColorHex,

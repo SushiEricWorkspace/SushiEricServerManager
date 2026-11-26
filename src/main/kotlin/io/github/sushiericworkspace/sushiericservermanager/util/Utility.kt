@@ -163,6 +163,7 @@ object Utility {
             scene.stylesheets.add(requireNotNull(CSSResourceContext::class.java.getResource("/css/common/app-frame.css")).toExternalForm())
         }
         ThemeManager.apply(scene)
+        scene.root.applyCss()
         WindowSizing.install(scene)
         windowKey?.let { WindowSizePersistence.install(scene, it) }
         return scene
