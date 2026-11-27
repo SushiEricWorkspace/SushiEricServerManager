@@ -8,6 +8,7 @@ import io.github.sushiericworkspace.sushiericservermanager.editor.store.*
 
 /** 接続のI/Oキューで使用し、画面確認に使った最新の定義hashを保存要求まで保持します。 */
 class ShopEditorStore(private val session: ShopSaveSession, private val writable: () -> Boolean = { true }) {
+    fun close() = session.close()
     private val snapshots = mutableMapOf<String, HostProductRead>()
 
     internal fun prepareUpload(edit: HostAdapterAction.Edit): HostAdapterRequest {

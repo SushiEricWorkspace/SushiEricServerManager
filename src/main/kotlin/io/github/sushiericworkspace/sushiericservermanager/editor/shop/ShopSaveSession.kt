@@ -1,6 +1,11 @@
 package io.github.sushiericworkspace.sushiericservermanager.editor.shop
 
 import io.github.sushiericworkspace.sushiericdatamodel.database.host.*
+import io.github.sushiericworkspace.sushiericdatamodel.database.run.PostgresRunBinding
+import kotlinx.serialization.Required
+import kotlinx.serialization.Serializable
+import kotlinx.serialization.encodeToString
+import kotlinx.serialization.json.Json
 import javafx.application.Platform
 import java.nio.ByteBuffer
 import java.nio.channels.FileChannel
@@ -11,17 +16,27 @@ import java.nio.file.StandardOpenOption.*
 import java.util.UUID
 
 /** 通常HostとManagement所有Modに共通の商品操作口。実装は同期のためI/O workerから呼びます。 */
-interface ShopTransport {
+interface ShopTransport : AutoCloseable {
+    fun databaseBinding(): PostgresRunBinding? = null
     fun worldUuid(): String
     fun execute(request: HostAdapterRequest): HostAdapterResponse
+    /** PG HostはEditを再送せず、元ID/hashのread-only観測だけを行います。 */
+    fun reconcile(request: HostAdapterRequest): HostAdapterResponse = execute(request)
+    override fun close() = Unit
 }
+
+@Serializable
+private data class PostgresPendingRequest(@Required val storageContractVersion: Int = 2,
+    val binding: PostgresRunBinding, val request: HostAdapterRequest)
 
 /**
  * 送信前に元要求を永続化します。UNKNOWN・切断・不正応答では新規操作を拒否し、
- * [reconcile]だけが保存した同じIDと本文を再送します。編集backupは呼出元が維持します。
+ * [reconcile]は保存した同じIDと本文を照合へ渡します。PGではEditを再送しません。編集backupは呼出元が維持します。
  * 同一接続のI/Oキューから直列に使用してください。
  */
 class ShopSaveSession(private val transport: ShopTransport, private val pendingFile: Path) {
+    private val pendingJson = Json { encodeDefaults = true }
+    fun close() = transport.close()
     private var boundWorld: String? = null
 
     fun read(ids: List<String>): HostAdapterResponse {
@@ -41,11 +56,13 @@ class ShopSaveSession(private val transport: ShopTransport, private val pendingF
 
     internal fun execute(request: HostAdapterRequest): HostAdapterResponse = locked { executeLocked(request) }
 
-    private fun executeLocked(request: HostAdapterRequest): HostAdapterResponse {
+    private fun executeLocked(request: HostAdapterRequest, reconcile: Boolean = false): HostAdapterResponse {
         requireIoThread()
         check(!Files.exists(pendingFile)) { "結果未確認の商品保存があります。元要求を照合してください。" }
         require(request.worldUuid == currentWorld() && request.action is HostAdapterAction.Edit)
-        val bytes = HostAdapterCodec.encodeRequest(request)
+        val binding = transport.databaseBinding()
+        val bytes = if (binding == null) HostAdapterCodec.encodeRequest(request)
+            else pendingJson.encodeToString(PostgresPendingRequest(binding = binding, request = request)).encodeToByteArray()
         Files.createDirectories(pendingFile.parent)
         val temporary = Files.createTempFile(pendingFile.parent, ".shop-request-", ".tmp")
         try {
@@ -58,15 +75,15 @@ class ShopSaveSession(private val transport: ShopTransport, private val pendingF
         } finally {
             Files.deleteIfExists(temporary)
         }
-        return send(request)
+        return send(request, reconcile)
     }
 
     /** 接続し直した場合も保存済みのworldと要求を維持し、別worldへの適用を拒否します。 */
     fun reconcile(): HostAdapterResponse = locked {
         requireIoThread()
-        val request = HostAdapterCodec.decodeRequest(Files.readAllBytes(pendingFile))
+        val request = requireNotNull(pending())
         require(request.worldUuid == currentWorld()) { "保存待ち要求のworldが接続先と一致しません。" }
-        send(request)
+        send(request, reconcile = true)
     }
 
     /** 台帳と同じ要求だけを照合します。成功後に台帳更新が失敗した場合もIDを変えません。 */
@@ -74,12 +91,22 @@ class ShopSaveSession(private val transport: ShopTransport, private val pendingF
         val current = pending()
         require(current == null || current == request) { "別の商品要求が保留されています。" }
         require(request.worldUuid == currentWorld() && request.action is HostAdapterAction.Edit)
-        if (current == null) executeLocked(request) else send(request)
+        if (current == null) {
+            executeLocked(request, reconcile = true)
+        } else send(request, reconcile = true)
     }
 
     fun pending(): HostAdapterRequest? {
         requireIoThread()
-        return if (Files.exists(pendingFile)) HostAdapterCodec.decodeRequest(Files.readAllBytes(pendingFile)) else null
+        if (!Files.exists(pendingFile)) return null
+        val bytes = Files.readAllBytes(pendingFile)
+        val binding = transport.databaseBinding()
+        if (binding == null) return HostAdapterCodec.decodeRequest(bytes)
+        val saved = pendingJson.decodeFromString<PostgresPendingRequest>(bytes.decodeToString(throwOnInvalidSequence = true))
+        require(saved.storageContractVersion == 2 && saved.binding == binding) {
+            "保存待ち要求のDB/world/generationが接続先と一致しません。元要求を保全しました。"
+        }
+        return PostgresOfflineLookupCodec.decodeRequest(HostAdapterCodec.encodeRequest(saved.request))
     }
 
     private fun currentWorld(): String = transport.worldUuid().also {
@@ -99,9 +126,9 @@ class ShopSaveSession(private val transport: ShopTransport, private val pendingF
         }
     }
 
-    private fun send(request: HostAdapterRequest): HostAdapterResponse {
+    private fun send(request: HostAdapterRequest, reconcile: Boolean = false): HostAdapterResponse {
         val response = try {
-            transport.execute(request).also {
+            (if (reconcile) transport.reconcile(request) else transport.execute(request)).also {
                 require(it.requestId == request.requestId && it.version == 1)
                 require(it.status != HostAdapterStatus.SUCCESS || it.result is HostAdapterResult.Edited)
                 require(it.status != HostAdapterStatus.SUCCESS || !it.rejectedBeforeEffect)

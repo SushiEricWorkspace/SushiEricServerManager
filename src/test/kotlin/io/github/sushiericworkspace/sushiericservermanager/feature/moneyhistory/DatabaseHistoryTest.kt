@@ -60,7 +60,7 @@ class DatabaseHistoryTest {
             db.submit(delayed)
             Unit
         }
-        val source = LocalHistorySource(world, shop, worldId.toString())
+        val source = HostHistorySource(worldId.toString()) { HostDatabaseAdapter(world, shop).execute(it) }
         val search = source.open(HostHistoryFilter(playerName = "ä日"))
         val first = search.next()
         assertEquals(100, first.size)
@@ -140,28 +140,13 @@ class DatabaseHistoryTest {
         assertEquals(directory, players.single { it.uuid == directory }.displayName)
     }
 
-    @Test fun `LocalEditorDataStoreはworld markerから既存Host APIでDB履歴を読む`() {
+    @Test fun `旧SQLite worldをPGやコピー済みYAMLへ自動昇格しない`() {
         root = root.toRealPath()
         val world = Files.createDirectory(root.resolve("world"))
         val shop = Files.createDirectories(root.resolve("別配置/shop_data"))
-        val worldId = UUID.randomUUID()
-        val player = DatabasePlayer(UUID.randomUUID(), "Local")
-        val lifecycle = WorldRunLifecycle.adoptInitial(world, shop, worldId, "a".repeat(64))
-        val writer = lifecycle.openOfflineWriter(lifecycle.readStatus())
-        val requestId = UUID.randomUUID()
-        val operation = writer.beginOperation(requestId, "b".repeat(64))
-        operation.openDatabase(true).use { database ->
-            database.initializeAccount(player.uuid, 100)
-            val account = database.readAccount(player.uuid)
-            database.submit(DatabaseRequest(requestId, Instant.ofEpochSecond(100), TransactionKind.MONEY,
-                listOf(MoneyChange(player, MoneyEntryType.ADMIN_ADD, 1, account.revision))))
-        }
-        writer.complete(operation.finish(HostAdapterResponse(requestId = requestId.toString(),
-            status = HostAdapterStatus.SUCCESS, result = HostAdapterResult.Edited(emptyList()))))
-        writer.close()
-
-        val source = assertNotNull(io.github.sushiericworkspace.sushiericservermanager.editor.store.LocalEditorDataStore(world.toFile()).historySource)
-        assertEquals(player.uuid.toString(), source.readAll().single().money.single().playerUuid)
+        WorldRunLifecycle.adoptInitial(world, shop, UUID.randomUUID(), "a".repeat(64))
+        val local = io.github.sushiericworkspace.sushiericservermanager.editor.store.LocalEditorDataStore(world.toFile())
+        assertFailsWith<IllegalStateException> { local.historySource }
     }
 
     @Test fun `run-stateのないDB worldをコピー済みYAMLとして読まない`() {
@@ -175,6 +160,8 @@ class DatabaseHistoryTest {
         val databaseDirectory = Files.createDirectories(root.resolve("sushieric"))
         Files.writeString(databaseDirectory.resolve("world-id"), UUID.randomUUID().toString())
         Files.createFile(databaseDirectory.resolve("server.sqlite"))
+        assertFailsWith<IllegalStateException> { local.historySource }
+        Files.delete(databaseDirectory.resolve("world-id"))
         assertFailsWith<IllegalStateException> { local.historySource }
         val memory = io.github.sushiericworkspace.sushiericservermanager.editor.store.InMemoryEditorDataStore()
         val remote = object : io.github.sushiericworkspace.sushiericservermanager.editor.store.EditorDataStore by memory {

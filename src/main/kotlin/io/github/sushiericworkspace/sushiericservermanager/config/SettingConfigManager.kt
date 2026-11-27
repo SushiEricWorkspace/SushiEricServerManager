@@ -1,6 +1,7 @@
 package io.github.sushiericworkspace.sushiericservermanager.config
 
 import kotlinx.serialization.Serializable
+import io.github.sushiericworkspace.sushiericservermanager.communication.database.PostgresHostReference
 import org.slf4j.LoggerFactory
 import io.github.sushiericworkspace.sushiericservermanager.editor.service.EditorDocumentSource
 import java.io.File
@@ -87,9 +88,17 @@ data class ServerProfile(
     }
 }
 
-/** commandLineは固定Java 21 runtimeと絶対world/shop pathを指し、秘密情報を含めません。 */
+/** 旧commandLineは読取保持だけを行い実行しません。PG接続には明示したv2参照が必要です。 */
 @Serializable
-data class DatabaseHistoryHost(val worldUuid: String, val commandLine: String)
+data class DatabaseHistoryHost(val worldUuid: String, val commandLine: String = "",
+    val postgres: PostgresHostReference? = null) {
+    fun reference(): PostgresHostReference = requireNotNull(postgres) {
+        "旧DB profileはPGへ自動変換しません。承認済みv2参照を設定してください。"
+    }.also {
+        it.validate()
+        require(commandLine.isEmpty() && it.status.state.binding.worldUuid == worldUuid)
+    }
+}
 
 object SettingConfigManager : JsonFileHandler<ServerConfig>(
     FilePath.SERVER_PROFILES,

@@ -1,41 +1,45 @@
 # 履歴のDB読取
 
-入出金・ショップ売買の履歴は、world結合済みの接続ではDataModelのDB履歴を使用します。Management接続中に履歴保存を要求してYAMLを取得する操作は行いません。実績の達成履歴は既存の取得経路を使用します。
+入出金・ショップ売買履歴の通常Local/SSH接続は、DataModelのPostgreSQL v2契約を使用します。ManagerはPGへ接続せず、運用者が配備・照合した固定Host helperだけが保護設定を読みます。実績の達成履歴は既存経路を使用します。
 
-## 接続
+## 非秘密の接続参照
 
-- 通常Management: `database_context_request`でworld/runを取得し、`database_history_start/page/end`を同じ接続へ送ります。
-- 通常ローカル/OFFLINE: `LocalEditorDataStore`のrootをworld rootとして扱い、`sushieric/world-id`、`sushieric/server.sqlite`、run-stateを照合して既存DataModel Host APIの`LocalHistorySource`を生成します。`shop_data`はrun-stateに記録されたcanonical pathを使い、DBやrun-stateの作成・移行は行いません。world markerのないコピー済みYAML workspaceは従来の履歴経路を維持します。
-- 通常SSHでManagement未接続: サーバープロファイルの`databaseHistory`へ、world UUIDと配備・照合済みD3 runtimeの起動コマンドを設定します。既存のSSH認証・ホスト鍵検証を使用し、要求はUTF-8 stdinへ書いてEOFを送ります。稼働DBをSFTPで取得しません。
-- 管理接続: developmentの`ManagedManagementTransport`が監督writerの`database`要求へ送ります。nonceを監督操作IDとして使用し、所有bindingの補完と検査は既存proxyへ委譲します。通常Managerはdevelopmentへ依存しません。
+`PostgresHostReference`は次を保持します。
 
-SSH設定例（実際の配備先・world UUIDに置き換える）:
+- `storageContractVersion=2`
+- `runState`: 承認済みworldの`sushieric/run-state-v2/current.json`のUTF-8本文
+- `javaExecutable`: 固定Host用Javaの絶対path
+- `runtimeDirectory`: SHA-256照合済みHost ZIPの展開先（直下に`lib/`）
+- `settingsFile`: 運用者が固定した、world/shop外のHost設定fileの絶対path
 
-```json
-"databaseHistory": {
-  "worldUuid": "11111111-1111-1111-1111-111111111111",
-  "commandLine": "/opt/java21/bin/java -cp '/opt/db-adapter/lib/*' io.github.sushiericworkspace.sushiericdatamodel.database.host.HostAdapterCli --world-root '/srv/minecraft/world' --shop-root '/srv/minecraft/sushieric/shop_data'"
-}
-```
+run記録のformat/backend/schema/phase、接続参照ID、deployment/DB/world/generationと実体識別はDataModelの`PostgresRunCodec`で検査します。接続時には非秘密のcurrentだけを再観測し、固定bindingを比較してから、その元bytesのhashをOpenへ渡します。要求へURL、conninfo、任意Properties、DB/role/passfile、秘密本文を渡す入口はありません。保護設定の内容・secret fileはManagerでは読みません。設定file自体の配備・保護・不変性は運用者の責務です。
 
-Java 21とDataModelの固定host-adapter runtimeを接続先へあらかじめ配備し、座標・SHA-256を照合します。runtimeの自動配備や既定配置の推測は行いません。`commandLine`へ秘密情報やJSON本文を含めません。Windows SSHでは接続先shellに適した引用符と実行ファイルの絶対パスを指定します。設定がなければ同じ画面に接続設定エラーを表示します。
+## 通常Local/SSH
 
-worldを持たないローカル編集領域は、コピー済みYAML履歴の文脈を維持します。world結合済みDBの取得失敗をYAML履歴へ切り替えません。移行未完了・seal不備・管理binding不在は状態表示へ返し、直接DBや任意SQLで迂回しません。生YAMLからのDB移行はMod #577の範囲です。
+Localは`LocalEditorDataStore(worldRoot, hostReference = reference)`で明示接続します。world rootと参照のcanonical worldを照合し、`LocalHistorySource`から固定`PostgresWriterCli --settings <設定file>`を起動します。DB/run記録の作成・移行は行いません。world marker/run記録があるのに参照がない場合は拒否します。worldを持たない編集workspaceはコピー済みYAMLの経路を維持します。
+
+SSHではprofileの`databaseHistory`にworld UUIDと`postgres: PostgresHostReference`を設定します。`commandLine`は空にします。旧commandLineを含むprofileは読取保持しますが、PGとして実行・自動変換しません。SSHの認証とホスト鍵検証は既存経路を使います。接続先OSに合わせて固定引数を引用し、Windows shellが展開する文字と相対配置を起動前に拒否します。
+
+両経路とも一つの検索につき一つのHをOpenからCloseまで保持します。stdin/stdoutはDataModelの4byte big-endian長＋UTF-8 frameです。途中でstdinを閉じて別processへページを送りません。Close応答・EOF・process/channelの終端を確認します。stderrは並行排出し、内部pathやdriver例外を利用者向け応答へ転記しません。timeout・不正応答・切断・接続実体の変更は取得失敗とし、旧応答を使用しません。
+
+SFTPは既存YAML操作と非秘密current一件の観測だけに使用します。DBコピー、保護設定の読取、SQLへの迂回、誤binding時のYAML fallbackは行いません。RESTORE_EMPTY/adopt前、NEW_GAMEのみ、ACL不備、容量不足、未確定編集は空履歴として返しません。
 
 ## 検索と表示
 
-初回の高水位と未確定ID集合を後続ページへ引き継ぎます。Managementでは接続専用handle、D3では`HostHistorySnapshot`を使います。時刻の秒・nano、UUID、transaction_idによるDataModelの順序を維持し、ページを返した実件数だけoffsetを進めます。Managementのbyte上限で短いページが返っても、`hasMore`がある間は取得を続けます。
+初回の高水位と未確定ID集合を全ページへ引き継ぎます。時刻の秒・nano、UUID、transaction ID、Unicodeの順序はDataModelの結果を維持し、取得実件数だけoffsetを進めます。部分一致・日時境界・表示件数は既存画面の意味を維持します。
 
-各画面は同じ初回集合をI/O workerで分割取得し、既存の日時・種別・商品・プレイヤー条件をworkerで絞り込みます。名前・商品IDの部分一致はKotlinの`contains(ignoreCase = true)`を使い、SQL LIKEへ置き換えません。画面の日時境界とシステムのタイムゾーンを維持します。件数は表示件数と読み込んだ集合の件数です。
+接続解決・file/通信I/OはI/O workerで行います。画面終了・再読込・条件変更では旧処理を中断し、検索とHを閉じます。画面の世代検査と認証済み接続の実体検査を維持します。
 
-DBプレイヤー一覧は履歴に記録されたUUIDと名前、既存プレイヤーディレクトリを統合し、サーバーの`usercache.json`を名前補完と履歴のないプレイヤーの列挙に使用します。名前のない履歴はUUIDで表示します。DBのplayers/profileだけに存在するUUIDの全件列挙は現在のDataModel Host APIにないため、#242の残作業です。移行元の片側送金を別の取引と結合せず、記録された相手・実行者・理由・免除を保ちます。免除は既存の金額セル内に表示します。
+プレイヤー一覧は履歴・既存ディレクトリ・usercacheを統合します。DBのplayers/profileだけに存在するUUIDの全件列挙は#242の残件です。
 
-画面終了・再読込・取得中の条件変更は旧処理を中断し、検索handleを終了します。Management接続内の検索は直列化し、タブ間でhandleを競合させません。開始要求中のキャンセルは応答を回収してhandleを閉じ、開始timeout後は、遅延StartとEndの応答を回収して終了を確認するか、元接続が終了するまで、同じ接続の次の開始要求を送信しません。Endの送信拒否・失敗・応答timeoutはログへ記録し、次の検索にも未確認状態を返します。終了を確認できない場合は再接続が必要です。接続世代が変わった応答は使いません。使用元の切断・世代変更では表示を消し、再読込で新しい集合を開きます。SSH source使用中のManagement再試行・失敗通知では検索と表示を維持します。
+## 後続の接続
 
-## 確認の範囲
+通常Managementの型付きPG APIはMod #631待ちです。v2参照を設定したprofileでは、接続中Managementの旧DB契約をPG接続として使用せず、明示的な未接続エラーを返します。失敗からSSHへ自動迂回しません。managedのlayout/supervisor受入は.github #148/#64待ちです。通常Managerからdevelopmentへの依存はありません。
 
-LocalHistorySourceで実SQLiteの分割・新規追加・遅延確定と再読込、元worldのファイル不変、world markerからLocalEditorDataStoreへのsource接続、codec、Unicodeとnano、名前不明・片側移行行、Managementの認証エラー・切断・timeout・キャンセル、SSHのstdin/EOFとtimeoutを自動試験します。JavaFXは実画面へ表示しないMonocleでFXMLと主要操作を確認します。
+## 検証と正式化
 
-管理接続のRunning実結合、停止中の管理sessionは.github #64の固定成果との受入が必要です。通常SSHの実ホスト・macOS GUI・実画面の物理操作・20/30/40人の集中取引と継続負荷は自動fixtureの成功と区別します。
+`scripts/verify-postgres-port.py`はWindowsのtask専用検証です。絶対repository・task作業領域・JDK25・固定Core座標を明示し、DataModel #143の不変task GAVの8 artifactをSHA-256照合します。Gradleの`postgresPortValidation`はEditor/Hostの利用側検証だけを許可し、正式包装/releaseを拒否します。Coreの宣言済みDataModelとtask Editorの版差は検証報告に残し、CoreのPG受入成功とは扱いません。
 
-DBのプロフィールだけに存在し、履歴・usercache・旧ディレクトリに現れないプレイヤーの全件列挙は、現在のHost/Management履歴契約では提供されていません。共通API側の追加契約が必要です。
+通常unitと非表示JavaFX/FXML、Local/SSHのframe/EOF・timeout・旧応答、固定Host ZIP/JDK21＋専用PG18.7で履歴と編集・注入拒否・容量失敗を検証します。PG試験は`postgresPortTest`を指定し、`--host-java-home`も必須です。RAM24GiB・C:100GiBの資源ゲートとtask専用port・正常停止確認を使用します。通常buildのRAMは16GiB以上です。
+
+正式版はDataModel #144の正式GAV/hashと対応Coreの確定後に切り替えます。task版によるbuild成功を正式配布成功と混同しません。実SSHホスト、macOS、Management/managed結合、実画面の物理操作は後続受入です。

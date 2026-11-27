@@ -28,11 +28,17 @@ class ShopSaveIntegrationTest {
     private lateinit var world: Path
     private lateinit var shop: Path
     private lateinit var lifecycle: WorldRunLifecycle
-    private lateinit var transport: LocalShopTransport
+    private lateinit var transport: ShopTransport
     private lateinit var session: ShopSaveSession
     private var dropEditResponse = false
     private var afterEdit: (() -> Unit)? = null
     private val id = "tab.apple"
+
+    // SQLiteの既存D3/文書回帰fixture。製品のLocal接続には使いません。
+    private fun sqliteFixtureTransport() = object : ShopTransport {
+        override fun worldUuid() = worldId.toString()
+        override fun execute(request: HostAdapterRequest) = HostDatabaseAdapter(world, shop).execute(request)
+    }
 
     private fun setup() {
         root = root.toRealPath()
@@ -40,7 +46,7 @@ class ShopSaveIntegrationTest {
         shop = Files.createDirectories(root.resolve("config/shop_data"))
         lifecycle = WorldRunLifecycle.adoptInitial(world, shop, worldId, "a".repeat(64))
         database(true) { }
-        transport = LocalShopTransport(world, shop, worldId.toString())
+        transport = sqliteFixtureTransport()
         session = ShopSaveSession(object : ShopTransport {
             override fun worldUuid() = worldId.toString()
             override fun execute(request: HostAdapterRequest): HostAdapterResponse {
@@ -378,7 +384,7 @@ class ShopSaveIntegrationTest {
         service.closeIo()
 
         val resent = mutableListOf<HostAdapterRequest>()
-        val reopenedTransport = LocalShopTransport(world, shop, worldId.toString())
+        val reopenedTransport = sqliteFixtureTransport()
         val reopenedSession = ShopSaveSession(object : ShopTransport {
             override fun worldUuid() = worldId.toString()
             override fun execute(request: HostAdapterRequest): HostAdapterResponse {

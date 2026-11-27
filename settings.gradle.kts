@@ -35,6 +35,7 @@ dependencyResolutionManagement {
                     "io.github.sushiericworkspace",
                     "sushieric-datamodel-editor-dev"
                 )
+                includeModule("io.github.sushiericworkspace", "sushieric-datamodel-host-adapter-dev")
             }
         }
         maven {

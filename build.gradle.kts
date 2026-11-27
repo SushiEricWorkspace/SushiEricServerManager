@@ -71,6 +71,14 @@ if (releaseTaskRequested && dataModelReleaseVersion == null) {
 }
 
 val dataModelDevelopmentCoordinate = developmentInput("dataModelDevelopmentCoordinate").orNull
+// 正式発行前の利用側portだけに使い、Core自身のPG受入とは区別します。
+val postgresPortValidation = providers.gradleProperty("postgresPortValidation").orNull == "true"
+if (postgresPortValidation) {
+    check(dataModelReleaseVersion == null && !releaseTaskRequested)
+    check(File(developmentInput("dataModelDevelopmentRepository").get()).isAbsolute) {
+        "task検証には絶対repositoryを指定してください。"
+    }
+}
 if (dataModelDevelopmentCoordinate != null && (dataModelReleaseVersion != null || !Regex(
         """io\.github\.sushiericworkspace:sushieric-datamodel-editor-dev:0\.1\.0-dev\.[a-zA-Z0-9.-]+"""
     ).matches(dataModelDevelopmentCoordinate))) {
@@ -106,7 +114,7 @@ if (combatCoreDataModelCoordinate != null) {
     }
     val expectedVersion = dataModelDevelopmentCoordinate?.substringAfterLast(':') ?: dataModelReleaseVersion
     if (!combatCoreDataModelCoordinate.startsWith(expectedPrefix) ||
-        (expectedVersion != null && combatCoreDataModelCoordinate.substringAfterLast(':') != expectedVersion)) {
+        (!postgresPortValidation && expectedVersion != null && combatCoreDataModelCoordinate.substringAfterLast(':') != expectedVersion)) {
         throw GradleException("CombatCoreが使用するDataModelとManagerのDataModelは同じ発行版を指定してください。")
     }
 }
@@ -721,7 +729,8 @@ val verifyReleaseContents = tasks.register("verifyReleaseContents") {
         check(actualCoreDataModelCoordinate == combatCoreDataModelCoordinate) {
             "CombatCore artifactの実DataModel依存が指定と一致しません: $actualCoreDataModelCoordinate / $combatCoreDataModelCoordinate"
         }
-        check(dataModelFiles.single().name.contains(combatCoreDataModelCoordinate!!.substringAfterLast(':'))) {
+        check(dataModelFiles.single().name.contains(
+            (if (postgresPortValidation) dataModelDependency else combatCoreDataModelCoordinate!!).substringAfterLast(':'))) {
             "CombatCoreとruntimeのSushiEricDataModel発行版が一致しません: $combatCoreDataModelCoordinate / ${dataModelFiles.single().name}"
         }
         combatCoreReleaseVersion?.let { expected ->
@@ -739,6 +748,7 @@ val verifyReleaseContents = tasks.register("verifyReleaseContents") {
 }
 
 val recordCombatCoreDependency = tasks.register("recordCombatCoreDependency") {
+    onlyIf { !postgresPortValidation }
     group = "verification"
     description = "固定されたCombatCoreとDataModelの座標・hash・ソースcommitを記録します"
     dependsOn(verifyReleaseContents)
@@ -782,6 +792,75 @@ val recordCombatCoreDependency = tasks.register("recordCombatCoreDependency") {
 }
 
 tasks.check { dependsOn(verifyReleaseContents, recordCombatCoreDependency) }
+
+if (postgresPortValidation) {
+    val hostRuntime = configurations.create("postgresPortHostRuntime")
+    val hostCoordinate = "io.github.sushiericworkspace:sushieric-datamodel-host-adapter-dev:" +
+        requireNotNull(dataModelDevelopmentCoordinate).substringAfterLast(':') + ":runtime@zip"
+    dependencies.add(hostRuntime.name, hostCoordinate)
+    val verifyPort = tasks.register("verifyPostgresPortInputs") {
+        inputs.files(hostRuntime, configurations.runtimeClasspath)
+        val editorHash = providers.gradleProperty("postgresPortEditorSha256")
+        val hostHash = providers.gradleProperty("postgresPortHostSha256")
+        doLast {
+            fun hash(file: File) = MessageDigest.getInstance("SHA-256").digest(file.readBytes())
+                .joinToString("") { "%02x".format(it) }
+            val editor = configurations.runtimeClasspath.get().files.single {
+                it.name.startsWith("sushieric-datamodel-editor-dev-")
+            }
+            val host = hostRuntime.singleFile
+            check(hash(editor) == editorHash.get() && hash(host) == hostHash.get()) {
+                "固定task Editor/Hostのhashが一致しません。"
+            }
+            val report = layout.buildDirectory.file("reports/postgres-port-inputs.txt").get().asFile
+            report.parentFile.mkdirs()
+            report.writeText(listOf("task検証専用・正式配布とCoreのPG受入は未実施",
+                "editor=$dataModelDependency", "editor.sha256=${hash(editor)}",
+                "host=$hostCoordinate", "host.sha256=${hash(host)}",
+                "core=$combatCoreDependency", "core.dataModel=${resolvedCombatCoreDataModelCoordinate()}")
+                .joinToString("\n") + "\n")
+        }
+    }
+    tasks.check { dependsOn(verifyPort) }
+    val postgresPortTest = sourceSets.create("postgresPortTest") {
+        compileClasspath += sourceSets.main.get().output
+        runtimeClasspath += sourceSets.main.get().output
+    }
+    configurations[postgresPortTest.implementationConfigurationName].extendsFrom(configurations.testImplementation.get())
+    configurations[postgresPortTest.runtimeOnlyConfigurationName].extendsFrom(configurations.testRuntimeOnly.get())
+    dependencies {
+        add(postgresPortTest.implementationConfigurationName, "io.zonky.test:embedded-postgres:2.2.2") {
+            exclude(group = "io.zonky.test.postgres")
+        }
+        add(postgresPortTest.implementationConfigurationName, "org.postgresql:postgresql:42.7.14")
+        add(postgresPortTest.runtimeOnlyConfigurationName,
+            "io.zonky.test.postgres:embedded-postgres-binaries-windows-amd64:18.7.0")
+    }
+    tasks.register<Test>("postgresPortTest") {
+        dependsOn(verifyPort)
+        testClassesDirs = postgresPortTest.output.classesDirs
+        classpath = postgresPortTest.runtimeClasspath
+        val work = providers.gradleProperty("postgresPortWorkRoot")
+        val hostJava = providers.gradleProperty("postgresPortHostJavaHome")
+        systemProperty("postgresPortWorkRoot", work.get())
+        systemProperty("postgresPortHostJavaHome", hostJava.get())
+        doFirst {
+            val destination = File(work.get(), "host-runtime")
+            copy { from(zipTree(hostRuntime.singleFile)); into(destination) }
+            val hashes = mapOf(
+                "embedded-postgres-2.2.2.jar" to "9b1722ccfbfb441b7b1440edd35c1a229b173d82ab25d6111dd8642b48ba66fa",
+                "embedded-postgres-binaries-windows-amd64-18.7.0.jar" to "789d0261833f6c1fc9ea9e0a882ba5ef5d49366144516a44ed6fd7461d08c3f8")
+            hashes.forEach { (name, expected) ->
+                val artifact = classpath.files.single { it.name == name }
+                check(MessageDigest.getInstance("SHA-256").digest(artifact.readBytes())
+                    .joinToString("") { "%02x".format(it) } == expected)
+            }
+        }
+    }
+    tasks.matching { it.name.startsWith("package") || it.name.startsWith("release") }.configureEach {
+        doFirst { error("task port検証では正式包装・releaseを行えません。") }
+    }
+}
 
 val verifyReleaseDistribution = tasks.register("verifyReleaseDistribution") {
     group = "verification"

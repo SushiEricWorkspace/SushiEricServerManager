@@ -13,14 +13,17 @@ import java.util.UUID
 internal class HistoryConnection(private val store: EditorDataStore, private val client: ServerManagementClient) {
     private val storeIdentity = store.identity
     private val connectionIdentity = store.connectionIdentity
-    val source = runCatching { historySource(store, client) }
-    private val managementGeneration = (source.getOrNull() as? ManagementHistorySource)?.generation
+    private val managementGeneration = client.connectionGeneration.takeIf { client.isConnected }
+    val source by lazy { runCatching { historySource(store, client) } }
     val isCurrent: Boolean get() = store.isAvailable && store.identity == storeIdentity && store.connectionIdentity === connectionIdentity &&
         (managementGeneration == null || (client.isConnected && client.connectionGeneration == managementGeneration))
 }
 
 internal fun historySource(store: EditorDataStore, client: ServerManagementClient): HistorySource? = when {
-    client.isConnected -> ManagementHistorySource(client)
+    client.isConnected -> {
+        check(store.databaseReference == null) { "PG Managementの型付き接続契約は未接続です。旧DB契約では実行しません。" }
+        ManagementHistorySource(client)
+    }
     store.historySource != null -> store.historySource
     store.kind == EditorDataStoreKind.LOCAL || store.kind == EditorDataStoreKind.IN_MEMORY -> null
     else -> error("DB履歴の接続設定がありません。Managementまたは同一ホストの固定DB runtimeを設定してください。")
