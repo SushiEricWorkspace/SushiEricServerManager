@@ -244,7 +244,7 @@
 .editor-menu-button:hover,
 .editor-menu-button:showing {
     -fx-background-color: -fx-hover-color;
-    -fx-border-color: -fx-line-emphasis-color;
+    -fx-border-color: transparent;
 }
 
 .editor-menu-button > .label {
@@ -279,8 +279,7 @@
     -fx-max-height: 24px;
 }
 
-.tree-inline-button-add,
-.tree-inline-button-remove {
+.tree-inline-button-add {
     -fx-background-color: -fx-bg-shallow;
     -fx-border-width: 1px;
 }
@@ -292,25 +291,9 @@
 
 .tree-inline-button-add:hover {
     -fx-background-color: -fx-hover-color;
-    -fx-border-color: -fx-success-color;
 }
 
 .tree-inline-button-add:pressed {
-    -fx-background-color: -fx-selected-color;
-}
-
-.tree-inline-button-remove {
-    -fx-text-fill: -fx-danger-color;
-    -fx-border-color: derive(-fx-danger-color, -30%);
-}
-
-.tree-inline-button-remove:hover {
-    -fx-background-color: -fx-hover-color;
-    -fx-border-color: -fx-danger-color;
-    -fx-text-fill: derive(-fx-danger-color, 20%);
-}
-
-.tree-inline-button-remove:pressed {
     -fx-background-color: -fx-selected-color;
 }
 

@@ -63,7 +63,6 @@
 
 .data-btn-unavailable:hover {
     -fx-background-color: -fx-bg-shallow;
-    -fx-border-color: derive(-fx-line-color, -12%);
     -fx-cursor: default;
 }
 

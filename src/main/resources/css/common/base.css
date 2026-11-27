@@ -28,6 +28,27 @@
     -fx-faint-focus-color: transparent;
 }
 
+.tab-pane .tab:hover {
+    -fx-background-color: -fx-hover-color;
+    -fx-border-color: transparent;
+}
+
+.tab-pane:focused .tab:selected {
+    -fx-background-color: -fx-hover-color;
+    -fx-focus-color: transparent;
+    -fx-faint-focus-color: transparent;
+}
+
+.tab-pane .tab .focus-indicator {
+    -fx-background-color: transparent;
+    -fx-border-color: transparent;
+    -fx-effect: none;
+}
+
+.tab-pane:focused .tab:selected .tab-label {
+    -fx-underline: true;
+}
+
 .common-root {
     -fx-background-color: -fx-bg-deep;
 }

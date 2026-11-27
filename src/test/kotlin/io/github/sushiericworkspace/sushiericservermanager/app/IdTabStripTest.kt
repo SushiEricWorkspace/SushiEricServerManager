@@ -3,18 +3,21 @@ package io.github.sushiericworkspace.sushiericservermanager.app
 import io.github.sushiericworkspace.sushiericservermanager.app.workspace.IdTabStrip
 import io.github.sushiericworkspace.sushiericservermanager.config.IdTabsState
 import javafx.application.Platform
+import javafx.css.PseudoClass
 import javafx.event.Event
 import javafx.scene.Scene
 import javafx.scene.input.*
 import javafx.scene.layout.VBox
 import javafx.stage.Stage
+import javafx.stage.Popup
+import javafx.stage.Window
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.FutureTask
 import java.util.concurrent.TimeUnit
 import kotlin.test.*
 
 class IdTabStripTest {
-    @Test fun `通常ドラッグと横wheelは列だけを動かしAltドラッグだけが順序を変える`() {
+    @Test fun `通常ドラッグで並べ替えAltドラッグでも横スクロールせず横wheelで移動する`() {
         startFx()
         fx {
             val moves = mutableListOf<Pair<String, Int>>()
@@ -28,10 +31,12 @@ class IdTabStripTest {
                 stage.scene.root.applyCss(); stage.scene.root.layout()
                 assertTrue(strip.content.layoutBounds.width > strip.viewportBounds.width)
                 pointer(strip, MouseEvent.MOUSE_PRESSED, 50.0)
-                pointer(strip, MouseEvent.MOUSE_DRAGGED, -120.0)
-                pointer(strip, MouseEvent.MOUSE_RELEASED, -120.0)
-                assertTrue(strip.hvalue > 0.0)
-                assertTrue(moves.isEmpty()); assertTrue(selected.isEmpty()); assertEquals(0.0, other.hvalue)
+                pointer(strip, MouseEvent.MOUSE_DRAGGED, 280.0)
+                pointer(strip, MouseEvent.MOUSE_RELEASED, 280.0)
+                assertEquals(0.0, strip.hvalue)
+                assertEquals("document-0-long-id", moves.single().first)
+                assertTrue(moves.single().second > 0)
+                assertTrue(selected.isEmpty()); assertEquals(0.0, other.hvalue)
                 val previous = strip.hvalue
                 strip.fireEvent(ScrollEvent(ScrollEvent.SCROLL, 20.0, 10.0, 20.0, 10.0, false, false, false, false, false, false,
                     -120.0, 0.0, -120.0, 0.0, ScrollEvent.HorizontalTextScrollUnits.NONE, 0.0, ScrollEvent.VerticalTextScrollUnits.NONE, 0.0, 0, null))
@@ -40,8 +45,9 @@ class IdTabStripTest {
                 pointer(strip, MouseEvent.MOUSE_PRESSED, 50.0, true)
                 pointer(strip, MouseEvent.MOUSE_DRAGGED, 280.0, true)
                 pointer(strip, MouseEvent.MOUSE_RELEASED, 280.0, true)
-                assertEquals("document-0-long-id", moves.single().first)
-                assertTrue(moves.single().second > 0)
+                assertTrue(strip.hvalue == 0.0)
+                assertEquals("document-0-long-id", moves.last().first)
+                assertTrue(moves.last().second > 0)
             } finally { strip.dispose(); other.dispose(); stage.close() }
         }
     }
@@ -59,8 +65,14 @@ class IdTabStripTest {
                 stage.scene.root.applyCss(); stage.scene.root.layout()
                 pointer(strip, MouseEvent.MOUSE_PRESSED, 50.0, true)
                 pointer(strip, MouseEvent.MOUSE_DRAGGED, 290.0, true)
+                val preview = Window.getWindows().filterIsInstance<Popup>().single { it.isShowing }
                 key(strip, KeyCode.ESCAPE)
-                pointer(strip, MouseEvent.MOUSE_RELEASED, 290.0, true)
+                assertFalse(preview.isShowing)
+                assertTrue((strip.content as javafx.scene.layout.HBox).children.none { tab ->
+                    tab.pseudoClassStates.any { it.pseudoClassName.startsWith("drop-") }
+                })
+                pointer(strip, MouseEvent.MOUSE_DRAGGED, 320.0, true)
+                pointer(strip, MouseEvent.MOUSE_RELEASED, 320.0, true)
                 assertTrue(moves.isEmpty())
                 key(strip, KeyCode.RIGHT)
                 assertEquals(listOf("second-long-document"), selected)
@@ -85,14 +97,25 @@ class IdTabStripTest {
             }
             fun center(index: Int): Double = (strip.content as javafx.scene.layout.HBox).children[index].boundsInParent.centerX
             fun drag(source: Int, destination: Double, cancel: Boolean = false) {
-                pointer(strip, MouseEvent.MOUSE_PRESSED, center(source), true)
-                pointer(strip, MouseEvent.MOUSE_DRAGGED, destination, true)
+                pointer(strip, MouseEvent.MOUSE_PRESSED, center(source))
+                pointer(strip, MouseEvent.MOUSE_DRAGGED, destination)
                 if (cancel) key(strip, KeyCode.ESCAPE)
-                pointer(strip, MouseEvent.MOUSE_RELEASED, destination, true)
+                pointer(strip, MouseEvent.MOUSE_RELEASED, destination)
             }
             try {
-                reset(); drag(0, (center(1) + center(2)) / 2)
+                reset()
+                pointer(strip, MouseEvent.MOUSE_PRESSED, center(0))
+                pointer(strip, MouseEvent.MOUSE_DRAGGED, (center(1) + center(2)) / 2)
+                val third = (strip.content as javafx.scene.layout.HBox).children[2]
+                val marker = PseudoClass.getPseudoClass("drop-before")
+                assertTrue(marker in third.pseudoClassStates)
+                val preview = Window.getWindows().filterIsInstance<Popup>().single { it.isShowing }
+                assertEquals(0.65, (preview.content.single() as javafx.scene.image.ImageView).opacity)
+                pointer(strip, MouseEvent.MOUSE_RELEASED, (center(1) + center(2)) / 2)
+                assertFalse(marker in third.pseudoClassStates)
+                assertFalse(preview.isShowing)
                 assertEquals(listOf("second-long-id", "first-long-id", "third-long-id"), state.ids)
+                assertEquals("first-long-id", state.selected)
                 reset(); drag(0, center(2) + 100)
                 assertEquals(listOf("second-long-id", "third-long-id", "first-long-id"), state.ids)
                 reset(); drag(2, (center(0) + center(1)) / 2)

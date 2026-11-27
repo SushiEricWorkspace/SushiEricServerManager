@@ -45,6 +45,7 @@
 
 .dialog-pane .button:hover {
     -fx-background-color: -fx-line-color;
+    -fx-border-color: transparent;
 }
 
 .dialog-pane .btn-primary {
@@ -117,6 +118,9 @@
 }
 
 .dialog-pane .button:focused {
-    -fx-border-color: -fx-accent-color;
-    -fx-border-width: 2px;
+    -fx-background-color: -fx-hover-color;
+    -fx-border-color: transparent;
+    -fx-focus-color: transparent;
+    -fx-faint-focus-color: transparent;
+    -fx-underline: true;
 }

@@ -19,12 +19,14 @@ import javafx.geometry.Orientation
 import javafx.scene.Node
 import javafx.scene.Parent
 import javafx.scene.Scene
+import javafx.scene.SnapshotParameters
 import javafx.scene.control.*
 import javafx.scene.input.ClipboardContent
 import javafx.scene.input.DataFormat
 import javafx.scene.input.MouseEvent
 import javafx.scene.input.TransferMode
 import javafx.scene.layout.*
+import javafx.scene.paint.Color
 import javafx.stage.Window
 import javafx.util.Duration
 
@@ -138,7 +140,11 @@ internal class WorkspaceView(
         val heading = HBox(6.0).apply {
             styleClass.add("workspace-feature-heading")
             children.addAll(Label(title).apply { maxWidth = Double.MAX_VALUE; HBox.setHgrow(this, Priority.ALWAYS) },
-                Button("×").apply { id = "workspace-close-${feature.name.lowercase()}"; setOnAction { this@WorkspaceView.close(feature) } })
+                Button("×").apply {
+                    id = "workspace-close-${feature.name.lowercase()}"
+                    styleClass.add("workspace-close-button")
+                    setOnAction { this@WorkspaceView.close(feature) }
+                })
         }
         val pane = BorderPane(root, heading, null, null, null).apply {
             id = "workspace-feature-${feature.name.lowercase()}"
@@ -151,23 +157,34 @@ internal class WorkspaceView(
         }
         heading.setOnDragDetected { event ->
             if (scene?.let(ShortcutManager::isComposing) == true) return@setOnDragDetected
-            heading.startDragAndDrop(TransferMode.MOVE).setContent(ClipboardContent().apply { put(FEATURE_FORMAT, feature.name) })
+            val opacity = heading.opacity
+            val image = try {
+                heading.opacity = 0.65
+                heading.snapshot(SnapshotParameters().apply { fill = Color.TRANSPARENT }, null)
+            } finally {
+                heading.opacity = opacity
+            }
+            heading.startDragAndDrop(TransferMode.MOVE).apply {
+                setContent(ClipboardContent().apply { put(FEATURE_FORMAT, feature.name) })
+                setDragView(image, event.x, event.y)
+            }
             event.consume()
         }
+        heading.setOnDragDone { features.values.forEach { clearDropSide(it.pane) } }
         pane.setOnDragOver { event ->
             val source = dragFeature(event.dragboard.getContent(FEATURE_FORMAT))
-            if (source != null && source != feature) { event.acceptTransferModes(TransferMode.MOVE); event.consume() }
+            if (source != null && source != feature) {
+                event.acceptTransferModes(TransferMode.MOVE)
+                showDropSide(pane, dropSide(pane, event.sceneX, event.sceneY))
+                event.consume()
+            }
         }
-        pane.setOnDragEntered { event -> if (dragFeature(event.dragboard.getContent(FEATURE_FORMAT)) != null) pane.pseudoClassStateChanged(DROP_TARGET, true) }
-        pane.setOnDragExited { pane.pseudoClassStateChanged(DROP_TARGET, false) }
+        pane.setOnDragExited { clearDropSide(pane) }
         pane.setOnDragDropped { event ->
             val source = dragFeature(event.dragboard.getContent(FEATURE_FORMAT))
-            val point = pane.sceneToLocal(event.sceneX, event.sceneY)
-            val x = point.x / pane.width
-            val y = point.y / pane.height
-            val side = listOf(DockSide.LEFT to x, DockSide.RIGHT to 1 - x, DockSide.TOP to y, DockSide.BOTTOM to 1 - y).minBy { it.second }.first
+            val side = dropSide(pane, event.sceneX, event.sceneY)
             event.isDropCompleted = source != null && move(source, feature, side)
-            pane.pseudoClassStateChanged(DROP_TARGET, false)
+            clearDropSide(pane)
             event.consume()
         }
         val screen = when (feature) {
@@ -376,6 +393,28 @@ internal class WorkspaceView(
     }
 
     private fun dragFeature(value: Any?): WorkspaceFeature? = WorkspaceFeature.entries.firstOrNull { it.name == value && it in features }
+    private fun dropSide(pane: Pane, sceneX: Double, sceneY: Double): DockSide {
+        val point = pane.sceneToLocal(sceneX, sceneY)
+        val x = point.x / pane.width
+        val y = point.y / pane.height
+        return listOf(DockSide.LEFT to x, DockSide.RIGHT to 1 - x, DockSide.TOP to y, DockSide.BOTTOM to 1 - y)
+            .minBy { it.second }.first
+    }
+
+    private fun showDropSide(pane: Pane, side: DockSide) {
+        pane.pseudoClassStateChanged(DROP_LEFT, side == DockSide.LEFT)
+        pane.pseudoClassStateChanged(DROP_RIGHT, side == DockSide.RIGHT)
+        pane.pseudoClassStateChanged(DROP_TOP, side == DockSide.TOP)
+        pane.pseudoClassStateChanged(DROP_BOTTOM, side == DockSide.BOTTOM)
+    }
+
+    private fun clearDropSide(pane: Pane) {
+        pane.pseudoClassStateChanged(DROP_LEFT, false)
+        pane.pseudoClassStateChanged(DROP_RIGHT, false)
+        pane.pseudoClassStateChanged(DROP_TOP, false)
+        pane.pseudoClassStateChanged(DROP_BOTTOM, false)
+    }
+
     private fun contains(root: Node, node: Node?): Boolean {
         var current = node
         while (current != null) { if (current === root) return true; current = current.parent }
@@ -388,6 +427,9 @@ internal class WorkspaceView(
         private const val MIN_WORK_HEIGHT = 220.0
         private val FEATURE_FORMAT = DataFormat("application/x-sushieric-workspace-feature")
         private val ACTIVE = PseudoClass.getPseudoClass("active")
-        private val DROP_TARGET = PseudoClass.getPseudoClass("drop-target")
+        private val DROP_LEFT = PseudoClass.getPseudoClass("drop-left")
+        private val DROP_RIGHT = PseudoClass.getPseudoClass("drop-right")
+        private val DROP_TOP = PseudoClass.getPseudoClass("drop-top")
+        private val DROP_BOTTOM = PseudoClass.getPseudoClass("drop-bottom")
     }
 }
