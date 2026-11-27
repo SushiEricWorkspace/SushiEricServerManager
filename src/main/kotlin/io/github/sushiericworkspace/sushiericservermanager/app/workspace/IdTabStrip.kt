@@ -21,7 +21,7 @@ import javafx.scene.layout.HBox
 import javafx.util.Duration
 import kotlin.math.abs
 
-/** 通常ドラッグは横移動、Alt/Optionドラッグだけを並べ替えとして扱うID列です。 */
+/** IDタブの選択、並べ替え、横スクロールを扱う列です。 */
 internal class IdTabStrip(
     private val onSelect: (String) -> Unit,
     private val onClose: (String) -> Unit,
@@ -32,9 +32,7 @@ internal class IdTabStrip(
     private val tabs = linkedMapOf<String, HBox>()
     private var pressed = false
     private var moved = false
-    private var reorder = false
     private var startX = 0.0
-    private var startOffset = 0.0
     private var pointerX = 0.0
     private var draggedId: String? = null
     private var destination = 0
@@ -67,9 +65,7 @@ internal class IdTabStrip(
             moved = false
             if (event.button == MouseButton.PRIMARY && !closeButton(event.target)) {
                 pressed = true
-                reorder = event.isAltDown
                 startX = event.sceneX
-                startOffset = hvalue
                 draggedId = tabs.entries.firstOrNull { (_, tab) -> tab.localToScene(tab.boundsInLocal).contains(event.sceneX, event.sceneY) }?.key
                 destination = state.ids.indexOf(draggedId)
             }
@@ -78,15 +74,14 @@ internal class IdTabStrip(
             if (pressed && abs(event.sceneX - startX) > 4.0) moved = true
             if (pressed && moved) {
                 pointerX = sceneToLocal(event.sceneX, event.sceneY).x
-                if (reorder && draggedId != null) { updateDestination(); autoScroll.play() }
-                else if (range() > 0.0) hvalue = (startOffset - (event.sceneX - startX) / range()).coerceIn(0.0, 1.0)
+                if (draggedId != null) { updateDestination(); autoScroll.play() }
                 event.consume()
             }
         }
         addEventFilter(MouseEvent.MOUSE_RELEASED) { event ->
             val id = draggedId
             if (pressed && moved) {
-                if (reorder && id != null) onMove(id, destination)
+                if (id != null) onMove(id, destination)
                 event.consume()
             }
             stopDrag()

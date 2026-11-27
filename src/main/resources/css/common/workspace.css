@@ -24,8 +24,24 @@
 .workspace-id-tab:selected { -fx-background-color: -fx-selected-color; }
 .workspace-id-tab:focused { -fx-border-color: -fx-accent-color; -fx-border-width: 1px; }
 .workspace-id-close {
-    -fx-padding: 0 4px;
-    -fx-min-height: 24px;
-    -fx-pref-height: 24px;
-    -fx-max-height: 24px;
+    -fx-padding: 0 5px;
+    -fx-min-width: 28px;
+    -fx-pref-width: 28px;
+    -fx-max-width: 28px;
+    -fx-min-height: 28px;
+    -fx-pref-height: 28px;
+    -fx-max-height: 28px;
+    -fx-font-size: 18px;
+    -fx-background-color: transparent;
+    -fx-border-color: transparent;
+}
+.workspace-id-close:hover {
+    -fx-background-color: -fx-hover-color;
+}
+.workspace-id-close:pressed {
+    -fx-background-color: -fx-selected-color;
+}
+.workspace-id-close:focused {
+    -fx-border-color: -fx-accent-color;
+    -fx-border-width: 1px;
 }
