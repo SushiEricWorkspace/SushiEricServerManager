@@ -9,15 +9,19 @@ import javafx.beans.value.ChangeListener
 import javafx.stage.Window
 import javafx.event.EventTarget
 import javafx.scene.Node
+import javafx.scene.SnapshotParameters
 import javafx.scene.control.Button
 import javafx.scene.control.Label
 import javafx.scene.control.ScrollPane
+import javafx.scene.image.ImageView
 import javafx.scene.input.KeyCode
 import javafx.scene.input.KeyEvent
 import javafx.scene.input.MouseButton
 import javafx.scene.input.MouseEvent
 import javafx.scene.input.ScrollEvent
 import javafx.scene.layout.HBox
+import javafx.scene.paint.Color
+import javafx.stage.Popup
 import javafx.util.Duration
 import kotlin.math.abs
 
@@ -30,6 +34,11 @@ internal class IdTabStrip(
     private val row = HBox()
     private var state = IdTabsState()
     private val tabs = linkedMapOf<String, HBox>()
+    private val dragImage = ImageView().apply { opacity = 0.65; isMouseTransparent = true }
+    private val dragPreview = Popup().apply {
+        content.add(dragImage)
+        setOnAutoHide { stopDrag() }
+    }
     private var pressed = false
     private var moved = false
     private var startX = 0.0
@@ -74,7 +83,11 @@ internal class IdTabStrip(
             if (pressed && abs(event.sceneX - startX) > 4.0) moved = true
             if (pressed && moved) {
                 pointerX = sceneToLocal(event.sceneX, event.sceneY).x
-                if (draggedId != null) { updateDestination(); autoScroll.play() }
+                if (draggedId != null) {
+                    updateDestination()
+                    showDragPreview(event.sceneX, event.sceneY)
+                    autoScroll.play()
+                }
                 event.consume()
             }
         }
@@ -105,7 +118,7 @@ internal class IdTabStrip(
                     styleClass.add("workspace-id-tab")
                     isFocusTraversable = true
                     children.addAll(Label(), Button("×").apply {
-                        styleClass.add("workspace-id-close")
+                        styleClass.add("workspace-close-button")
                         setOnAction { onClose(id) }
                     })
                     setOnMouseClicked { if (it.button == MouseButton.PRIMARY && !moved && !closeButton(it.target)) onSelect(id) }
@@ -143,16 +156,47 @@ internal class IdTabStrip(
 
     private fun range() = (row.layoutBounds.width - viewportBounds.width).coerceAtLeast(0.0)
     private fun scroll(pixels: Double) { if (range() > 0.0) hvalue = (hvalue + pixels / range()).coerceIn(0.0, 1.0) }
-    private fun stopDrag() { autoScroll.stop(); pressed = false; draggedId = null }
+    private fun stopDrag() {
+        autoScroll.stop()
+        clearDropMarker()
+        dragPreview.hide()
+        dragImage.image = null
+        pressed = false
+        draggedId = null
+    }
+
+    private fun showDragPreview(sceneX: Double, sceneY: Double) {
+        if (!dragPreview.isShowing) {
+            val tab = tabs[draggedId] ?: return
+            dragImage.image = tab.snapshot(SnapshotParameters().apply { fill = Color.TRANSPARENT }, null)
+            val window = scene?.window ?: return
+            dragPreview.show(window)
+        }
+        val point = localToScreen(sceneToLocal(sceneX, sceneY)) ?: return
+        val image = dragImage.image
+        dragPreview.x = point.x - image.width / 2
+        dragPreview.y = point.y - image.height / 2
+    }
+
     private fun updateDestination() {
         val x = pointerX + hvalue * range()
         val remaining = state.ids.filterNot { it == draggedId }
         destination = remaining.indexOfFirst { x < tabs.getValue(it).boundsInParent.centerX }.takeIf { it >= 0 } ?: remaining.size
+        clearDropMarker()
+        if (destination < remaining.size) tabs.getValue(remaining[destination]).pseudoClassStateChanged(DROP_BEFORE, true)
+        else remaining.lastOrNull()?.let { tabs.getValue(it).pseudoClassStateChanged(DROP_AFTER, true) }
+    }
+
+    private fun clearDropMarker() {
+        tabs.values.forEach {
+            it.pseudoClassStateChanged(DROP_BEFORE, false)
+            it.pseudoClassStateChanged(DROP_AFTER, false)
+        }
     }
     private fun closeButton(target: EventTarget): Boolean {
         var node = target as? Node
         while (node != null && node !== this) {
-            if ("workspace-id-close" in node.styleClass) return true
+            if ("workspace-close-button" in node.styleClass) return true
             node = node.parent
         }
         return false
@@ -172,5 +216,10 @@ internal class IdTabStrip(
         if (event.isAltDown) onMove(state.ids[index], destination) else onSelect(state.ids[destination])
         revealSelected()
         event.consume()
+    }
+
+    companion object {
+        private val DROP_BEFORE = PseudoClass.getPseudoClass("drop-before")
+        private val DROP_AFTER = PseudoClass.getPseudoClass("drop-after")
     }
 }

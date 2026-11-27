@@ -1202,9 +1202,7 @@ class ItemEditorLogic(
                             }
                         },
                         Button("×").apply {
-                            applyTreeInlineButtonSize()
-
-                            styleClass.add("tree-inline-button-remove")
+                            styleClass.add("workspace-close-button")
 
                             onAction = EventHandler { event ->
                                 lineSystem.remove()
@@ -1283,9 +1281,7 @@ class ItemEditorLogic(
                             }
                         },
                         Button("×").apply {
-                            applyTreeInlineButtonSize()
-
-                            styleClass.add("tree-inline-button-remove")
+                            styleClass.add("workspace-close-button")
 
                             isDisable = LoreLineEditor(selectData.display, row.lineIndex).getSectionSize() <= 1
 

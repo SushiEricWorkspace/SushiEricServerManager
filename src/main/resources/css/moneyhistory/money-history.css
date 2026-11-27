@@ -56,12 +56,9 @@
     -fx-text-fill: -fx-text-color;
 }
 
-.money-history-root .tab-pane .tab:focused > .focus-indicator {
+.money-history-root .tab-pane .tab:hover {
+    -fx-background-color: -fx-hover-color;
     -fx-border-color: transparent;
-    -fx-border-width: 0;
-    -fx-border-insets: 0;
-    -fx-padding: 0;
-    -fx-background-color: transparent;
 }
 
 .money-history-root .table-view {
@@ -137,6 +134,17 @@
 .money-history-root .toggle-button:selected {
     -fx-background-color: -fx-selected-color;
     -fx-border-color: -fx-line-emphasis-color;
+}
+
+.money-history-root .menu-button:hover,
+.money-history-root .toggle-button:hover {
+    -fx-background-color: -fx-hover-color;
+    -fx-border-color: transparent;
+}
+
+.money-history-root .menu-button:focused,
+.money-history-root .toggle-button:focused {
+    -fx-border-color: transparent;
 }
 
 .money-history-root .date-picker > .arrow-button > .arrow {

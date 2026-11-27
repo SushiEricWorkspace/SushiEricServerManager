@@ -14,7 +14,10 @@
     -fx-border-width: 0 0 1px 0;
 }
 .workspace-feature:active > .workspace-feature-heading { -fx-border-color: transparent transparent -fx-accent-color transparent; }
-.workspace-feature:drop-target { -fx-border-color: -fx-accent-color; -fx-border-width: 2px; }
+.workspace-feature:drop-left { -fx-border-color: transparent transparent transparent -fx-accent-color; -fx-border-width: 0 0 0 4px; }
+.workspace-feature:drop-right { -fx-border-color: transparent -fx-accent-color transparent transparent; -fx-border-width: 0 4px 0 0; }
+.workspace-feature:drop-top { -fx-border-color: -fx-accent-color transparent transparent transparent; -fx-border-width: 4px 0 0 0; }
+.workspace-feature:drop-bottom { -fx-border-color: transparent transparent -fx-accent-color transparent; -fx-border-width: 0 0 4px 0; }
 .workspace .split-pane { -fx-padding: 0; -fx-background-color: -fx-bg-deep; }
 .workspace .split-pane-divider { -fx-background-color: -fx-line-color; -fx-padding: 0 2px; }
 .workspace-id-tabs { -fx-background-color: -fx-bg-shallow; -fx-padding: 0; }
@@ -22,26 +25,6 @@
 .workspace-id-tab { -fx-alignment: center-left; -fx-padding: 2px 6px; -fx-background-color: -fx-bg-shallow; }
 .workspace-id-tab:hover { -fx-background-color: -fx-hover-color; }
 .workspace-id-tab:selected { -fx-background-color: -fx-selected-color; }
-.workspace-id-tab:focused { -fx-border-color: -fx-accent-color; -fx-border-width: 1px; }
-.workspace-id-close {
-    -fx-padding: 0 5px;
-    -fx-min-width: 28px;
-    -fx-pref-width: 28px;
-    -fx-max-width: 28px;
-    -fx-min-height: 28px;
-    -fx-pref-height: 28px;
-    -fx-max-height: 28px;
-    -fx-font-size: 18px;
-    -fx-background-color: transparent;
-    -fx-border-color: transparent;
-}
-.workspace-id-close:hover {
-    -fx-background-color: -fx-hover-color;
-}
-.workspace-id-close:pressed {
-    -fx-background-color: -fx-selected-color;
-}
-.workspace-id-close:focused {
-    -fx-border-color: -fx-accent-color;
-    -fx-border-width: 1px;
-}
+.workspace-id-tab:focused > .label { -fx-underline: true; }
+.workspace-id-tab:drop-before { -fx-border-color: transparent transparent transparent -fx-accent-color; -fx-border-width: 0 0 0 2px; }
+.workspace-id-tab:drop-after { -fx-border-color: transparent -fx-accent-color transparent transparent; -fx-border-width: 0 2px 0 0; }

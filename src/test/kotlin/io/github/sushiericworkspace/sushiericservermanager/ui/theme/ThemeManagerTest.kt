@@ -32,6 +32,69 @@ import kotlin.test.*
 
 class ThemeManagerTest {
     @Test
+    fun `両テーマでhoverの枠を消しフォーカスは下線で示す`() {
+        startFx()
+        val originalTheme = fx { ThemeManager.current }
+        val previous = AppSettingsManager.load()
+        val close = fx { Button("×").apply { styleClass.add("workspace-close-button") } }
+        val danger = fx { Button("削除").apply { styleClass.add("btn-danger") } }
+        val menu = fx { MenuButton("操作").apply { styleClass.add("editor-menu-button") } }
+        val toggle = fx { ToggleButton("切替").apply { isSelected = true } }
+        val tabs = fx { TabPane(Tab("履歴", Label("内容"))).apply { tabClosingPolicy = TabPane.TabClosingPolicy.UNAVAILABLE } }
+        val stage = fx {
+            Stage().apply {
+                scene = Utility.createScene(AppScreen.WIDGETS_ONLY, 420.0, 240.0,
+                    customRoot = VBox(close, danger, menu, toggle, tabs).apply { styleClass.add("money-history-root") })
+                scene.stylesheets.add(javaClass.getResource("/css/moneyhistory/money-history.css")!!.toExternalForm())
+                scene.stylesheets.add(javaClass.getResource("/css/main/base.css")!!.toExternalForm())
+                show()
+            }
+        }
+        try {
+            for (theme in listOf(AppTheme.LIGHT, AppTheme.DARK)) fx {
+                ThemeManager.select(theme)
+                val root = stage.scene.root
+                root.applyCss(); root.layout()
+                val hover = PseudoClass.getPseudoClass("hover")
+                val tab = tabs.lookup(".tab") as javafx.scene.layout.Region
+                for (node in listOf(close, danger, menu, toggle, tab)) {
+                    node.pseudoClassStateChanged(hover, true)
+                    root.applyCss()
+                    assertTrue(node.border.strokes.all { stroke ->
+                        listOf(stroke.topStroke, stroke.rightStroke, stroke.bottomStroke, stroke.leftStroke)
+                            .all { it == Color.TRANSPARENT }
+                    }, "hoverに枠が残っています: ${node.styleClass} / $theme")
+                    assertEquals(if (theme == AppTheme.LIGHT) Color.web("#e0e5eb") else Color.web("#26282a"),
+                        node.background.fills.last().fill)
+                    node.pseudoClassStateChanged(hover, false)
+                }
+                close.requestFocus()
+                root.applyCss()
+                assertTrue(close.isUnderline)
+                assertEquals(28.0, close.width)
+                assertEquals(18.0, close.font.size)
+                for (button in listOf(menu, toggle)) {
+                    button.requestFocus()
+                    root.applyCss()
+                    assertTrue(button.isUnderline)
+                    assertTrue(button.border.strokes.all { it.topStroke == Color.TRANSPARENT })
+                }
+                tabs.requestFocus()
+                root.applyCss()
+                assertTrue((tab.lookup(".tab-label") as Label).isUnderline)
+                val indicator = tab.lookup(".focus-indicator") as javafx.scene.layout.Region
+                assertTrue(indicator.border.strokes.all { stroke ->
+                    listOf(stroke.topStroke, stroke.rightStroke, stroke.bottomStroke, stroke.leftStroke)
+                        .all { it == Color.TRANSPARENT }
+                })
+                close.requestFocus()
+                root.applyCss()
+                assertFalse((tab.lookup(".tab-label") as Label).isUnderline)
+            }
+        } finally { fx { stage.close(); ThemeManager.select(originalTheme); AppSettingsManager.save(previous) } }
+    }
+
+    @Test
     fun `開いたSceneと確認DialogとTooltipが保存した配色へ即時追従する`() {
         startFx()
         val previous = AppSettingsManager.load()
@@ -205,9 +268,13 @@ class ThemeManagerTest {
                 fx {
                     alert.dialogPane.scene.root.applyCss()
                     assertSame(button, alert.dialogPane.scene.focusOwner)
-                    val accent = if (theme == AppTheme.LIGHT) Color.web("#1762a2") else Color.web("#4a8cc7")
-                    assertEquals(accent, button.border.strokes.last().topStroke)
-                    assertEquals(2.0, button.border.strokes.last().widths.top)
+                    assertTrue(button.isUnderline)
+                    assertTrue(button.border.strokes.all { stroke ->
+                        listOf(stroke.topStroke, stroke.rightStroke, stroke.bottomStroke, stroke.leftStroke)
+                            .all { it == Color.TRANSPARENT }
+                    })
+                    assertEquals(if (theme == AppTheme.LIGHT) Color.web("#e0e5eb") else Color.web("#26282a"),
+                        button.background.fills.last().fill)
                 }
             }
         } finally { fx { alert.close(); ThemeManager.select(originalTheme); AppSettingsManager.save(previous) } }

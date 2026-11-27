@@ -3,11 +3,14 @@ package io.github.sushiericworkspace.sushiericservermanager.app
 import io.github.sushiericworkspace.sushiericservermanager.app.workspace.IdTabStrip
 import io.github.sushiericworkspace.sushiericservermanager.config.IdTabsState
 import javafx.application.Platform
+import javafx.css.PseudoClass
 import javafx.event.Event
 import javafx.scene.Scene
 import javafx.scene.input.*
 import javafx.scene.layout.VBox
 import javafx.stage.Stage
+import javafx.stage.Popup
+import javafx.stage.Window
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.FutureTask
 import java.util.concurrent.TimeUnit
@@ -62,8 +65,14 @@ class IdTabStripTest {
                 stage.scene.root.applyCss(); stage.scene.root.layout()
                 pointer(strip, MouseEvent.MOUSE_PRESSED, 50.0, true)
                 pointer(strip, MouseEvent.MOUSE_DRAGGED, 290.0, true)
+                val preview = Window.getWindows().filterIsInstance<Popup>().single { it.isShowing }
                 key(strip, KeyCode.ESCAPE)
-                pointer(strip, MouseEvent.MOUSE_RELEASED, 290.0, true)
+                assertFalse(preview.isShowing)
+                assertTrue((strip.content as javafx.scene.layout.HBox).children.none { tab ->
+                    tab.pseudoClassStates.any { it.pseudoClassName.startsWith("drop-") }
+                })
+                pointer(strip, MouseEvent.MOUSE_DRAGGED, 320.0, true)
+                pointer(strip, MouseEvent.MOUSE_RELEASED, 320.0, true)
                 assertTrue(moves.isEmpty())
                 key(strip, KeyCode.RIGHT)
                 assertEquals(listOf("second-long-document"), selected)
@@ -94,7 +103,17 @@ class IdTabStripTest {
                 pointer(strip, MouseEvent.MOUSE_RELEASED, destination)
             }
             try {
-                reset(); drag(0, (center(1) + center(2)) / 2)
+                reset()
+                pointer(strip, MouseEvent.MOUSE_PRESSED, center(0))
+                pointer(strip, MouseEvent.MOUSE_DRAGGED, (center(1) + center(2)) / 2)
+                val third = (strip.content as javafx.scene.layout.HBox).children[2]
+                val marker = PseudoClass.getPseudoClass("drop-before")
+                assertTrue(marker in third.pseudoClassStates)
+                val preview = Window.getWindows().filterIsInstance<Popup>().single { it.isShowing }
+                assertEquals(0.65, (preview.content.single() as javafx.scene.image.ImageView).opacity)
+                pointer(strip, MouseEvent.MOUSE_RELEASED, (center(1) + center(2)) / 2)
+                assertFalse(marker in third.pseudoClassStates)
+                assertFalse(preview.isShowing)
                 assertEquals(listOf("second-long-id", "first-long-id", "third-long-id"), state.ids)
                 assertEquals("first-long-id", state.selected)
                 reset(); drag(0, center(2) + 100)
