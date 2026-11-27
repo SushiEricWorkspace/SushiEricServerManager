@@ -262,6 +262,7 @@ object EditorSession {
          */
         autoReconnectEnabled = false
         dataService?.awaitIo()
+        dataService?.closeDatabase()
         val active = connection
         if (active != null) {
             active.close()

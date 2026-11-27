@@ -96,6 +96,9 @@ def main():
 allprojects {
     tasks.withType(Test).configureEach {
         def base = new File(System.getenv('TEMP'), project.name + '-' + name)
+        systemProperty 'glass.platform', 'headless'
+        systemProperty 'prism.order', 'sw'
+        systemProperty 'postgresPortHeadlessValidation', 'true'
         systemProperty 'java.io.tmpdir', base.absolutePath
         systemProperty 'sushieric.test.configRoot', new File(base, 'config').absolutePath
         systemProperty 'user.home', new File(base, 'home').absolutePath

@@ -3,8 +3,15 @@ package io.github.sushiericworkspace.sushiericservermanager.communication.databa
 import io.github.sushiericworkspace.sushiericdatamodel.database.host.*
 import io.github.sushiericworkspace.sushiericdatamodel.database.run.PostgresRunCodec
 import io.github.sushiericworkspace.sushiericservermanager.config.DatabaseHistoryHost
+import io.github.sushiericworkspace.sushiericservermanager.editor.shop.ShopEditorStore
+import io.github.sushiericworkspace.sushiericservermanager.editor.shop.ShopTransport
 import io.github.sushiericworkspace.sushiericservermanager.editor.shop.ShopSaveSession
 import io.github.sushiericworkspace.sushiericservermanager.feature.moneyhistory.transportHistory
+import io.github.sushiericworkspace.sushiericservermanager.editor.upload.SavedUploadStep
+import io.github.sushiericworkspace.sushiericservermanager.editor.service.EditorDocumentKey
+import io.github.sushiericworkspace.sushiericservermanager.editor.service.EditorDocumentSource
+import kotlinx.serialization.json.Json
+import io.github.sushiericworkspace.sushiericservermanager.editor.store.StoreResult
 import org.junit.jupiter.api.io.TempDir
 import java.nio.file.Files
 import java.nio.file.Path
@@ -167,5 +174,41 @@ class PostgresHostTransportTest {
             assertEquals(1, lookupStarts)
             assertEquals(1, writer.commands.count { it is PostgresWriterCommand.Edit })
         }
+    }
+
+    @Test fun `準備済み台帳もDB世代を永続化し旧工程と別参照を送信前に拒否する`() {
+        val reference = postgresReference()
+        val binding = reference.status.state.binding
+        var effects = 0
+        val request = edit(reference)
+        val products = ShopEditorStore(
+            ShopSaveSession(object : ShopTransport {
+                override fun databaseBinding() = binding
+                override fun worldUuid() = binding.worldUuid
+                override fun execute(request: HostAdapterRequest): HostAdapterResponse {
+                    effects++
+                    return HostAdapterResponse(requestId = request.requestId, status = HostAdapterStatus.SUCCESS,
+                        result = HostAdapterResult.Edited(emptyList()))
+                }
+            }, root.resolve("prepared/request.json")))
+        val original = SavedUploadStep(
+            EditorDocumentKey(EditorDocumentSource.Local, "shop_data", "tab.apple"),
+            null, "definition", productRequest = request, productBinding = binding)
+        val json = Json { encodeDefaults = true }
+        val bytes = json.encodeToString(
+            SavedUploadStep.serializer(), original)
+        val restored = json.decodeFromString(
+            SavedUploadStep.serializer(), bytes)
+        for (old in listOf(restored.copy(productBinding = null),
+            restored.copy(productBinding = binding.copy(databaseUuid = UUID.randomUUID().toString())),
+            restored.copy(productBinding = binding.copy(generation = UUID.randomUUID().toString())))) {
+            assertIs<StoreResult.Failure>(
+                products.upload(request, binding = old.productBinding))
+            assertEquals(0, effects)
+            assertFalse(Files.exists(root.resolve("prepared/request.json")))
+        }
+        assertIs<StoreResult.Success<*>>(
+            products.upload(request, binding = restored.productBinding))
+        assertEquals(1, effects)
     }
 }

@@ -7,6 +7,9 @@ import io.github.sushiericworkspace.sushiericservermanager.editor.service.docume
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import io.github.sushiericworkspace.sushiericdatamodel.database.host.HostAdapterRequest
+import io.github.sushiericworkspace.sushiericdatamodel.database.run.PostgresRunBinding
+import kotlinx.serialization.EncodeDefault
+import kotlinx.serialization.ExperimentalSerializationApi
 import kotlinx.serialization.Serializable
 
 /** 確認時の元savedです。コピーだけ変換契約のhashと、その要求で変換した比較元も固定します。編集中の値は含めません。 */
@@ -22,7 +25,7 @@ internal data class SavedUploadDocument(
     val projectedSaved: String? = null
 )
 
-/** 一つの通信作用と読戻しを追跡します。WRITINGのまま再起動した工程は再送せず照合します。 */
+/** 一つの通信作用と読戻しを追跡します。PG bindingは確認時から固定し、WRITINGのまま再起動した工程は再送せず照合します。 */
 @Serializable
 internal data class SavedUploadStep(
     val key: EditorDocumentKey,
@@ -31,7 +34,10 @@ internal data class SavedUploadStep(
     val destination: EditorDocumentKey? = null,
     val state: SavedUploadState = SavedUploadState.READY,
     val detail: String? = null,
-    val productRequest: HostAdapterRequest? = null
+    val productRequest: HostAdapterRequest? = null,
+    @OptIn(ExperimentalSerializationApi::class)
+    @EncodeDefault(EncodeDefault.Mode.NEVER)
+    val productBinding: PostgresRunBinding? = null
 )
 
 @Serializable

@@ -139,13 +139,18 @@ class EditorDataService(
 
     internal fun closeIo() {
         if (ioExecutor.isShutdown) return
-        submitIo { sourceStore.closeDatabase() }.join()
+        closeDatabase()
         if (previewService.isInitialized()) previewService.value.close()
         ioExecutor.shutdown()
         if (localCompanion.isInitialized() && localCompanion.value !== this) {
             localCompanion.value.itemReferences.close()
             localCompanion.value.closeIo()
         }
+    }
+
+    /** SSH/tunnelを閉じる前に、I/O workerでHostの終了を確認します。 */
+    internal fun closeDatabase() {
+        submitIo { sourceStore.closeDatabase() }.join()
     }
 
     internal val documentSource: EditorDocumentSource by lazy { store.documentSource }

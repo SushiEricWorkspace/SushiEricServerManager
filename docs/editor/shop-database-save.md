@@ -16,6 +16,8 @@ Manager自身はJDBC接続・secret file読取を行いません。helperが固�
 
 `ShopSaveSession`は送信前に元要求をforceし、同じdirectoryの保存待ちfileへatomic moveします。PGの保存待ちはstorageContractVersion=2、固定PostgresRunBinding、元Host要求を持ちます。別DB/world/generation・旧payloadの照合は送信前に拒否し、元bytesを保持します。旧保存待ちのPGへの自動変換は行いません。
 
+準備済みアップロード工程にも`productBinding`を保持し、送信・結果照合のどちらでも現在のDB/world/generationへ一致させます。bindingのない旧工程をPGへ自動適用せず、台帳と保存済み本文を保持します。適用先を改めて確認して工程を準備する必要があり、旧工程へ値を補完する移行は行いません。worldなし編集backupと旧非PG工程にはこのfieldを出力しません。
+
 Hostの不明応答、不正応答、接続断、timeout、容量・ACL・admissionの失敗では元要求を保全します。PG Hostの理由を特定できないREJECTEDも保存待ちを削除しません。未確認要求がある間は新規Editを拒否します。editing/original、保存済みチェックポイント、未保存の入力はローカル文書が保持します。
 
 ## read-onlyの結果照合

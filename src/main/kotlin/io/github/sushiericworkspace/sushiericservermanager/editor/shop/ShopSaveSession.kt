@@ -19,6 +19,7 @@ import java.util.UUID
 interface ShopTransport : AutoCloseable {
     fun databaseBinding(): PostgresRunBinding? = null
     fun worldUuid(): String
+    /** PG writerのSAVEDは完成確認のEditedへ対応付けます。即時応答にない取引IDは空とし、必要時はreconcileで照合します。 */
     fun execute(request: HostAdapterRequest): HostAdapterResponse
     /** PG HostはEditを再送せず、元ID/hashのread-only観測だけを行います。 */
     fun reconcile(request: HostAdapterRequest): HostAdapterResponse = execute(request)
@@ -37,6 +38,10 @@ private data class PostgresPendingRequest(@Required val storageContractVersion: 
 class ShopSaveSession(private val transport: ShopTransport, private val pendingFile: Path) {
     private val pendingJson = Json { encodeDefaults = true }
     fun close() = transport.close()
+    internal fun databaseBinding(): PostgresRunBinding? {
+        requireIoThread()
+        return transport.databaseBinding()
+    }
     private var boundWorld: String? = null
 
     fun read(ids: List<String>): HostAdapterResponse {

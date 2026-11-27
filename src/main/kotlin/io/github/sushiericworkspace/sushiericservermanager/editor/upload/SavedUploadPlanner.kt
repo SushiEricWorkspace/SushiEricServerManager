@@ -290,7 +290,7 @@ internal class SavedUploadPlanner(private val origin: EditorDataService, private
                 }
                 steps += SavedUploadStep(old ?: candidate.targetKey, candidate.before, resolved,
                     destination = candidate.targetKey.takeIf { old != null && data != null },
-                    productRequest = products.prepareUpload(action))
+                    productRequest = products.prepareUpload(action), productBinding = products.databaseBinding)
                 if (old != null && data == null) steps += SavedUploadStep(candidate.targetKey, null, null)
             } else if (old != null && candidate.input.deleted) {
                 steps += SavedUploadStep(old, candidate.before, resolved?.let { rekey(old, it) })

@@ -168,13 +168,20 @@ class SimulatorUsabilityViewTest {
 
     @Test fun `通常と最小Stageで16pxと入力詳細比較のスクロール領域を確保する`() {
         val view=fx { SimulatorView.load() }
-        val stage=fx { Stage().apply { title="Simulator281受入";scene=Utility.createScene(AppScreen.SIMULATOR,customRoot=view.root);show() } }
+        val normalHeight=fx { minOf(900.0, javafx.stage.Screen.getPrimary().visualBounds.height - 40) }
+        val normalWidth=fx { minOf(1100.0, javafx.stage.Screen.getPrimary().visualBounds.width - 40) }
+        val stage=fx { Stage().apply { title="Simulator281受入";scene=Utility.createScene(AppScreen.SIMULATOR,
+            width=normalWidth,height=normalHeight,customRoot=view.root,windowKey=null);show() } }
         try {
-            val normalHeight=fx { minOf(900.0, javafx.stage.Screen.getPrimary().visualBounds.height - 40) }
             fx { println("Screen visualBounds=${javafx.stage.Screen.getPrimary().visualBounds}, outputScale=${javafx.stage.Screen.getPrimary().outputScaleX}x${javafx.stage.Screen.getPrimary().outputScaleY}") }
-            for ((name,size) in listOf("normal" to (1100.0 to normalHeight),"minimum" to (850.0 to 600.0))) {
+            for ((name,size) in listOf("normal" to (normalWidth to normalHeight),"minimum" to (850.0 to 600.0))) {
                 fx { stage.width=size.first;stage.height=size.second }
-                await { stage.scene.width in (size.first-50)..size.first && stage.scene.height in (size.second-100)..size.second }
+                try {
+                    await { stage.scene.width in (size.first-50)..size.first && stage.scene.height in (size.second-100)..size.second }
+                } catch (failure: AssertionError) {
+                    val actual=fx { "Stage=${stage.width}x${stage.height}, Scene=${stage.scene.width}x${stage.scene.height}, min=${stage.minWidth}x${stage.minHeight}, max=${stage.maxWidth}x${stage.maxHeight}, maximized=${stage.isMaximized}" }
+                    throw AssertionError("$name: $actual",failure)
+                }
                 fx {
                     view.root.applyCss();view.root.layout()
                     println("$name: Stage=${stage.width}x${stage.height}, Scene=${stage.scene.width}x${stage.scene.height}")

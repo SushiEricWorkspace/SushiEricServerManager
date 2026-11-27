@@ -42,4 +42,8 @@ SFTPは既存YAML操作と非秘密current一件の観測だけに使用しま�
 
 通常unitと非表示JavaFX/FXML、Local/SSHのframe/EOF・timeout・旧応答、固定Host ZIP/JDK21＋専用PG18.7で履歴と編集・注入拒否・容量失敗を検証します。PG試験は`postgresPortTest`を指定し、`--host-java-home`も必須です。RAM24GiB・C:100GiBの資源ゲートとtask専用port・正常停止確認を使用します。通常buildのRAMは16GiB以上です。
 
+非表示検証には[JavaFX同梱のHeadless実装](https://openjfx.io/highlights/26/)を使用します。runnerは`glass.platform=headless`とsoftware描画を固定し、実際のGlass実装も試験で照合します。追加のMonocle配布物への依存はなく、Monocleそのものの実行結果とは区別します。
+
+候補のMonocle 21.0.2はJavaFX 27で`_supportsExtendedWindows()`が不足し、Stage生成に失敗することを確認しました。Monocleでの画面受入は未完了です。同梱Headlessの仮想画面は1000×1000のため、レイアウト試験の通常幅は利用可能画面に合わせ、最小850×600の条件を維持します。
+
 正式版はDataModel #144の正式GAV/hashと対応Coreの確定後に切り替えます。task版によるbuild成功を正式配布成功と混同しません。実SSHホスト、macOS、Management/managed結合、実画面の物理操作は後続受入です。
