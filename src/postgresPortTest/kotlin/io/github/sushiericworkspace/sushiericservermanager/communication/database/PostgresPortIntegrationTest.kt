@@ -146,7 +146,7 @@ class PostgresPortIntegrationTest {
             val config = run.resolve("host-settings.json")
             Files.write(config, PostgresOfflineLookupCodec.encodeSettings(hostSettings))
             val current = world.resolve("sushieric/run-state-v2/current.json")
-            fun reference() = PostgresHostReference(runState = Files.readString(current),
+            fun reference() = PostgresHostReference(runState = Files.readString(current), shop = hostSettings.shop,
                 javaExecutable = Path.of(System.getProperty("postgresPortHostJavaHome"), "bin/java.exe").toString(),
                 runtimeDirectory = work.resolve("host-runtime").toString(), settingsFile = config.toString())
             // NEW_GAMEは正常なゲーム保存ではなく、Hで空履歴へ読み替えません。
@@ -218,11 +218,28 @@ class PostgresPortIntegrationTest {
             assertEquals(PostgresOfflineLookupCodec.requestHash(original), PostgresOfflineLookupHost.approve(hostSettings).observe(original).requestSha256)
             val local = LocalEditorDataStore(world.toFile(), hostReference = reference())
             try {
+                Files.createDirectories(world.resolve("shop_data"))
+                Files.writeString(world.resolve("shop_data/decoy.yml"), "別のshop")
+                val listed = assertIs<StoreResult.Success<List<StoreResource>>>(local.list(EditorDataDescriptors.shop)).value
+                assertEquals(listOf("tab.apple"), listed.map { it.id })
+                assertEquals(shop.resolve("tab/apple.yml").toFile().absolutePath, listed.single().location)
+                assertEquals(listOf("tab"), assertIs<StoreResult.Success<List<String>>>(
+                    local.listDirectories(EditorDataDescriptors.shop)).value)
                 val loaded = assertIs<StoreResult.Success<*>>(local.load(EditorDataDescriptors.shop, "tab.apple")).value
                 val read = assertIs<MutableShopProductData>(loaded)
                 assertEquals(200, read.purchasePrice)
                 assertEquals(ShopProductStock.Current(requireNotNull(product.stock).quantity,
                     requireNotNull(product.stock).revision), read.stockBaseline)
+                requireNotNull(local.historySource).open().use { search ->
+                    assertIs<StoreResult.Success<*>>(local.load(EditorDataDescriptors.shop, "tab.apple"))
+                    read.purchasePrice = 201
+                    assertIs<StoreResult.Success<*>>(local.save(EditorDataDescriptors.shop, read.id, read))
+                    assertEquals(1, search.next().size)
+                    assertTrue(search.next().isEmpty())
+                }
+                assertIs<StoreResult.Success<*>>(local.load(EditorDataDescriptors.shop, "tab.apple"))
+                assertEquals(201, requireNotNull(local.shopProducts?.snapshot("tab.apple")).definition.purchasePrice)
+                assertFails { reference().copy(shop = hostSettings.shop.copy(root = world.toString())).validate() }
             } finally { local.closeDatabase() }
             LocalHistorySource(reference()).open().use { search ->
                 assertEquals(1, search.next().size)

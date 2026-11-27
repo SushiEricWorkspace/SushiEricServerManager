@@ -38,6 +38,14 @@ internal fun transportHistory(transport: ShopTransport, filter: HostHistoryFilte
     }
 }
 
+/** 接続所有のHを借り、検索のcloseではHを終了しません。各frameはtransport側で直列化します。 */
+internal fun connectionHistory(transport: ShopTransport): HistorySource = object : HistorySource {
+    override fun open(filter: HostHistoryFilter): HistorySearch {
+        checkHistoryWorker()
+        return HostHistorySource(transport.worldUuid(), transport::execute).open(filter)
+    }
+}
+
 /** D3のsnapshotを各要求へ引き継ぎ、SQL接続をページ間で保持しません。 */
 class HostHistorySource(private val worldUuid: String,
     private val execute: (HostAdapterRequest) -> HostAdapterResponse) : HistorySource {

@@ -27,14 +27,14 @@ internal class PostgresHostTransport(
     private val workers = Executors.newFixedThreadPool(3) { Thread(it, "postgres-host-io").apply { isDaemon = true } }
     private var stderr: java.util.concurrent.Future<*>? = null
 
-    override fun worldUuid(): String {
+    @Synchronized override fun worldUuid(): String {
         requireWorker()
         reference.validate()
         current()
         return reference.status.state.binding.worldUuid
     }
 
-    override fun execute(request: HostAdapterRequest): HostAdapterResponse {
+    @Synchronized override fun execute(request: HostAdapterRequest): HostAdapterResponse {
         requireWorker()
         require(request.worldUuid == worldUuid())
         check(!closed && !failed) { "Host sessionの結果が未確認です。元要求を照合してください。" }
@@ -77,7 +77,7 @@ internal class PostgresHostTransport(
         }
     }
 
-    override fun reconcile(request: HostAdapterRequest): HostAdapterResponse {
+    @Synchronized override fun reconcile(request: HostAdapterRequest): HostAdapterResponse {
         requireWorker()
         require(request.worldUuid == worldUuid() && request.action is HostAdapterAction.Edit)
         // writerの終了を確認してから、別processのread-only入口だけへ元要求を渡します。
@@ -137,7 +137,7 @@ internal class PostgresHostTransport(
         finally { work.cancel(true) }
     }
 
-    override fun close() {
+    @Synchronized override fun close() {
         check(!Platform.isFxApplicationThread()) { "DB操作はI/O workerで実行してください。" }
         if (cleanupComplete) return
         val sendClose = !closed && !failed

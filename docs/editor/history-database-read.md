@@ -8,6 +8,7 @@
 
 - `storageContractVersion=2`
 - `runState`: 承認済みworldの`sushieric/run-state-v2/current.json`のUTF-8本文
+- `shop`: helperの保護設定と一緒に承認した`PostgresRunShopBinding`（shop rootの絶対pathと実体識別）。world外の配置も同じ参照を使う
 - `javaExecutable`: 固定Host用Javaの絶対path
 - `runtimeDirectory`: SHA-256照合済みHost ZIPの展開先（直下に`lib/`）
 - `settingsFile`: 運用者が固定した、world/shop外のHost設定fileの絶対path
@@ -16,11 +17,13 @@ run記録のformat/backend/schema/phase、接続参照ID、deployment/DB/world/g
 
 ## 通常Local/SSH
 
-Localは`LocalEditorDataStore(worldRoot, hostReference = reference)`で明示接続します。world rootと参照のcanonical worldを照合し、`LocalHistorySource`から固定`PostgresWriterCli --settings <設定file>`を起動します。DB/run記録の作成・移行は行いません。world marker/run記録があるのに参照がない場合は拒否します。worldを持たない編集workspaceはコピー済みYAMLの経路を維持します。
+Localは`LocalEditorDataStore(worldRoot, hostReference = reference)`で明示接続します。world rootと参照のcanonical worldを照合し、接続所有のtransportから固定`PostgresWriterCli --settings <設定file>`を起動します。商品一覧・ディレクトリ読取は`reference.shop.root`、商品本体は同じshopを承認したhelperから取得します。profile/world下の別shopへ切り替えません。DB/run記録の作成・移行は行いません。world marker/run記録があるのに参照がない場合は拒否します。worldを持たない編集workspaceはコピー済みYAMLの経路を維持します。
 
 SSHではprofileの`databaseHistory`にworld UUIDと`postgres: PostgresHostReference`を設定します。`commandLine`は空にします。旧commandLineを含むprofileは読取保持しますが、PGとして実行・自動変換しません。SSHの認証とホスト鍵検証は既存経路を使います。接続先OSに合わせて固定引数を引用し、Windows shellが展開する文字と相対配置を起動前に拒否します。
 
-両経路とも一つの検索につき一つのHをOpenからCloseまで保持します。stdin/stdoutはDataModelの4byte big-endian長＋UTF-8 frameです。途中でstdinを閉じて別processへページを送りません。Close応答・EOF・process/channelの終端を確認します。stderrは並行排出し、内部pathやdriver例外を利用者向け応答へ転記しません。timeout・不正応答・切断・接続実体の変更は取得失敗とし、旧応答を使用しません。
+両経路とも同じ編集接続の商品・履歴が一つのHを共有し、各要求と終了処理を直列化します。検索中の商品要求も同じHへ送り、検索のcloseはsnapshotの利用を終了するだけでHを閉じません。Hは接続終了時にClose応答・EOF・process/channelの終端を確認して終了します。単独利用の`LocalHistorySource`/`SshHistorySource`だけは検索がHを所有します。stdin/stdoutはDataModelの4byte big-endian長＋UTF-8 frameです。途中でstdinを閉じて別processへページを送りません。stderrは並行排出し、内部pathやdriver例外を利用者向け応答へ転記しません。timeout・不正応答・切断・接続実体の変更は取得失敗とし、旧応答を使用しません。
+
+`shop`は非秘密の承認情報であり、helperの設定本文をManagerで読んで推測しません。運用者はhelperのshop設定と同じ組を配備してください。Host編集記録が持つshopとも照合します。shopを含まない先行task profileは再設定が必要で、自動補完・別配置へのfallbackは行いません。SSHの商品loadはprofile下のexistsを前提にせず、helperの承認shopからの読取結果で成否を返します。
 
 SFTPは既存YAML操作と非秘密current一件の観測だけに使用します。DBコピー、保護設定の読取、SQLへの迂回、誤binding時のYAML fallbackは行いません。RESTORE_EMPTY/adopt前、NEW_GAMEのみ、ACL不備、容量不足、未確定編集は空履歴として返しません。
 
@@ -28,7 +31,7 @@ SFTPは既存YAML操作と非秘密current一件の観測だけに使用しま�
 
 初回の高水位と未確定ID集合を全ページへ引き継ぎます。時刻の秒・nano、UUID、transaction ID、Unicodeの順序はDataModelの結果を維持し、取得実件数だけoffsetを進めます。部分一致・日時境界・表示件数は既存画面の意味を維持します。
 
-接続解決・file/通信I/OはI/O workerで行います。画面終了・再読込・条件変更では旧処理を中断し、検索とHを閉じます。画面の世代検査と認証済み接続の実体検査を維持します。
+接続解決・file/通信I/OはI/O workerで行います。画面終了・再読込・条件変更では旧処理を中断し、検索を閉じます。通信中断でHが失敗した場合は自動再生成しません。画面の世代検査と認証済み接続の実体検査を維持します。
 
 プレイヤー一覧は履歴・既存ディレクトリ・usercacheを統合します。DBのplayers/profileだけに存在するUUIDの全件列挙は#242の残件です。
 
@@ -44,6 +47,6 @@ SFTPは既存YAML操作と非秘密current一件の観測だけに使用しま�
 
 非表示検証には[JavaFX同梱のHeadless実装](https://openjfx.io/highlights/26/)を使用します。runnerは`glass.platform=headless`とsoftware描画を固定し、実際のGlass実装も試験で照合します。追加のMonocle配布物への依存はなく、Monocleそのものの実行結果とは区別します。
 
-候補のMonocle 21.0.2はJavaFX 27で`_supportsExtendedWindows()`が不足し、Stage生成に失敗することを確認しました。Monocleでの画面受入は未完了です。同梱Headlessの仮想画面は1000×1000のため、レイアウト試験の通常幅は利用可能画面に合わせ、最小850×600の条件を維持します。
+Monocle 21.0.2はJavaFX 27で`_supportsExtendedWindows()`が不足し、Stage生成に失敗します。先行portは同梱Headlessの限定受入とし、window/native受入は保留します。既存WindowSizingTestの過大SceneでのHeadless描画例外とWindowSizePersistenceTestの画面種別遷移例外も、既存不具合/Headless制約として保留します。同梱Headlessの仮想画面は1000×1000のため、レイアウト試験の通常幅は利用可能画面に合わせ、最小850×600の条件を維持します。
 
 正式版はDataModel #144の正式GAV/hashと対応Coreの確定後に切り替えます。task版によるbuild成功を正式配布成功と混同しません。実SSHホスト、macOS、Management/managed結合、実画面の物理操作は後続受入です。

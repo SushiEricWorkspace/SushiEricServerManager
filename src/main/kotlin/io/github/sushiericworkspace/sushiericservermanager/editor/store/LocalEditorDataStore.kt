@@ -1,7 +1,6 @@
 package io.github.sushiericworkspace.sushiericservermanager.editor.store
 
 import io.github.sushiericworkspace.sushiericservermanager.feature.moneyhistory.HistorySource
-import io.github.sushiericworkspace.sushiericservermanager.feature.moneyhistory.LocalHistorySource
 import io.github.sushiericworkspace.sushiericservermanager.feature.moneyhistory.checkHistoryWorker
 import io.github.sushiericworkspace.sushiericdatamodel.data.core.ManagedData
 import io.github.sushiericworkspace.sushiericdatamodel.data.core.identity.PublicId
@@ -46,7 +45,7 @@ class LocalEditorDataStore(
         get() {
             configuredHistorySource?.let { return it }
             checkHistoryWorker()
-            if (hostReference != null) return LocalHistorySource(checkedReference())
+            if (hostReference != null) return requireNotNull(shopProducts).historySource()
             val databaseDirectory = rootDirectory.resolve("sushieric")
             check(!databaseDirectory.resolve("world-id").exists() && !databaseDirectory.resolve("run-state").exists() &&
                 !databaseDirectory.resolve("run-state-v2").exists() && !databaseDirectory.resolve("server.sqlite").exists()) {
@@ -62,6 +61,7 @@ class LocalEditorDataStore(
         check(Path.of(reference.status.state.binding.worldRoot).toRealPath() == rootDirectory.toPath().toRealPath()) {
             "接続参照のworldがローカルrootと一致しません。"
         }
+        check(File(reference.shop.root).isDirectory) { "承認済みshopの配置を確認できません。" }
         return reference
     }
 
@@ -158,6 +158,8 @@ class LocalEditorDataStore(
     private fun resolveRelativeFile(relativePath: String): File? {
         if (!StorePathValidator.isValidRelativePath(relativePath)) return null
 
+        if (hostReference != null && (relativePath == "shop_data" || relativePath.startsWith("shop_data/")))
+            return File(checkedReference().shop.root).resolve(relativePath.removePrefix("shop_data").trimStart('/'))
         return rootDirectory.resolve(relativePath)
     }
 
@@ -390,7 +392,7 @@ class LocalEditorDataStore(
         descriptor: EditorDataDescriptor<T>
     ): StoreResult<List<String>> {
         val base = descriptorDirectory(descriptor)
-        if (!base.exists() && !base.mkdirs()) return failure(StoreErrorCode.PERMISSION_DENIED)
+        if (!base.exists() && (hostReference != null || !base.mkdirs())) return failure(StoreErrorCode.PERMISSION_DENIED)
         return try {
             StoreResult.Success(
                 base.walkTopDown()
@@ -429,7 +431,8 @@ class LocalEditorDataStore(
 
     private fun <T : ManagedData<T, *>> descriptorDirectory(
         descriptor: EditorDataDescriptor<T>
-    ): File = rootDirectory.resolve(descriptor.relativeDirectory)
+    ): File = if (hostReference != null && descriptor.readProduct != null) File(checkedReference().shop.root)
+        else rootDirectory.resolve(descriptor.relativeDirectory)
 
     private fun <T : ManagedData<T, *>> resolveFile(
         descriptor: EditorDataDescriptor<T>,

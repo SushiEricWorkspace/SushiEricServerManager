@@ -20,7 +20,7 @@ data class ServerConfig(
  * 個別のサーバー接続情報。
  *
  * 従来のname、host、port、user、path、keyは変更しません。
- * 追加項目はすべてデフォルト値を持つため、既存のprofiles.jsonをそのまま読み込めます。
+ * PG参照を持たない既存profileはそのまま読み込み、PG接続は承認済みshopを含む明示設定だけを使用します。
  */
 @Serializable
 data class ServerProfile(

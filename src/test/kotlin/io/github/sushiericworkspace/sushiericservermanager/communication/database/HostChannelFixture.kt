@@ -7,6 +7,7 @@ import java.io.InputStream
 import java.util.concurrent.LinkedBlockingQueue
 
 internal fun postgresReference() = PostgresHostReference(
+    shop = io.github.sushiericworkspace.sushiericdatamodel.database.run.PostgresRunShopBinding("/approved/shop_data", "fixture-shop"),
     runState = requireNotNull(PostgresHostTransportTest::class.java.getResource("/postgres-port-run-saved.json")).readText(),
     javaExecutable = "/fixed/java", runtimeDirectory = "/fixed/host", settingsFile = "/protected/host.json")
 

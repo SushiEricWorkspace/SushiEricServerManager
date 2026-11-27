@@ -4,7 +4,7 @@
 
 ## 通常Local/SSHのHost接続
 
-非秘密参照と固定helper配置は[履歴のDB読取](history-database-read.md)と共通です。`LocalShopTransport`と`SshShopTransport`は同じフレーム式`PostgresWriterCli`へ接続し、一つのHをOpenからCloseまで保持します。複数の正常なEdit/Readは同じHで直列に実行します。SAVEDのrun hash/state revisionを次の読取へ引き継ぎます。SAVEDはHostの完成記録を表し、process終端やsnapshot適格を意味しません。
+非秘密参照と固定helper配置は[履歴のDB読取](history-database-read.md)と共通です。`LocalShopTransport`と`SshShopTransport`は同じフレーム式`PostgresWriterCli`へ接続し、同じ編集接続の商品・履歴で一つのHをOpenからCloseまで共有します。複数の正常なEdit/Readと履歴ページは同じHで直列に実行します。検索の終了ではHを閉じず、接続終了で閉じます。SAVEDのrun hash/state revisionを次の読取へ引き継ぎます。SAVEDはHostの完成記録を表し、process終端やsnapshot適格を意味しません。
 
 Manager自身はJDBC接続・secret file読取を行いません。helperが固定保護設定とcurrent/bindingを検査します。URL/conninfo/追加Properties・別DB/role/passfileを要求へ注入できません。SFTPへの商品書戻しやDBコピーで失敗を迂回しません。
 
@@ -19,6 +19,8 @@ Manager自身はJDBC接続・secret file読取を行いません。helperが固�
 準備済みアップロード工程にも`productBinding`を保持し、送信・結果照合のどちらでも現在のDB/world/generationへ一致させます。bindingのない旧工程をPGへ自動適用せず、台帳と保存済み本文を保持します。適用先を改めて確認して工程を準備する必要があり、旧工程へ値を補完する移行は行いません。worldなし編集backupと旧非PG工程にはこのfieldを出力しません。
 
 Hostの不明応答、不正応答、接続断、timeout、容量・ACL・admissionの失敗では元要求を保全します。PG Hostの理由を特定できないREJECTEDも保存待ちを削除しません。未確認要求がある間は新規Editを拒否します。editing/original、保存済みチェックポイント、未保存の入力はローカル文書が保持します。
+
+新規保存・削除では保存待ちfileの存在だけで停止し、旧形式や別世代のpayloadをエラー分類のために再解釈しません。直接のRemote保存も`PENDING_REVIEW`のFailureを返し、元bytesとbackupを維持します。明示照合時だけ保存済みbindingと元要求を検査します。
 
 ## read-onlyの結果照合
 

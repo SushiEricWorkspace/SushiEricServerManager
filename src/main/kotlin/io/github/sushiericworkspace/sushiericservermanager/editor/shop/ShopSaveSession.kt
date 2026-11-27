@@ -14,6 +14,7 @@ import java.nio.file.Path
 import java.nio.file.StandardCopyOption.ATOMIC_MOVE
 import java.nio.file.StandardOpenOption.*
 import java.util.UUID
+import io.github.sushiericworkspace.sushiericservermanager.feature.moneyhistory.connectionHistory
 
 /** 通常HostとManagement所有Modに共通の商品操作口。実装は同期のためI/O workerから呼びます。 */
 interface ShopTransport : AutoCloseable {
@@ -38,6 +39,8 @@ private data class PostgresPendingRequest(@Required val storageContractVersion: 
 class ShopSaveSession(private val transport: ShopTransport, private val pendingFile: Path) {
     private val pendingJson = Json { encodeDefaults = true }
     fun close() = transport.close()
+    internal fun historySource() = connectionHistory(transport)
+    internal fun hasPending(): Boolean = Files.exists(pendingFile)
     internal fun databaseBinding(): PostgresRunBinding? {
         requireIoThread()
         return transport.databaseBinding()
@@ -53,7 +56,7 @@ class ShopSaveSession(private val transport: ShopTransport, private val pendingF
 
     internal fun prepare(edit: HostAdapterAction.Edit): HostAdapterRequest = locked {
         requireIoThread()
-        check(pending() == null) { "結果未確認の商品保存があります。元要求を照合してください。" }
+        check(!hasPending()) { "結果未確認の商品保存があります。元要求とバックアップを保全しています。照合してください。" }
         HostAdapterRequest(requestId = UUID.randomUUID().toString(), worldUuid = currentWorld(), action = edit)
     }
 
