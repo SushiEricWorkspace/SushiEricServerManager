@@ -2,7 +2,9 @@ package io.github.sushiericworkspace.sushiericservermanager.feature.moneyhistory
 
 import io.github.sushiericworkspace.sushiericdatamodel.database.host.*
 import javafx.application.Platform
-import java.nio.file.Path
+import io.github.sushiericworkspace.sushiericservermanager.communication.database.PostgresHostReference
+import io.github.sushiericworkspace.sushiericservermanager.editor.shop.LocalShopTransport
+import io.github.sushiericworkspace.sushiericservermanager.editor.shop.ShopTransport
 import java.util.UUID
 
 /** 同じI/O worker上で開閉する読取専用検索。空ページを返すまで同じ初回集合を保持します。 */
@@ -15,10 +17,33 @@ interface HistorySearch : AutoCloseable {
     fun next(): List<HostHistoryRecord>
 }
 
-/** 同一ホストのD3へ渡す絶対world/shop pathとworld UUIDを固定します。元worldを変更しません。 */
-class LocalHistorySource(world: Path, shop: Path, worldUuid: String) : HistorySource {
-    private val source = HostHistorySource(worldUuid) { request -> HostDatabaseAdapter(world, shop).execute(request) }
-    override fun open(filter: HostHistoryFilter) = source.open(filter)
+/** 同一ホストの承認済み非秘密参照を、固定helperへ渡します。 */
+class LocalHistorySource(private val reference: PostgresHostReference) : HistorySource {
+    override fun open(filter: HostHistoryFilter) = transportHistory(LocalShopTransport(reference), filter)
+}
+
+internal fun transportHistory(transport: ShopTransport, filter: HostHistoryFilter): HistorySearch {
+    checkHistoryWorker()
+    try {
+        val search = HostHistorySource(transport.worldUuid(), transport::execute).open(filter)
+        return object : HistorySearch {
+            override fun next() = search.next()
+            override fun close() {
+                try { search.close() } finally { transport.close() }
+            }
+        }
+    } catch (failure: Throwable) {
+        try { transport.close() } catch (closing: Throwable) { failure.addSuppressed(closing) }
+        throw failure
+    }
+}
+
+/** 接続所有のHを借り、検索のcloseではHを終了しません。各frameはtransport側で直列化します。 */
+internal fun connectionHistory(transport: ShopTransport): HistorySource = object : HistorySource {
+    override fun open(filter: HostHistoryFilter): HistorySearch {
+        checkHistoryWorker()
+        return HostHistorySource(transport.worldUuid(), transport::execute).open(filter)
+    }
 }
 
 /** D3のsnapshotを各要求へ引き継ぎ、SQL接続をページ間で保持しません。 */

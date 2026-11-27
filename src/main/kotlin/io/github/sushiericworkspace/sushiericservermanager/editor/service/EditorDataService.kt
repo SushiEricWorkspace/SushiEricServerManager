@@ -2,7 +2,7 @@ package io.github.sushiericworkspace.sushiericservermanager.editor.service
 
 import io.github.sushiericworkspace.sushiericservermanager.editor.shop.ShopEditorStore
 import io.github.sushiericworkspace.sushiericservermanager.editor.shop.ShopSaveSession
-import io.github.sushiericworkspace.sushiericservermanager.editor.shop.ManagementShopTransport
+import io.github.sushiericworkspace.sushiericservermanager.editor.shop.SelectedShopTransport
 import io.github.sushiericworkspace.sushiericservermanager.communication.management.ServerManagementClient
 import java.util.UUID
 import io.github.sushiericworkspace.sushiericdatamodel.data.core.SushiEricDataType
@@ -68,7 +68,7 @@ class EditorDataService(
     constructor(ssh: SshManager, management: ServerManagementClient) : this(
         RemoteEditorDataStore(ssh, ShopEditorStore(
             ShopSaveSession(
-                ManagementShopTransport(management),
+                SelectedShopTransport(ssh, management),
                 FilePath.AUTOSAVE_DIR.toFile().resolve("shop-pending").resolve(UUID.nameUUIDFromBytes(
                     requireNotNull(ssh.currentProfile).let { "${it.host}:${it.port}:${it.user}:${it.path}" }.toByteArray(Charsets.UTF_8)
                 ).toString() + ".json").toPath()
@@ -138,12 +138,19 @@ class EditorDataService(
     }
 
     internal fun closeIo() {
+        if (ioExecutor.isShutdown) return
+        closeDatabase()
         if (previewService.isInitialized()) previewService.value.close()
         ioExecutor.shutdown()
         if (localCompanion.isInitialized() && localCompanion.value !== this) {
             localCompanion.value.itemReferences.close()
             localCompanion.value.closeIo()
         }
+    }
+
+    /** SSH/tunnelを閉じる前に、I/O workerでHostの終了を確認します。 */
+    internal fun closeDatabase() {
+        submitIo { sourceStore.closeDatabase() }.join()
     }
 
     internal val documentSource: EditorDocumentSource by lazy { store.documentSource }

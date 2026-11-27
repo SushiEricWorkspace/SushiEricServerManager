@@ -47,6 +47,7 @@ class SimulatorUiAcceptanceTest {
                 "getIdentity" -> "acceptance-remote"
                 "getOfflineDirectory" -> null
                 "isAvailable" -> false
+                "closeDatabase" -> Unit
                 else -> { accesses.incrementAndGet(); error("セッションのストアを参照: ${method.name}") }
             }
         })

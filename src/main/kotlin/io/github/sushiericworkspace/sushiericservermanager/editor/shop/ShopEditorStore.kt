@@ -4,10 +4,14 @@ import io.github.sushiericworkspace.sushiericdatamodel.data.item.model.ItemInter
 import io.github.sushiericworkspace.sushiericdatamodel.data.shop.model.ShopProductStock
 import io.github.sushiericworkspace.sushiericdatamodel.data.shop.model.mutable.MutableShopProductData
 import io.github.sushiericworkspace.sushiericdatamodel.database.host.*
+import io.github.sushiericworkspace.sushiericdatamodel.database.run.PostgresRunBinding
 import io.github.sushiericworkspace.sushiericservermanager.editor.store.*
 
 /** 接続のI/Oキューで使用し、画面確認に使った最新の定義hashを保存要求まで保持します。 */
 class ShopEditorStore(private val session: ShopSaveSession, private val writable: () -> Boolean = { true }) {
+    fun close() = session.close()
+    internal fun historySource() = session.historySource()
+    internal val databaseBinding get() = session.databaseBinding()
     private val snapshots = mutableMapOf<String, HostProductRead>()
 
     internal fun prepareUpload(edit: HostAdapterAction.Edit): HostAdapterRequest {
@@ -15,8 +19,10 @@ class ShopEditorStore(private val session: ShopSaveSession, private val writable
         return session.prepare(edit)
     }
 
-    internal fun upload(request: HostAdapterRequest, reconcile: Boolean = false): StoreResult<Unit> = try {
+    internal fun upload(request: HostAdapterRequest, reconcile: Boolean = false,
+        binding: PostgresRunBinding? = null): StoreResult<Unit> = try {
         check(writable()) { "この接続は読取専用です。" }
+        require(binding == databaseBinding) { "商品要求のDB/world/generationが接続先と一致しません。再確認してください。" }
         val response = if (reconcile) session.reconcile(request) else session.execute(request)
         if (response.status == HostAdapterStatus.SUCCESS && response.result is HostAdapterResult.Edited)
             StoreResult.Success(Unit)
@@ -103,7 +109,7 @@ class ShopEditorStore(private val session: ShopSaveSession, private val writable
         } else failure(id, response)
     } catch (failure: Exception) {
         StoreResult.Failure(StoreError(
-            if (session.pending() != null) StoreErrorCode.PENDING_REVIEW else StoreErrorCode.CONFLICT,
+            if (session.hasPending()) StoreErrorCode.PENDING_REVIEW else StoreErrorCode.CONFLICT,
             id, failure.message, failure))
     }
 

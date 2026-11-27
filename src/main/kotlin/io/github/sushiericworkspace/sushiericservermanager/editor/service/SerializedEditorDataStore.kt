@@ -12,6 +12,7 @@ internal class SerializedEditorDataStore(
     private val delegate: EditorDataStore,
     private val lock: Any
 ) : EditorDataStore by delegate {
+    override fun closeDatabase() = synchronized(lock) { delegate.closeDatabase() }
     override fun <T : ManagedData<T, *>> list(descriptor: EditorDataDescriptor<T>): StoreResult<List<StoreResource>> =
         synchronized(lock) { delegate.list(descriptor) }
 

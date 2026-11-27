@@ -1,8 +1,11 @@
 package io.github.sushiericworkspace.sushiericservermanager.editor.store
 
 import io.github.sushiericworkspace.sushiericservermanager.editor.shop.ShopEditorStore
+import io.github.sushiericworkspace.sushiericservermanager.editor.shop.ShopSaveSession
+import io.github.sushiericworkspace.sushiericservermanager.editor.shop.SshShopTransport
+import io.github.sushiericworkspace.sushiericservermanager.config.FilePath
+import java.util.UUID
 import io.github.sushiericworkspace.sushiericdatamodel.data.shop.model.mutable.MutableShopProductData
-import io.github.sushiericworkspace.sushiericservermanager.feature.moneyhistory.SshHistorySource
 import io.github.sushiericworkspace.sushiericservermanager.feature.moneyhistory.HistorySource
 import io.github.sushiericworkspace.sushiericdatamodel.path.SushiEricDataDirectory
 import io.github.sushiericworkspace.sushiericdatamodel.data.core.ManagedData
@@ -19,20 +22,38 @@ import kotlin.io.path.createTempDirectory
 
 class RemoteEditorDataStore(
     private val ssh: SshManager,
-    override val shopProducts: ShopEditorStore? = null
+    shopProducts: ShopEditorStore? = null
 ) : EditorDataStore {
     private val logger = LoggerFactory.getLogger(javaClass)
+    private val configuredShopProducts = shopProducts
+    override val databaseReference get() = ssh.currentProfile?.databaseHistory?.postgres
+    private val hostProducts = lazy {
+        ssh.currentProfile?.databaseHistory?.let { configuration ->
+            val profile = requireNotNull(ssh.currentProfile)
+            val client = requireNotNull(ssh.sshClient)
+            val transport = SshShopTransport({
+                check(ssh.sshClient === client)
+                client
+            }, configuration.reference(), profile.resolvedRemoteOperatingSystem())
+            val key = UUID.nameUUIDFromBytes("${profile.host}:${profile.port}:${profile.user}:${profile.path}".toByteArray()).toString()
+            ShopEditorStore(ShopSaveSession(transport,
+                FilePath.AUTOSAVE_DIR.toFile().resolve("shop-pending/$key.json").toPath()),
+                writable = { ssh.compatibility.writable })
+        }
+    }
+    override val shopProducts: ShopEditorStore? get() = configuredShopProducts ?: hostProducts.value
+    override fun closeDatabase() {
+        configuredShopProducts?.close()
+        if (hostProducts.isInitialized()) hostProducts.value?.close()
+    }
 
     override val kind: EditorDataStoreKind = EditorDataStoreKind.REMOTE
     override val connectionIdentity: Any get() = ssh.sshClient ?: ssh
 
     override val historySource: HistorySource?
         get() = ssh.currentProfile?.databaseHistory?.let { configuration ->
-            val client = requireNotNull(ssh.sshClient) { "SSH接続が終了しました。" }
-            SshHistorySource({
-                check(ssh.sshClient === client && client.isConnected) { "検索元のSSH接続が終了・変更されました。" }
-                client
-            }, configuration.commandLine, configuration.worldUuid)
+            configuration.reference()
+            requireNotNull(shopProducts).historySource()
         }
 
     override val identity: String
@@ -137,6 +158,10 @@ class RemoteEditorDataStore(
 
         val profile = ssh.currentProfile ?: return null
 
+        if (profile.databaseHistory != null && (relativePath == "shop_data" || relativePath.startsWith("shop_data/")))
+            return profile.databaseHistory.reference().shop.root.replace('\\', '/').trimEnd('/') +
+                relativePath.removePrefix("shop_data")
+
         return "${profile.path}/${SushiEricDataDirectory.BASE_ROOT}/$relativePath"
             .replace(Regex("/+"), "/")
     }
@@ -188,8 +213,6 @@ class RemoteEditorDataStore(
         if (!ssh.isSftpActive) return failure(StoreErrorCode.STORE_UNAVAILABLE, id)
 
         descriptor.readProduct?.let { decode ->
-            val path = Utility.getFullRemotePath(profile, descriptor.dataType.pathOf(id))
-            if (!ssh.exists(path)) return failure(StoreErrorCode.FILE_NOT_FOUND, id)
             val products = shopProducts ?: return failure(StoreErrorCode.STORE_UNAVAILABLE, id, "商品DB接続が必要です。")
             return when (val loaded = products.load(id)) {
                 is StoreResult.Success -> StoreResult.Success(decode(loaded.value))
@@ -454,7 +477,9 @@ class RemoteEditorDataStore(
         profilePath: String,
         descriptor: EditorDataDescriptor<T>
     ): String =
-        "$profilePath/${SushiEricDataDirectory.BASE_ROOT}/${descriptor.relativeDirectory}"
+        (if (descriptor.readProduct != null && ssh.currentProfile?.databaseHistory != null)
+            requireNotNull(ssh.currentProfile?.databaseHistory).reference().shop.root.replace('\\', '/').trimEnd('/')
+        else "$profilePath/${SushiEricDataDirectory.BASE_ROOT}/${descriptor.relativeDirectory}")
             .replace(Regex("/+"), "/")
 
     private fun <T : ManagedData<T, *>> directoryPath(

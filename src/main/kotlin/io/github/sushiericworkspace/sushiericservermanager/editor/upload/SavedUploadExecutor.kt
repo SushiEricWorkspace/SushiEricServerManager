@@ -131,7 +131,7 @@ internal class SavedUploadExecutor(
                 val step = current.steps[index]
                 if (step.state !in setOf(SavedUploadState.WRITING, SavedUploadState.UNKNOWN)) continue
                 val reconciled = step.productRequest?.let { request ->
-                    target.sourceStore.shopProducts?.upload(request, reconcile = true)
+                    target.sourceStore.shopProducts?.upload(request, reconcile = true, binding = step.productBinding)
                 }
                 val result = if (if (step.productRequest != null) reconciled is StoreResult.Success && productReadable(step) else matchesAfter(step))
                     confirm(current, index, owner)
@@ -262,7 +262,7 @@ internal class SavedUploadExecutor(
 
     private fun write(step: SavedUploadStep): StoreResult<Unit> {
         step.productRequest?.let { request ->
-            return target.sourceStore.shopProducts?.upload(request)
+            return target.sourceStore.shopProducts?.upload(request, binding = step.productBinding)
                 ?: failure(StoreErrorCode.STORE_UNAVAILABLE, "商品DB接続が必要です。")
         }
         return when (step.key.category) {

@@ -4,8 +4,13 @@ import io.github.sushiericworkspace.sushiericservermanager.editor.shop.ShopEdito
 import io.github.sushiericworkspace.sushiericservermanager.feature.moneyhistory.HistorySource
 import io.github.sushiericworkspace.sushiericdatamodel.data.core.ManagedData
 import io.github.sushiericworkspace.sushiericservermanager.editor.service.EditorDocumentSource
+import io.github.sushiericworkspace.sushiericservermanager.communication.database.PostgresHostReference
 
 interface EditorDataStore {
+    /** 通常Local/SSHの非秘密v2 context。Management/managedは各契約の確定後に接続します。 */
+    val databaseReference: PostgresHostReference? get() = null
+    /** 接続のI/O workerで受理済みDB操作をdrainした後に呼び、Hostの正常終了を確認します。 */
+    fun closeDatabase() = Unit
     val kind: EditorDataStoreKind
     val shopProducts: ShopEditorStore? get() = null
     /** world結合済みDBの読取元。nullのローカルストアはコピー済みオフライン文書です。 */

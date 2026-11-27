@@ -1,14 +1,15 @@
 package io.github.sushiericworkspace.sushiericservermanager.editor.store
 
 import io.github.sushiericworkspace.sushiericservermanager.feature.moneyhistory.HistorySource
-import io.github.sushiericworkspace.sushiericservermanager.feature.moneyhistory.LocalHistorySource
+import io.github.sushiericworkspace.sushiericservermanager.feature.moneyhistory.checkHistoryWorker
 import io.github.sushiericworkspace.sushiericdatamodel.data.core.ManagedData
 import io.github.sushiericworkspace.sushiericdatamodel.data.core.identity.PublicId
 import io.github.sushiericworkspace.sushiericdatamodel.data.item.model.ItemInternalId
-import io.github.sushiericworkspace.sushiericdatamodel.database.run.WorldRunState
+import io.github.sushiericworkspace.sushiericservermanager.communication.database.PostgresHostReference
+import io.github.sushiericworkspace.sushiericservermanager.editor.shop.*
+import io.github.sushiericworkspace.sushiericservermanager.config.FilePath
+import io.github.sushiericworkspace.sushiericdatamodel.data.shop.model.mutable.MutableShopProductData
 import io.github.sushiericworkspace.sushiericdatamodel.path.SushiEricDataDirectory
-import kotlinx.serialization.decodeFromString
-import kotlinx.serialization.json.Json
 import org.slf4j.LoggerFactory
 import java.io.File
 import java.nio.file.AtomicMoveNotSupportedException
@@ -19,43 +20,61 @@ import java.util.UUID
 
 class LocalEditorDataStore(
     rootDirectory: File,
-    historySource: HistorySource? = null
+    historySource: HistorySource? = null,
+    private val hostReference: PostgresHostReference? = null
 ) : EditorDataStore {
     private val rootDirectory = rootDirectory.canonicalFile
     private val logger = LoggerFactory.getLogger(javaClass)
     private val configuredHistorySource = historySource
-    private val worldRunJson = Json { classDiscriminator = "type" }
+    override val databaseReference get() = hostReference
+    private val hostTransport = lazy { LocalShopTransport(checkedReference()) }
+    private val databaseTransport by hostTransport
+    override fun closeDatabase() {
+        if (hostTransport.isInitialized()) databaseTransport.close()
+    }
+    override val shopProducts: ShopEditorStore? by lazy {
+        hostReference?.let { reference ->
+            val binding = reference.status.state.binding
+            val key = UUID.nameUUIDFromBytes(listOf(binding.deploymentUuid, binding.databaseUuid,
+                binding.worldUuid, binding.generation).joinToString("\u0000").toByteArray()).toString()
+            ShopEditorStore(ShopSaveSession(databaseTransport,
+                FilePath.AUTOSAVE_DIR.toFile().resolve("shop-pending/$key.json").toPath()))
+        }
+    }
     override val historySource: HistorySource?
         get() {
             configuredHistorySource?.let { return it }
+            checkHistoryWorker()
+            if (hostReference != null) return requireNotNull(shopProducts).historySource()
             val databaseDirectory = rootDirectory.resolve("sushieric")
-            val database = databaseDirectory.resolve("server.sqlite")
-            val marker = databaseDirectory.resolve("world-id")
-            if (!database.exists() && !marker.exists()) return null
-            check(database.isFile && marker.isFile) {
-                "DB済みworldの履歴にはworld-idとserver.sqliteが必要です。"
+            check(!databaseDirectory.resolve("world-id").exists() && !databaseDirectory.resolve("run-state").exists() &&
+                !databaseDirectory.resolve("run-state-v2").exists() && !databaseDirectory.resolve("server.sqlite").exists()) {
+                "world結合済み履歴には承認済みv2 Host参照が必要です。"
             }
-            val worldUuid = UUID.fromString(marker.readText(Charsets.UTF_8).trim()).toString()
-            val runStateFile = databaseDirectory.resolve("run-state/current.json")
-            check(runStateFile.isFile) { "DB済みworldの履歴にはrun-stateが必要です。" }
-            val state = worldRunJson.decodeFromString<WorldRunState>(runStateFile.readText(Charsets.UTF_8))
-            check(state.worldUuid == worldUuid && state.paths.worldRoot == rootDirectory.path &&
-                state.paths.database == database.path) { "world markerとrun-stateのpathが一致しません。" }
-            val shopDirectory = Path.of(state.paths.shopDirectory)
-            check(shopDirectory.isAbsolute && shopDirectory.fileName.toString() == "shop_data") {
-                "run-stateのshop_data pathが不正です。"
-            }
-            return LocalHistorySource(rootDirectory.toPath(), shopDirectory, worldUuid)
+            return null
         }
+
+    private fun checkedReference(): PostgresHostReference {
+        checkHistoryWorker()
+        val reference = requireNotNull(hostReference)
+        reference.validate()
+        check(Path.of(reference.status.state.binding.worldRoot).toRealPath() == rootDirectory.toPath().toRealPath()) {
+            "接続参照のworldがローカルrootと一致しません。"
+        }
+        check(File(reference.shop.root).isDirectory) { "承認済みshopの配置を確認できません。" }
+        return reference
+    }
 
     override val kind: EditorDataStoreKind = EditorDataStoreKind.LOCAL
     override val identity: String = "offline"
     override val offlineDirectory: File get() = rootDirectory
     override val isAvailable: Boolean
-        get() = if (configuredHistorySource != null) rootDirectory.isDirectory
+        get() = if (configuredHistorySource != null || hostReference != null) rootDirectory.isDirectory
             else rootDirectory.exists() || rootDirectory.mkdirs()
 
     fun ensureDirectories(): StoreResult<Unit> {
+        if (hostReference != null) return if (rootDirectory.isDirectory) StoreResult.Success(Unit)
+            else failure(StoreErrorCode.STORE_UNAVAILABLE)
         return try {
             if (!rootDirectory.exists() && !rootDirectory.mkdirs()) {
                 return failure(StoreErrorCode.PERMISSION_DENIED)
@@ -88,6 +107,8 @@ class LocalEditorDataStore(
     }
 
     override fun writeText(relativePath: String, text: String): StoreResult<Unit> {
+        if (hostReference != null && (relativePath.equals("shop_data", true) || relativePath.startsWith("shop_data/", true)))
+            return failure(StoreErrorCode.UNSUPPORTED_FORMAT, relativePath)
         val target = resolveRelativeFile(relativePath)
             ?: return failure(StoreErrorCode.INVALID_ID, relativePath)
         val directory = target.parentFile
@@ -137,6 +158,8 @@ class LocalEditorDataStore(
     private fun resolveRelativeFile(relativePath: String): File? {
         if (!StorePathValidator.isValidRelativePath(relativePath)) return null
 
+        if (hostReference != null && (relativePath == "shop_data" || relativePath.startsWith("shop_data/")))
+            return File(checkedReference().shop.root).resolve(relativePath.removePrefix("shop_data").trimStart('/'))
         return rootDirectory.resolve(relativePath)
     }
 
@@ -174,6 +197,12 @@ class LocalEditorDataStore(
         descriptor: EditorDataDescriptor<T>,
         id: String
     ): StoreResult<T> {
+        if (hostReference != null && descriptor.readProduct != null) {
+            return when (val loaded = requireNotNull(shopProducts).load(id)) {
+                is StoreResult.Success -> StoreResult.Success(descriptor.readProduct.invoke(loaded.value))
+                is StoreResult.Failure -> loaded
+            }
+        }
         val file = resolveFile(descriptor, id) ?: return failure(StoreErrorCode.INVALID_ID, id)
         if (!file.isFile) return failure(StoreErrorCode.FILE_NOT_FOUND, id)
 
@@ -195,6 +224,9 @@ class LocalEditorDataStore(
         id: String,
         data: T
     ): StoreResult<Unit> {
+        if (hostReference != null && data is MutableShopProductData) {
+            return requireNotNull(shopProducts).save(data, requireNotNull(shopProducts).snapshot(id))
+        }
         val target = resolveFile(descriptor, id) ?: return failure(StoreErrorCode.INVALID_ID, id)
         val directory = target.parentFile
         if (!directory.exists() && !directory.mkdirs()) {
@@ -244,6 +276,9 @@ class LocalEditorDataStore(
         oldId: String,
         newName: String
     ): StoreResult<Unit> {
+        if (hostReference != null && descriptor.readProduct != null)
+            return failure(StoreErrorCode.UNSUPPORTED_FORMAT, detail = "商品操作にはHostの親要求が必要です。")
+
         if (!StorePathValidator.isValidId(oldId) || !StorePathValidator.isValidName(newName)) {
             return failure(StoreErrorCode.INVALID_ID, newName)
         }
@@ -259,6 +294,9 @@ class LocalEditorDataStore(
         id: String,
         targetDirectory: String
     ): StoreResult<String> {
+        if (hostReference != null && descriptor.readProduct != null)
+            return failure(StoreErrorCode.UNSUPPORTED_FORMAT, detail = "商品操作にはHostの親要求が必要です。")
+
         if (!StorePathValidator.isValidId(id) ||
             !StorePathValidator.isValidDirectory(targetDirectory)
         ) {
@@ -315,6 +353,9 @@ class LocalEditorDataStore(
         descriptor: EditorDataDescriptor<T>,
         directory: String
     ): StoreResult<Unit> {
+        if (hostReference != null && descriptor.readProduct != null)
+            return failure(StoreErrorCode.UNSUPPORTED_FORMAT, detail = "商品操作にはHostの親要求が必要です。")
+
         val target = resolveDirectory(descriptor, directory, allowRoot = false)
             ?: return failure(StoreErrorCode.INVALID_ID, directory)
         return try {
@@ -333,6 +374,9 @@ class LocalEditorDataStore(
         descriptor: EditorDataDescriptor<T>,
         directory: String
     ): StoreResult<Unit> {
+        if (hostReference != null && descriptor.readProduct != null)
+            return failure(StoreErrorCode.UNSUPPORTED_FORMAT, detail = "商品操作にはHostの親要求が必要です。")
+
         val target = resolveDirectory(descriptor, directory, allowRoot = false)
             ?: return failure(StoreErrorCode.INVALID_ID, directory)
         if (!target.isDirectory) return failure(StoreErrorCode.FILE_NOT_FOUND, directory)
@@ -348,7 +392,7 @@ class LocalEditorDataStore(
         descriptor: EditorDataDescriptor<T>
     ): StoreResult<List<String>> {
         val base = descriptorDirectory(descriptor)
-        if (!base.exists() && !base.mkdirs()) return failure(StoreErrorCode.PERMISSION_DENIED)
+        if (!base.exists() && (hostReference != null || !base.mkdirs())) return failure(StoreErrorCode.PERMISSION_DENIED)
         return try {
             StoreResult.Success(
                 base.walkTopDown()
@@ -368,6 +412,9 @@ class LocalEditorDataStore(
         descriptor: EditorDataDescriptor<T>,
         id: String
     ): StoreResult<Unit> {
+        if (hostReference != null && descriptor.readProduct != null)
+            return failure(StoreErrorCode.UNSUPPORTED_FORMAT, detail = "商品操作にはHostの親要求が必要です。")
+
         val file = resolveFile(descriptor, id) ?: return failure(StoreErrorCode.INVALID_ID, id)
         if (!file.exists()) return failure(StoreErrorCode.FILE_NOT_FOUND, id)
         return try {
@@ -384,7 +431,8 @@ class LocalEditorDataStore(
 
     private fun <T : ManagedData<T, *>> descriptorDirectory(
         descriptor: EditorDataDescriptor<T>
-    ): File = rootDirectory.resolve(descriptor.relativeDirectory)
+    ): File = if (hostReference != null && descriptor.readProduct != null) File(checkedReference().shop.root)
+        else rootDirectory.resolve(descriptor.relativeDirectory)
 
     private fun <T : ManagedData<T, *>> resolveFile(
         descriptor: EditorDataDescriptor<T>,
