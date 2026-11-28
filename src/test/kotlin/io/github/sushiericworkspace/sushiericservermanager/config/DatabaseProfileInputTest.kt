@@ -2,6 +2,7 @@ package io.github.sushiericworkspace.sushiericservermanager.config
 
 import io.github.sushiericworkspace.sushiericservermanager.communication.database.postgresReference
 import kotlinx.serialization.encodeToString
+import kotlinx.serialization.SerializationException
 import kotlinx.serialization.json.*
 import java.nio.file.Path
 import kotlin.test.*
@@ -64,5 +65,22 @@ class DatabaseProfileInputTest {
         assertEquals(loaded, SettingConfigManager.load())
         file.writeText("""{"list":[{"name":"legacy","host":"localhost","port":22,"user":"fixture","path":"/world","key":"","future":true}]}""")
         assertNull(SettingConfigManager.load().list.single().databaseHistory)
+    }
+
+    @Test fun rejectionKeepsCauseWithSafePublicMessage() = withProfilesFile { file ->
+        val marker = "untrusted-profile-value"
+        val input = withHost(valid()) { host ->
+            JsonObject(host + ("postgres" to JsonObject(host.getValue("postgres").jsonObject +
+                ("password" to JsonPrimitive(marker)))))
+        }.toString()
+        val error = assertFailsWith<SerializationException> {
+            Json { ignoreUnknownKeys = true }.decodeFromString(ServerConfig.serializer(), input)
+        }
+        assertEquals("DB参照設定の形式が不正です。", error.message)
+        assertIs<SerializationException>(error.cause)
+        assertFalse(error.message.orEmpty().contains(marker))
+        file.writeText(input)
+        assertEquals(ServerConfig(), SettingConfigManager.load())
+        assertEquals(input, file.readText())
     }
 }

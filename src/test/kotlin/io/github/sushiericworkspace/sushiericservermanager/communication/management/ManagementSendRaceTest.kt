@@ -108,7 +108,7 @@ class ManagementSendRaceTest {
         }
     }
 
-    @Test fun acceptedSendFinishesOnOldTargetBeforeDisconnect() {
+    @Test fun blockedSendAllowsResponsesOtherSendsAndDisconnectOnOldTarget() {
         val client = ServerManagementClient()
         val entered = CountDownLatch(1)
         val release = CountDownLatch(1)
@@ -116,30 +116,49 @@ class ManagementSendRaceTest {
             beforeStart = { entered.countDown(); check(release.await(5, TimeUnit.SECONDS)) }
         }
         val next = Wire(binding)
+        val received = CopyOnWriteArrayList<ServerManagementResponse>()
+        client.addMessageListener { received += it }
         assertTrue(client.connect(old))
         val generation = client.connectionGeneration
         val sent = FutureTask { client.send(ServerManagementRequest.DatabaseHistoryStart(binding, nonce = "accepted"), generation) }
+        val response = FutureTask {
+            old.listener.onMessage(ServerManagementResponse.DatabaseHistory(true, "old-handle", nonce = "accepted"))
+        }
+        val parallel = FutureTask {
+            assertTrue(client.send(ServerManagementRequest.Ping("parallel")))
+            assertTrue(client.send(ServerManagementRequest.DatabaseContextRequest("parallel-db")))
+        }
         val switched = FutureTask { client.connect(next) }
         val sender = Thread(sent, "accepted-send-race")
+        val responder = Thread(response, "response-during-send")
+        val other = Thread(parallel, "parallel-send")
         val switcher = Thread(switched, "disconnect-send-race")
         sender.start()
         try {
             assertTrue(entered.await(5, TimeUnit.SECONDS))
+            responder.start()
+            response.get(5, TimeUnit.SECONDS)
+            assertEquals("old-handle", assertIs<ServerManagementResponse.DatabaseHistory>(received.single()).handle)
+            other.start()
+            parallel.get(5, TimeUnit.SECONDS)
+            assertFalse(sent.isDone)
             switcher.start()
-            awaitBlocked(switcher, "disconnect")
+            assertTrue(switched.get(5, TimeUnit.SECONDS))
+            assertTrue(old.closed)
+            assertFalse(sent.isDone)
+            assertTrue(next.sent.isEmpty())
             release.countDown()
             assertTrue(sent.get(5, TimeUnit.SECONDS))
-            assertTrue(switched.get(5, TimeUnit.SECONDS))
             assertEquals(1, old.sent.filterIsInstance<ServerManagementRequest.DatabaseHistoryStart>().size)
-            assertTrue(old.closed)
             assertTrue(next.sent.isEmpty())
             assertTrue(client.send(ServerManagementRequest.DatabaseContextRequest("accepted")))
         } finally {
             release.countDown()
-            sender.join(5_000)
-            switcher.join(5_000)
+            for (thread in listOf(sender, responder, other, switcher)) {
+                thread.join(5_000)
+                assertFalse(thread.isAlive)
+            }
             client.disconnect()
-            assertFalse(sender.isAlive || switcher.isAlive)
         }
     }
 }

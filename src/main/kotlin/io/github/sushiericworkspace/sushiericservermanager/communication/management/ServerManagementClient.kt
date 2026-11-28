@@ -198,7 +198,8 @@ class ServerManagementClient(
      * DB要求には接続内で再利用しないnonceが必要です。受付後に配送が失敗したnonceも再利用できません。
      *
      * @param request 送信するメッセージ。
-     * @return 送信できた場合は`true`。
+     * @return 送信先が受け付けた場合はtrue。falseは未受付で、登録済みnonceは再利用できません。
+     * @throws Exception 送信先が例外を投げた場合。受付不明として相関を保持し、遅延応答を受け取ります。
      */
     fun send(
         request: ServerManagementRequest
@@ -227,11 +228,14 @@ class ServerManagementClient(
                 val nonce = correlation.first ?: return false
                 if (!databaseNonces.add(nonce)) return false
                 databaseReplies[nonce] = correlation.second
-                return target(request)
             }
             target
         }
-        return sender(request)
+        val sent = sender(request)
+        if (!sent && correlation != null) synchronized(databaseNonces) {
+            if (generation == connectionId) databaseReplies.remove(correlation.first)
+        }
+        return sent
     }
 
     /**

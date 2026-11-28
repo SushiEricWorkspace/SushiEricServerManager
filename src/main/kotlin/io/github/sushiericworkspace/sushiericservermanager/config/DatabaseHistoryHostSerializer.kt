@@ -17,8 +17,8 @@ internal object DatabaseHistoryHostSerializer : KSerializer<DatabaseHistoryHost>
         val input = decoder as? JsonDecoder ?: throw SerializationException("DB参照設定にはJSONが必要です。")
         return try {
             json.decodeFromJsonElement(delegate, input.decodeJsonElement())
-        } catch (_: SerializationException) {
-            throw SerializationException("DB参照設定の形式が不正です。")
+        } catch (error: SerializationException) {
+            throw SerializationException("DB参照設定の形式が不正です。", error)
         }
     }
 
