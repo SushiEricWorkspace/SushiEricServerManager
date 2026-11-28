@@ -37,7 +37,7 @@ SFTPは既存YAML操作と非秘密current一件の観測だけに使用しま�
 
 ## Management接続
 
-通常ManagementはMod #631の型付きPG APIを使用します。DB要求・応答とbindingはstorageContractVersion=2を必須とし、未知・重複field、不正Unicode、旧版・版省略を拒否します。profileの承認済みPostgresRunBinding全体とworldを照合し、game_dirtyの観測がある場合はrunも照合します。初回contextのrunを検索元へ固定し、再接続前の応答とnonceの再利用を拒否します。v2参照のない旧profileを自動昇格しません。失敗からSSHへ自動迂回しません。managedのlayout/supervisor受入は.github #148/#64待ちです。通常Managerからdevelopmentへの依存はありません。
+通常ManagementはMod #631の型付きPG APIを使用します。DB要求・応答とbindingはstorageContractVersion=2を必須とし、未知・重複field、不正Unicode、旧版・版省略を拒否します。profileの承認済みPostgresRunBinding全体とworldを照合し、game_dirtyの観測がある場合はrunも照合します。初回contextのrunを検索元へ固定し、再接続前の応答とnonceの再利用を拒否します。v2参照のない旧profileを自動昇格しません。profileのdatabaseHistory配下は未知fieldを拒否し、設定全体の前方互換方針は維持します。読込を拒否した場合は既存loaderの規約どおり空の設定を返し、元fileを書き換えません。失敗からSSHへ自動迂回しません。managedのlayout/supervisor受入は.github #148/#64待ちです。通常Managerからdevelopmentへの依存はありません。
 
 ## 検証と正式化
 

@@ -109,7 +109,7 @@ class ManagementHistorySource(private val client: ServerManagementClient,
         val deadline = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(timeoutMillis)
         try {
             check(client.isConnected && client.connectionGeneration == generation) { "検索元の接続が終了しました。" }
-            sent = client.send(request)
+            sent = client.send(request, generation)
             check(sent) { "Management要求を送信できません。" }
             while (true) {
                 try {

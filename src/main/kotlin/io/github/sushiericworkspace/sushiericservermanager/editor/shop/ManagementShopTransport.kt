@@ -59,7 +59,7 @@ class ManagementShopTransport(
         client.addMessageListener(messageListener)
         client.addStateListener(stateListener)
         try {
-            check(client.connectionGeneration == generation && client.isConnected && client.send(request)) { "Management接続を利用できません。" }
+            check(client.connectionGeneration == generation && client.isConnected && client.send(request, generation)) { "Management接続を利用できません。" }
             return result.get(timeoutMillis, TimeUnit.MILLISECONDS).also {
                 check(client.isConnected && client.connectionGeneration == generation) { "商品DBの接続が終了しました。" }
             }
