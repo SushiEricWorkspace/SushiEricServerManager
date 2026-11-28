@@ -44,7 +44,7 @@ class ManagementShopTransportTest {
 
     @Test fun `Modと同じwireを使い要求worldとrunを所有接続へ固定する`() {
         val client = ServerManagementClient()
-        val binding = ManagementDatabaseBinding(world, UUID.randomUUID().toString())
+        val binding = managementBinding(world, UUID.randomUUID().toString())
         val wire = Transport(binding)
         assertTrue(client.connect(wire))
         try {
@@ -58,7 +58,7 @@ class ManagementShopTransportTest {
             val json = ServerManagementMessageCodec.encode(wire.products.single())
             assertTrue(json.contains("database_product_request"))
             assertTrue(json.contains("worldUuid"))
-            val response = """{"type":"database_product_result","response":{"requestId":"${request.requestId}","status":"SUCCESS","result":{"type":"io.github.sushiericworkspace.sushiericdatamodel.database.host.HostAdapterResult.Edited","transactionIds":[]}}}"""
+            val response = """{"type":"database_product_result","storageContractVersion":2,"response":{"requestId":"${request.requestId}","status":"SUCCESS","result":{"type":"io.github.sushiericworkspace.sushiericdatamodel.database.host.HostAdapterResult.Edited","transactionIds":[]}}}"""
             assertIs<ServerManagementDecodeResult.Success>(ServerManagementMessageCodec.decode(response))
         } finally { client.disconnect() }
     }
@@ -66,7 +66,7 @@ class ManagementShopTransportTest {
     @Test fun `送信後切断と異なるnonceの応答は保存待ちを残す`() {
         for (drop in listOf(false, true)) {
             val client = ServerManagementClient()
-            val wire = Transport(ManagementDatabaseBinding(world, UUID.randomUUID().toString())).apply {
+            val wire = Transport(managementBinding(world, UUID.randomUUID().toString())).apply {
                 this.drop = drop; wrongNonce = !drop
             }
             assertTrue(client.connect(wire))
@@ -83,7 +83,7 @@ class ManagementShopTransportTest {
 
     @Test fun `管理binding不在では所有情報を推測せず送信しない`() {
         val client = ServerManagementClient()
-        val wire = Transport(ManagementDatabaseBinding(world, UUID.randomUUID().toString(),
+        val wire = Transport(managementBinding(world, UUID.randomUUID().toString(),
             UUID.randomUUID().toString(), UUID.randomUUID().toString()))
         assertTrue(client.connect(wire))
         try {

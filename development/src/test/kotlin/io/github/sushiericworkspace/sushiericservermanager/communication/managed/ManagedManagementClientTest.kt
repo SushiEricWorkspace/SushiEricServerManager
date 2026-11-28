@@ -29,7 +29,7 @@ class ManagedManagementClientTest {
                         fixture.commands += command to payload
                         buildJsonObject {
                             put("completed", true)
-                            putJsonObject("apiResponse") { put("type", "money_history_save_result"); put("nonce", "save-1"); put("success", false) }
+                            putJsonObject("apiResponse") { put("storageContractVersion", 2); put("type", "money_history_save_result"); put("nonce", "save-1"); put("success", false) }
                         }
                     }
                 }
@@ -85,7 +85,7 @@ class ManagedManagementClientTest {
                         buildJsonObject {
                             put("responseAvailable", true)
                             putJsonObject("apiResponse") {
-                                put("type", "database_history"); put("success", true); put("handle", "h"); put("nonce", nonce)
+                                put("storageContractVersion", 2); put("type", "database_history"); put("success", true); put("handle", "h"); put("nonce", nonce)
                             }
                         }
                     }

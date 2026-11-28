@@ -2,10 +2,15 @@ package io.github.sushiericworkspace.sushiericservermanager.communication.manage
 
 import io.github.sushiericworkspace.sushiericservermanager.communication.management.ServerManagementRequest
 import io.github.sushiericworkspace.sushiericservermanager.communication.management.ServerManagementResponse
+import io.github.sushiericworkspace.sushiericdatamodel.database.host.HostAdapterCodec
 import kotlinx.serialization.SerializationException
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
+import com.fasterxml.jackson.core.JsonFactory
+import com.fasterxml.jackson.core.JsonToken
+import com.fasterxml.jackson.core.StreamReadFeature
 
 /**
  * Management APIのメッセージとJSONを相互変換します。
@@ -28,19 +33,60 @@ object ServerManagementMessageCodec {
             ignoreUnknownKeys = true
         }
 
+    private val databaseJson = Json { classDiscriminator = TYPE_KEY }
+    private val wireJson = JsonFactory.builder().enable(StreamReadFeature.STRICT_DUPLICATE_DETECTION).build()
+    private val databaseTypes = setOf("database_context_request", "database_product_request", "database_history_start",
+        "database_history_page", "database_history_end", "money_history_save", "database_context",
+        "database_product_result", "database_history", "money_history_save_result")
+
+    private fun isDatabase(element: JsonObject) = (element[TYPE_KEY] as? JsonPrimitive)?.content in databaseTypes
+
+    private fun validateDatabase(text: String, element: JsonObject) {
+        require(text.encodeToByteArray(throwOnInvalidSequence = true).size <= 60 * 1024)
+        val version = element["storageContractVersion"] as? JsonPrimitive
+        require(version != null && !version.isString && version.content == "2")
+        wireJson.createParser(text).use { parser ->
+            require(parser.nextToken() == JsonToken.START_OBJECT)
+            val unicode = Charsets.UTF_8.newEncoder()
+            var depth = 1
+            while (depth > 0) {
+                val token = requireNotNull(parser.nextToken())
+                if (token == JsonToken.FIELD_NAME || token == JsonToken.VALUE_STRING)
+                    require(unicode.canEncode(parser.text))
+                if (token != JsonToken.FIELD_NAME && parser.currentName() in setOf("success", "rejectedBeforeEffect", "hasMore"))
+                    require(token == JsonToken.VALUE_TRUE || token == JsonToken.VALUE_FALSE)
+                if (token != JsonToken.FIELD_NAME && parser.currentName() == "storageContractVersion")
+                    require(token == JsonToken.VALUE_NUMBER_INT && parser.text == "2")
+                if (token == JsonToken.START_OBJECT || token == JsonToken.START_ARRAY) depth++
+                if (token == JsonToken.END_OBJECT || token == JsonToken.END_ARRAY) depth--
+            }
+            require(parser.nextToken() == null)
+        }
+    }
+
     /**
      * 送信するメッセージをJSONへ変換します。
      *
      * @param request 送信するメッセージ。
      * @return `type`を含むJSON文字列。
+     * @throws IllegalArgumentException DB保存契約又は要求サイズ・Unicodeが不正な場合。
      */
     fun encode(
         request: ServerManagementRequest
-    ): String =
-        json.encodeToString(request)
+    ): String {
+        val text = json.encodeToString(request)
+        val element = json.parseToJsonElement(text) as JsonObject
+        if (isDatabase(element)) {
+            validateDatabase(text, element)
+            if (request is ServerManagementRequest.DatabaseProductRequest)
+                require(HostAdapterCodec.encodeRequest(request.request).size <= 56 * 1024)
+        }
+        return text
+    }
 
     /**
-     * 受信したJSONをメッセージへ変換します。
+     * 受信したJSONをメッセージへ変換します。DB応答はstorage v2を必須とし、
+     * 未知・重複fieldと不正Unicodeを拒否します。
      *
      * 例外を呼び出し側へ伝播させず、結果で表します。
      * サーバー側が新しい種別を送ってきても接続を落とさないためです。
@@ -57,7 +103,7 @@ object ServerManagementMessageCodec {
             } catch (exception: SerializationException) {
                 return ServerManagementDecodeResult.Failure(
                     reason = "JSONとして解釈できません。",
-                    detail = summarize(exception)
+                    detail = null
                 )
             }
 
@@ -69,8 +115,12 @@ object ServerManagementMessageCodec {
         }
 
         return try {
+            val decoder = if (isDatabase(element)) {
+                validateDatabase(text, element)
+                databaseJson
+            } else json
             ServerManagementDecodeResult.Success(
-                json.decodeFromJsonElement(
+                decoder.decodeFromJsonElement(
                     ServerManagementResponse.serializer(),
                     element
                 )
@@ -78,29 +128,17 @@ object ServerManagementMessageCodec {
         } catch (exception: SerializationException) {
             ServerManagementDecodeResult.Failure(
                 reason = "未対応の種別です。",
-                detail = summarize(exception)
+                detail = null
             )
+        } catch (exception: java.io.IOException) {
+            ServerManagementDecodeResult.Failure("DB応答のJSONが不正です。", null)
         } catch (exception: IllegalArgumentException) {
             ServerManagementDecodeResult.Failure(
                 reason = "未対応の種別です。",
-                detail = summarize(exception)
+                detail = null
             )
         }
     }
-
-    /**
-     * 例外メッセージをログへ載せられる長さへ整えます。
-     *
-     * ライブラリの例外は受信内容そのものを含む複数行のことがあるため、先頭行だけを使います。
-     */
-    private fun summarize(
-        exception: Exception
-    ): String? =
-        exception.message
-            ?.lineSequence()
-            ?.firstOrNull()
-            ?.trim()
-            ?.takeIf { it.isNotEmpty() }
 }
 
 /**

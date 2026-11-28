@@ -54,6 +54,7 @@ data class ServerProfile(
     /** ローカル文書の保存元を識別します。既存profileは読み込み時に採番・保存します。 */
     val profileId: String = "",
     /** Management未接続時に使う、配備・照合済み同一ホストD3 CLI。 */
+    @Serializable(with = DatabaseHistoryHostSerializer::class)
     val databaseHistory: DatabaseHistoryHost? = null
 ) {
     /** 名前・鍵・接続runを含めず、確定したprofileと接続先/rootへ文書を束縛します。 */

@@ -146,6 +146,7 @@ dependencies {
     api("com.hierynomus:sshj:0.39.0")
     implementation("org.yaml:snakeyaml:2.2")
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.6.3")
+    implementation("com.fasterxml.jackson.core:jackson-core:2.21.5")
 
     // ロギング
     api("org.slf4j:slf4j-api:2.0.12")

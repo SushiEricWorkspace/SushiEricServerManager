@@ -6,6 +6,7 @@ import kotlinx.serialization.SerialName
 import io.github.sushiericworkspace.sushiericdatamodel.database.host.HostAdapterRequest
 import io.github.sushiericworkspace.sushiericdatamodel.database.host.HostAdapterResponse
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.Required
 
 /**
  * Management APIとやり取りするメッセージです。
@@ -23,24 +24,24 @@ sealed interface ServerManagementMessage
 @Serializable
 sealed interface ServerManagementRequest : ServerManagementMessage {
     @Serializable @SerialName("database_context_request")
-    data class DatabaseContextRequest(val nonce: String? = null) : ServerManagementRequest
+    data class DatabaseContextRequest(val nonce: String? = null, @Required val storageContractVersion: Int = 2) : ServerManagementRequest
 
     @Serializable @SerialName("database_product_request")
     data class DatabaseProductRequest(val binding: ManagementDatabaseBinding, val request: HostAdapterRequest,
-        val nonce: String? = null) : ServerManagementRequest
+        val nonce: String? = null, @Required val storageContractVersion: Int = 2) : ServerManagementRequest
 
     /** 初回高水位と未確定集合を接続専用handleへ固定します。 */
     @Serializable @SerialName("database_history_start")
     data class DatabaseHistoryStart(val binding: ManagementDatabaseBinding,
-        val filter: HostHistoryFilter = HostHistoryFilter(), val nonce: String? = null) : ServerManagementRequest
+        val filter: HostHistoryFilter = HostHistoryFilter(), val nonce: String? = null, @Required val storageContractVersion: Int = 2) : ServerManagementRequest
 
     @Serializable @SerialName("database_history_page")
     data class DatabaseHistoryPage(val handle: String, val offset: Int = 0, val limit: Int = 100,
-        val nonce: String? = null) : ServerManagementRequest
+        val nonce: String? = null, @Required val storageContractVersion: Int = 2) : ServerManagementRequest
 
     /** 検索handleだけを解放し、取引を取り消しません。 */
     @Serializable @SerialName("database_history_end")
-    data class DatabaseHistoryEnd(val handle: String, val nonce: String? = null) : ServerManagementRequest
+    data class DatabaseHistoryEnd(val handle: String, val nonce: String? = null, @Required val storageContractVersion: Int = 2) : ServerManagementRequest
 
 
     /**
@@ -83,7 +84,7 @@ sealed interface ServerManagementRequest : ServerManagementMessage {
     /** 指定プレイヤーの入出金履歴をサーバー側へ保存する要求です。 */
     @Serializable
     @SerialName("money_history_save")
-    data class MoneyHistorySave(val playerUuid: String? = null, val nonce: String? = null) : ServerManagementRequest
+    data class MoneyHistorySave(val playerUuid: String? = null, val nonce: String? = null, @Required val storageContractVersion: Int = 2) : ServerManagementRequest
 
     /** 指定プレイヤーの実績データをサーバー側へ保存する要求です。uuid省略時は全員が対象です。 */
     @Serializable
@@ -142,18 +143,23 @@ sealed interface ServerManagementResponse : ServerManagementMessage {
     @Serializable @SerialName("database_context")
     data class DatabaseContext(val success: Boolean, val binding: ManagementDatabaseBinding? = null,
         val detail: String? = null, val nonce: String? = null,
-        val rejectedBeforeEffect: Boolean = false) : ServerManagementResponse {
+        val rejectedBeforeEffect: Boolean = false,
+        @Required val storageContractVersion: Int = 2) : ServerManagementResponse {
         init { require(!success || !rejectedBeforeEffect) }
     }
 
     @Serializable @SerialName("database_product_result")
-    data class DatabaseProductResult(val response: HostAdapterResponse, val nonce: String? = null) : ServerManagementResponse
+    data class DatabaseProductResult(val response: HostAdapterResponse, val nonce: String? = null,
+        @Required val storageContractVersion: Int = 2) : ServerManagementResponse
 
     /** nextOffsetはbyte上限で短縮された応答の実際の行数だけ進みます。 */
     @Serializable @SerialName("database_history")
     data class DatabaseHistory(val success: Boolean, val handle: String? = null,
         val rows: List<HostHistoryRecord> = emptyList(), val nextOffset: Int = 0, val hasMore: Boolean = false,
-        val code: String? = null, val detail: String? = null, val nonce: String? = null) : ServerManagementResponse
+        val code: String? = null, val detail: String? = null, val nonce: String? = null,
+        val rejectedBeforeEffect: Boolean = false, @Required val storageContractVersion: Int = 2) : ServerManagementResponse {
+        init { require(!success || !rejectedBeforeEffect) }
+    }
 
 
     /**
@@ -262,8 +268,12 @@ sealed interface ServerManagementResponse : ServerManagementMessage {
         val savedCount: Int = 0,
         val pendingCount: Int = 0,
         val detail: String? = null,
-        val nonce: String? = null
-    ) : ServerManagementResponse
+        val nonce: String? = null,
+        val rejectedBeforeEffect: Boolean = false,
+        @Required val storageContractVersion: Int = 2
+    ) : ServerManagementResponse {
+        init { require(!success || !rejectedBeforeEffect) }
+    }
 
     /** 実績データの保存結果です。成功応答後にSFTP上のachievements.ymlを読み込みます。 */
     @Serializable

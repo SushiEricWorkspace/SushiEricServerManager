@@ -3,13 +3,16 @@ package io.github.sushiericworkspace.sushiericservermanager.feature.moneyhistory
 import io.github.sushiericworkspace.sushiericdatamodel.database.host.*
 import io.github.sushiericworkspace.sushiericservermanager.communication.management.*
 import org.slf4j.LoggerFactory
+import io.github.sushiericworkspace.sushiericservermanager.communication.database.PostgresHostReference
 import java.util.UUID
 import java.util.concurrent.CompletableFuture
 import java.util.concurrent.TimeUnit
 
 /** 同じManagement接続の検索handleを開閉します。拒否時にYAMLや別接続へ切り替えません。 */
 class ManagementHistorySource(private val client: ServerManagementClient,
-    private val timeoutMillis: Long = 20_000) : HistorySource {
+    private val timeoutMillis: Long = 20_000,
+    private val reference: PostgresHostReference? = null) : HistorySource {
+    private var context: ManagementDatabaseBinding? = null
     private val logger = LoggerFactory.getLogger(javaClass)
     internal val generation = client.connectionGeneration
     override fun open(filter: HostHistoryFilter): HistorySearch {
@@ -36,7 +39,11 @@ class ManagementHistorySource(private val client: ServerManagementClient,
             (it as? ServerManagementResponse.DatabaseContext)?.takeIf { response -> response.nonce == contextNonce }
         }
         check(context.success) { context.detail ?: "DB接続を確認できません。" }
-        val binding = requireNotNull(context.binding)
+        val binding = requireNotNull(context.binding).also {
+            it.validate(reference)
+            require(this.context == null || this.context == it) { "Managementのrunが変更されました。再接続してください。" }
+            this.context = it
+        }
         val nonce = UUID.randomUUID().toString()
         // 開始の応答は割込み後も回収し、発行済みhandleを取り残さない。
         val started = await(ServerManagementRequest.DatabaseHistoryStart(binding, filter, nonce), deferInterrupt = true) {
@@ -102,7 +109,8 @@ class ManagementHistorySource(private val client: ServerManagementClient,
         val deadline = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(timeoutMillis)
         try {
             check(client.isConnected && client.connectionGeneration == generation) { "検索元の接続が終了しました。" }
-            sent = client.send(request)
+            sent = true
+            sent = client.send(request, generation)
             check(sent) { "Management要求を送信できません。" }
             while (true) {
                 try {

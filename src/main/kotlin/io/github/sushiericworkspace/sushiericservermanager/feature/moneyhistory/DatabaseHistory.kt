@@ -21,8 +21,8 @@ internal class HistoryConnection(private val store: EditorDataStore, private val
 
 internal fun historySource(store: EditorDataStore, client: ServerManagementClient): HistorySource? = when {
     client.isConnected -> {
-        check(store.databaseReference == null) { "PG Managementの型付き接続契約は未接続です。旧DB契約では実行しません。" }
-        ManagementHistorySource(client)
+        val reference = requireNotNull(store.databaseReference) { "Managementには承認済みv2 DB参照が必要です。" }
+        ManagementHistorySource(client, reference = reference)
     }
     store.historySource != null -> store.historySource
     store.kind == EditorDataStoreKind.LOCAL || store.kind == EditorDataStoreKind.IN_MEMORY -> null
