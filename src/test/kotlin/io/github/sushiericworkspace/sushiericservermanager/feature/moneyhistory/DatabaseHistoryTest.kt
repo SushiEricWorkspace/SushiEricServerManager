@@ -11,6 +11,7 @@ import java.nio.file.Path
 import java.time.Duration
 import java.time.Instant
 import java.time.ZoneId
+import io.github.sushiericworkspace.sushiericservermanager.communication.database.postgresReference
 import java.util.UUID
 import java.util.concurrent.CompletableFuture
 import java.util.concurrent.CountDownLatch
@@ -171,11 +172,11 @@ class DatabaseHistoryTest {
     }
 
     @Test fun `管理codecはDB型とnano精度を復号する`() {
-        val text = """{"type":"database_history","success":true,"handle":"h","rows":[],"nextOffset":7,"hasMore":true,"nonce":"n"}"""
+        val text = """{"type":"database_history","storageContractVersion":2,"success":true,"handle":"h","rows":[],"nextOffset":7,"hasMore":true,"nonce":"n"}"""
         val response = assertIs<ServerManagementDecodeResult.Success>(ServerManagementMessageCodec.decode(text)).message
         assertEquals(7, assertIs<ServerManagementResponse.DatabaseHistory>(response).nextOffset)
         val encoded = ServerManagementMessageCodec.encode(ServerManagementRequest.DatabaseHistoryStart(
-            ManagementDatabaseBinding("world", "run"), HostHistoryFilter(fromEpochSecond = 1, fromNano = 123), "n"))
+            managementBinding(), HostHistoryFilter(fromEpochSecond = 1, fromNano = 123), "n"))
         assertTrue(encoded.contains("database_history_start"))
         assertTrue(encoded.contains("123"))
     }
@@ -299,6 +300,8 @@ class DatabaseHistoryTest {
 
 internal class HistoryManagementFixture : ManagementTransport {
     val client = ServerManagementClient()
+    val reference = postgresReference()
+    val binding = managementBinding(reference.status.state.binding.worldUuid).copy(database = reference.status.state.binding)
     lateinit var listener: ServerManagementListener
     val offsets = mutableListOf<Int>()
     @Volatile var ends = 0
@@ -323,7 +326,7 @@ internal class HistoryManagementFixture : ManagementTransport {
     override fun send(request: ServerManagementRequest): Boolean {
         when (request) {
             is ServerManagementRequest.DatabaseContextRequest -> listener.onMessage(ServerManagementResponse.DatabaseContext(true,
-                ManagementDatabaseBinding(UUID.randomUUID().toString(), UUID.randomUUID().toString()), nonce = request.nonce))
+                binding, nonce = request.nonce))
             is ServerManagementRequest.DatabaseHistoryStart -> {
                 starts++
                 if (starts > 1) secondStart.countDown()

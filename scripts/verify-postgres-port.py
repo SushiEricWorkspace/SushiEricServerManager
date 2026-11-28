@@ -8,22 +8,22 @@ import shutil
 import subprocess
 import time
 
-VERSION = "0.1.0-dev.20261127185712297.f6853b50-fa50-4f3c-b09f-cd70a1693862"
+VERSION = "0.1.0-dev.20261127210110513.86e5742c-78db-44fe-918d-5a69dfb7ca64"
 GROUP = "io.github.sushiericworkspace"
 HASHES = {
     "sushieric-datamodel-editor-dev": {
-        "jar": "3e55c80f8d3e5af7608536770cb615246e16b4cf202559465d73de54b698fca6",
-        "pom": "0e7f8348e7660d4970172fc065c69b9f089abd1ccc6087d33190efd4e1cf3dfd",
-        "module": "815f65b7850d01a9858b538614bd50b09b577caf81bfec4d61ec001d4222dd4d",
+        "jar": "a01715ad7a2353b95b382761f87496189be87b27447645675085c90b6cd32cc7",
+        "pom": "543b8997654f09b800d9d7defddabfb83575b4d52b1b53fb5dfe03451cb303a9",
+        "module": "d60dfa6d36aa97db913d7bc5133b4d1afb27f92b6cbd135275117c73da53e404",
     },
     "sushieric-datamodel-host-adapter-dev": {
-        "runtime.zip": "3a65192b686bdfcf2dd26ac122ac4861adecca97185e4b4adeb8d81f31a580c7",
-        "pom": "c215692fdc823eb2cb0d744bed35ba8e5202c0909e60457b7bdc0ec989afe3de",
+        "runtime.zip": "805e83aadcf88153315f822b1a0b89f3bad7766bf050db5d1dd2376cad45bbee",
+        "pom": "4ef589f743a0c9796c5c147ad2d32cf24a0064fb80c8ee9f376bab70aa628aec",
     },
     "sushieric-datamodel-mod-dev": {
-        "jar": "3e55c80f8d3e5af7608536770cb615246e16b4cf202559465d73de54b698fca6",
-        "pom": "8e9a508c03d10565e6febc57660b0cc34d82adc2ff9a0914b5e29be5a3f6a275",
-        "module": "b3cdfc0931ee8fe3c2a975fa62819b9b1d0186d4aa69ed0d4005aa5d6c3d4285",
+        "jar": "a01715ad7a2353b95b382761f87496189be87b27447645675085c90b6cd32cc7",
+        "pom": "3d6b4269d842ca03006d4ccc24a2d15d9eafd0ae23f84efd6865caa413641036",
+        "module": "a9e887c5b4cac42ad0bc0774155475f50357ece42f5213195aad630a4c33c953",
     },
 }
 

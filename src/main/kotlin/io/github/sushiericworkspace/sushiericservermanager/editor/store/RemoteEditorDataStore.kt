@@ -26,7 +26,7 @@ class RemoteEditorDataStore(
 ) : EditorDataStore {
     private val logger = LoggerFactory.getLogger(javaClass)
     private val configuredShopProducts = shopProducts
-    override val databaseReference get() = ssh.currentProfile?.databaseHistory?.postgres
+    override val databaseReference get() = ssh.currentProfile?.databaseHistory?.reference()
     private val hostProducts = lazy {
         ssh.currentProfile?.databaseHistory?.let { configuration ->
             val profile = requireNotNull(ssh.currentProfile)

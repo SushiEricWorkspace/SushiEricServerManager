@@ -32,7 +32,7 @@ class PostgresPortIntegrationTest {
     private val transports = mutableListOf<ShopTransport>()
 
     @BeforeAll fun start() {
-        require(work == Path.of("F:/codex-tmp/pg-manager-334"))
+        require(work in setOf(Path.of("F:/codex-tmp/pg-manager-334"), Path.of("F:/codex-tmp/pg-manager-334-mgmt")))
         run = Files.createTempDirectory(work, "pg-integration-").toRealPath()
         val forbidden = setOf(26335, 26336, 26345, 26346, 26350, 26351) + (25770..25779)
         port = generateSequence {

@@ -8,14 +8,12 @@ import io.github.sushiericworkspace.sushiericservermanager.communication.managem
 internal class SelectedShopTransport(ssh: SshManager, management: ServerManagementClient) : ShopTransport {
     private val selected = lazy {
         val profile = requireNotNull(ssh.currentProfile)
-        check(!management.isConnected || profile.databaseHistory?.postgres == null) {
-            "PG Managementの型付き接続契約は未接続です。旧DB契約では実行しません。"
-        }
-        if (management.isConnected || profile.databaseHistory == null) ManagementShopTransport(management)
+        if (management.isConnected) ManagementShopTransport(management,
+            reference = requireNotNull(profile.databaseHistory) { "Managementには承認済みv2 DB参照が必要です。" }.reference())
         else {
             val client = requireNotNull(ssh.sshClient)
             SshShopTransport({ check(ssh.sshClient === client); client },
-                profile.databaseHistory.reference(), profile.resolvedRemoteOperatingSystem())
+                requireNotNull(profile.databaseHistory).reference(), profile.resolvedRemoteOperatingSystem())
         }
     }
     override fun worldUuid() = selected.value.worldUuid()

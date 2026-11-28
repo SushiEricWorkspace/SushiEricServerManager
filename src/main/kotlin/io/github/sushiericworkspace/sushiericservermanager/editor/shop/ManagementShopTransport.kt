@@ -3,6 +3,7 @@ package io.github.sushiericworkspace.sushiericservermanager.editor.shop
 import io.github.sushiericworkspace.sushiericdatamodel.database.host.*
 import io.github.sushiericworkspace.sushiericservermanager.communication.management.*
 import javafx.application.Platform
+import io.github.sushiericworkspace.sushiericservermanager.communication.database.PostgresHostReference
 import java.util.UUID
 import java.util.concurrent.CompletableFuture
 import java.util.concurrent.TimeUnit
@@ -11,8 +12,10 @@ import java.util.concurrent.TimeUnit
 class ManagementShopTransport(
     private val client: ServerManagementClient,
     private val binding: () -> ManagementDatabaseBinding? = { null },
-    private val timeoutMillis: Long = 30_000
+    private val timeoutMillis: Long = 30_000,
+    private val reference: PostgresHostReference? = null
 ) : ShopTransport {
+    private val generation = client.connectionGeneration
     private var context: ManagementDatabaseBinding? = null
 
     override fun worldUuid(): String {
@@ -22,14 +25,19 @@ class ManagementShopTransport(
             (it as? ServerManagementResponse.DatabaseContext)?.takeIf { value -> value.nonce == nonce }
         }
         val current = requireNotNull(response.binding).also { require(response.success) }
+        current.validate(reference)
+        require(context == null || context == current) { "Managementのrunが変更されました。再接続してください。" }
         context = binding()?.also {
+            it.validate(reference)
             require(it.worldUuid == current.worldUuid && it.runId == current.runId &&
-                it.instanceId == current.instanceId && it.generationId == current.generationId)
+                it.instanceId == current.instanceId && it.generationId == current.generationId && it.database == current.database)
         } ?: current.also {
             require(it.instanceId == null && it.generationId == null) { "管理worldの所有bindingが必要です。" }
         }
         return current.worldUuid
     }
+
+    override fun databaseBinding() = context?.database ?: run { worldUuid(); requireNotNull(context).database }
 
     override fun execute(request: HostAdapterRequest): HostAdapterResponse {
         val fixed = requireNotNull(context) { "商品DBの接続先を確認してください。" }
@@ -37,7 +45,7 @@ class ManagementShopTransport(
         val nonce = UUID.randomUUID().toString()
         return await(ServerManagementRequest.DatabaseProductRequest(fixed, request, nonce)) {
             (it as? ServerManagementResponse.DatabaseProductResult)?.takeIf { value -> value.nonce == nonce }
-        }.response.also { require(it.requestId == request.requestId) }
+        }.response.also { require(it.requestId == request.requestId && it.version == 1) }
     }
 
     private fun <T> await(request: ServerManagementRequest, select: (ServerManagementResponse) -> T?): T {
@@ -51,8 +59,10 @@ class ManagementShopTransport(
         client.addMessageListener(messageListener)
         client.addStateListener(stateListener)
         try {
-            check(client.isConnected && client.send(request)) { "Management接続を利用できません。" }
-            return result.get(timeoutMillis, TimeUnit.MILLISECONDS)
+            check(client.connectionGeneration == generation && client.isConnected && client.send(request)) { "Management接続を利用できません。" }
+            return result.get(timeoutMillis, TimeUnit.MILLISECONDS).also {
+                check(client.isConnected && client.connectionGeneration == generation) { "商品DBの接続が終了しました。" }
+            }
         } finally {
             client.removeMessageListener(messageListener)
             client.removeStateListener(stateListener)

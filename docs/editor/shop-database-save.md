@@ -8,7 +8,7 @@
 
 Manager自身はJDBC接続・secret file読取を行いません。helperが固定保護設定とcurrent/bindingを検査します。URL/conninfo/追加Properties・別DB/role/passfileを要求へ注入できません。SFTPへの商品書戻しやDBコピーで失敗を迂回しません。
 
-通常SSHの商品経路は最初の要求でManagementか固定Hostに決め、同じ編集接続の途中では切り替えません。v2 profileで旧Management DB契約を使うことは拒否します。型付きManagementはMod #631、managedは.github #148/#64の確定成果へ後続接続します。
+通常SSHの商品経路は最初の要求でManagementか固定Hostに決め、同じ編集接続の途中では切り替えません。v2 profileで旧Management DB契約を使うことは拒否します。型付きManagementはMod #631のstorage v2へ接続し、profileの承認済みDB参照全体・worldとcontextのrunを固定します。保存待ちにも同じPostgresRunBindingを保持し、接続世代変更後に元transportから送信しません。managedは.github #148/#64の確定成果へ後続接続します。
 
 ## 要求と保存待ち
 
@@ -36,4 +36,4 @@ worldのないLocalEditorDataStoreは商品backupのID・在庫編集値・stock
 
 #243の画面固有の複合編集、ディレクトリ親要求の組立て、定義削除後の残存在庫行を含む競合処理は残件です。Local/SSHの基盤更新でこれらを完了扱いにしません。通常Host配置を設定する専用UIも追加していません。
 
-固定Host ZIP＋PGの試験は連続編集、価格のみ変更、応答喪失後のread-only照合、binding/接続設定の改変、正常保存前・ACL・PG容量失敗を確認します。unitでは元要求とbackup、世代変更、同ID/hash、stdin/EOF・timeout/切断を確認します。実SSH・macOS・Management/managed結合は後続です。
+固定Host ZIP＋PGの試験は連続編集、価格のみ変更、応答喪失後のread-only照合、binding/接続設定の改変、正常保存前・ACL・PG容量失敗を確認します。unitでは元要求とbackup、世代変更、同ID/hash、stdin/EOF・timeout/切断を確認します。Managementのcodec/vector・bindingと旧run拒否はunitで確認します。実ModとのWebSocket結合、実SSH・macOS・managed結合は後続です。

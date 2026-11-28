@@ -2,6 +2,7 @@ package io.github.sushiericworkspace.sushiericservermanager.communication.manage
 
 import io.github.sushiericworkspace.sushiericservermanager.communication.ssh.SshTunnel
 import io.github.sushiericworkspace.sushiericservermanager.communication.ssh.SshTunnelService
+import io.github.sushiericworkspace.sushiericservermanager.communication.management.codec.ServerManagementMessageCodec
 import net.schmizz.sshj.SSHClient
 import org.slf4j.LoggerFactory
 import java.time.Duration
@@ -29,6 +30,9 @@ class ServerManagementClient(
 
     private val messageListeners =
         CopyOnWriteArrayList<(ServerManagementResponse) -> Unit>()
+
+    private val databaseNonces = mutableSetOf<String>()
+    private val databaseReplies = mutableMapOf<String, String>()
 
     private var tunnel: SshTunnel? = null
     private var connection: ServerManagementConnection? = null
@@ -151,14 +155,14 @@ class ServerManagementClient(
      * 接続していない場合も安全に呼び出せます。
      */
     fun disconnect() {
+        connectionId = UUID.randomUUID()
+        synchronized(databaseNonces) { databaseNonces.clear(); databaseReplies.clear() }
         transport?.let {
             it.disconnect()
-            connectionId = UUID.randomUUID()
             transport = null
             updateState(ServerManagementState.Disconnected)
             return
         }
-        connectionId = UUID.randomUUID()
         if (state is ServerManagementState.Disconnected) {
             releaseResources()
             return
@@ -185,6 +189,7 @@ class ServerManagementClient(
 
     /**
      * メッセージを送信します。
+     * DB要求には接続内で再利用しないnonceが必要です。受付後に配送が失敗したnonceも再利用できません。
      *
      * @param request 送信するメッセージ。
      * @return 送信できた場合は`true`。
@@ -192,6 +197,25 @@ class ServerManagementClient(
     fun send(
         request: ServerManagementRequest
     ): Boolean {
+        val correlation = when (request) {
+            is ServerManagementRequest.DatabaseContextRequest -> request.nonce to "context"
+            is ServerManagementRequest.DatabaseHistoryStart -> request.nonce to "history"
+            is ServerManagementRequest.DatabaseHistoryPage -> request.nonce to "history"
+            is ServerManagementRequest.DatabaseHistoryEnd -> request.nonce to "history"
+            is ServerManagementRequest.DatabaseProductRequest -> request.nonce to "product"
+            is ServerManagementRequest.MoneyHistorySave -> request.nonce to "save"
+            else -> null
+        }
+        if (correlation != null) {
+            if (!isConnected || runCatching {
+                ServerManagementMessageCodec.encode(request)
+            }.isFailure) return false
+            synchronized(databaseNonces) {
+                val nonce = correlation.first ?: return false
+                if (!databaseNonces.add(nonce)) return false
+                databaseReplies[nonce] = correlation.second
+            }
+        }
         return transport?.send(request) ?: (connection?.send(request) == true)
     }
 
@@ -242,6 +266,19 @@ class ServerManagementClient(
 
         override fun onMessage(message: ServerManagementResponse) {
             if (id != connectionId) return
+            val correlation = when (message) {
+                is ServerManagementResponse.DatabaseContext -> message.nonce to ("context" to message.storageContractVersion)
+                is ServerManagementResponse.DatabaseHistory -> message.nonce to ("history" to message.storageContractVersion)
+                is ServerManagementResponse.DatabaseProductResult -> message.nonce to ("product" to message.storageContractVersion)
+                is ServerManagementResponse.MoneyHistorySaveResult -> message.nonce to ("save" to message.storageContractVersion)
+                else -> null
+            }
+            if (correlation != null) synchronized(databaseNonces) {
+                if (id != connectionId || !isConnected) return
+                val nonce = correlation.first ?: return
+                if (correlation.second.second != 2 || databaseReplies[nonce] != correlation.second.first) return
+                databaseReplies.remove(nonce)
+            }
             messageListeners.forEach { listener ->
                 if (id != connectionId) return@forEach
                 runCatching { listener(message) }

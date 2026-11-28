@@ -172,6 +172,7 @@ class HistoryLoadingViewTest {
         val reads = CopyOnWriteArrayList<String>()
         val memory = InMemoryEditorDataStore()
         val store = object : EditorDataStore by memory {
+            override val databaseReference = fake.reference
             override fun readText(relativePath: String): StoreResult<String> {
                 if (relativePath.contains("money_history")) reads += relativePath
                 return memory.readText(relativePath)

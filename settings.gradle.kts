@@ -36,6 +36,8 @@ dependencyResolutionManagement {
                     "sushieric-datamodel-editor-dev"
                 )
                 includeModule("io.github.sushiericworkspace", "sushieric-datamodel-host-adapter-dev")
+                if (providers.gradleProperty("postgresPortValidation").orNull == "true")
+                    includeModule("io.github.sushiericworkspace", "sushieric-datamodel-mod-dev")
             }
         }
         maven {

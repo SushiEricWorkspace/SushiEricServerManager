@@ -35,13 +35,13 @@ SFTPは既存YAML操作と非秘密current一件の観測だけに使用しま�
 
 プレイヤー一覧は履歴・既存ディレクトリ・usercacheを統合します。DBのplayers/profileだけに存在するUUIDの全件列挙は#242の残件です。
 
-## 後続の接続
+## Management接続
 
-通常Managementの型付きPG APIはMod #631待ちです。v2参照を設定したprofileでは、接続中Managementの旧DB契約をPG接続として使用せず、明示的な未接続エラーを返します。失敗からSSHへ自動迂回しません。managedのlayout/supervisor受入は.github #148/#64待ちです。通常Managerからdevelopmentへの依存はありません。
+通常ManagementはMod #631の型付きPG APIを使用します。DB要求・応答とbindingはstorageContractVersion=2を必須とし、未知・重複field、不正Unicode、旧版・版省略を拒否します。profileの承認済みPostgresRunBinding全体とworldを照合し、game_dirtyの観測がある場合はrunも照合します。初回contextのrunを検索元へ固定し、再接続前の応答とnonceの再利用を拒否します。v2参照のない旧profileを自動昇格しません。失敗からSSHへ自動迂回しません。managedのlayout/supervisor受入は.github #148/#64待ちです。通常Managerからdevelopmentへの依存はありません。
 
 ## 検証と正式化
 
-`scripts/verify-postgres-port.py`はWindowsのtask専用検証です。絶対repository・task作業領域・JDK25・固定Core座標を明示し、DataModel #143の不変task GAVの8 artifactをSHA-256照合します。Gradleの`postgresPortValidation`はEditor/Hostの利用側検証だけを許可し、正式包装/releaseを拒否します。Coreの宣言済みDataModelとtask Editorの版差は検証報告に残し、CoreのPG受入成功とは扱いません。
+`scripts/verify-postgres-port.py`はWindowsのtask専用検証です。絶対repository・task作業領域・JDK25・固定Core座標を明示し、DataModel #171の不変task GAVの8 artifactをSHA-256照合します。Gradleの`postgresPortValidation`はEditor/Hostの利用側検証だけを許可し、正式包装/releaseを拒否します。Coreの宣言済みDataModelとtask Editorの版差は検証報告に残し、CoreのPG受入成功とは扱いません。
 
 通常unitと非表示JavaFX/FXML、Local/SSHのframe/EOF・timeout・旧応答、固定Host ZIP/JDK21＋専用PG18.7で履歴と編集・注入拒否・容量失敗を検証します。PG試験は`postgresPortTest`を指定し、`--host-java-home`も必須です。RAM24GiB・C:100GiBの資源ゲートとtask専用port・正常停止確認を使用します。通常buildのRAMは16GiB以上です。
 
@@ -49,4 +49,4 @@ SFTPは既存YAML操作と非秘密current一件の観測だけに使用しま�
 
 Monocle 21.0.2はJavaFX 27で`_supportsExtendedWindows()`が不足し、Stage生成に失敗します。先行portは同梱Headlessの限定受入とし、window/native受入は保留します。既存WindowSizingTestの過大SceneでのHeadless描画例外とWindowSizePersistenceTestの画面種別遷移例外も、既存不具合/Headless制約として保留します。同梱Headlessの仮想画面は1000×1000のため、レイアウト試験の通常幅は利用可能画面に合わせ、最小850×600の条件を維持します。
 
-正式版はDataModel #144の正式GAV/hashと対応Coreの確定後に切り替えます。task版によるbuild成功を正式配布成功と混同しません。実SSHホスト、macOS、Management/managed結合、実画面の物理操作は後続受入です。
+正式版はDataModel #144の正式GAV/hashと対応Coreの確定後に切り替えます。task版によるbuild成功を正式配布成功と混同しません。ManagementはMod停止vector全件とWindows wire3 BOUNDの非秘密参照をManager試験で消費します。wire3の認証・起動profile・descriptor・supervisorはmanaged側の契約であり、通常WebSocketへ独自に持ち込みません。実ModとのWebSocket結合、実SSHホスト、macOS、managed結合、実画面の物理操作は後続受入です。
